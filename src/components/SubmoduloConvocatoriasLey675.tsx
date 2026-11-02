@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Calendar, Video, MapPin, CheckCircle2, ShieldCheck, Clock, Users, Building, AlertCircle } from 'lucide-react';
+import { Calendar, Video, MapPin, CheckCircle2, ShieldCheck, Clock, Users, Building, Plus, CheckSquare } from 'lucide-react';
 
 export interface SubmoduloConvocatoriasLey675Props {
   onShowToast?: (msg: string) => void;
@@ -12,8 +12,18 @@ export interface SubmoduloConvocatoriasLey675Props {
     lugarOSala: string;
     anticipacion: string;
     estado: string;
+    apartamentosConvocados?: string[];
   }) => void;
 }
+
+const CATALOGO_APARTAMENTOS = [
+  { unidad: 'Torre 1 - 101', propietario: 'Mateo Zuluaga', rol: 'Copropietario' },
+  { unidad: 'Torre 1 - 102', propietario: 'Carolina Herrera', rol: 'Copropietaria' },
+  { unidad: 'Torre 1 - 201', propietario: 'Andrés Gómez', rol: 'Consejero Suplente' },
+  { unidad: 'Torre 1 - 302', propietario: 'Esteban Ochoa', rol: 'Consejero Principal' },
+  { unidad: 'Torre 2 - 301', propietario: 'Dr. Mauricio Restrepo', rol: 'Presidente Consejo' },
+  { unidad: 'Torre 2 - 402', propietario: 'Laura Restrepo', rol: 'Comité Convivencia' },
+];
 
 export default function SubmoduloConvocatoriasLey675({ 
   onShowToast,
@@ -24,39 +34,71 @@ export default function SubmoduloConvocatoriasLey675({
   const [lugarOSala, setLugarOSala] = useState('Sala Videoconferencia WebRTC Urbix PH');
   const [tituloReunion, setTituloReunion] = useState('');
   const [fechaReunion, setFechaReunion] = useState('');
+  const [apartamentosSeleccionados, setApartamentosSeleccionados] = useState<string[]>([
+    'Torre 1 - 201',
+    'Torre 1 - 302',
+    'Torre 2 - 301'
+  ]);
+  const [nuevoAptoInput, setNuevoAptoInput] = useState('');
+  const [catalogoUnidades, setCatalogoUnidades] = useState(CATALOGO_APARTAMENTOS);
 
   const tiposDisponibles = [
     { 
       id: 'asamblea_ord', 
       label: 'Asamblea General Ordinaria (Ley 675)', 
-      desc: 'Requiere quórum reglamentario por coeficientes. Convocatoria formal con al menos 15 días calendario de anticipación (Art. 39).',
+      esGeneral: true,
+      desc: 'Citación universal a TODOS los propietarios de la unidad. Requiere quórum reglamentario por coeficientes (Art. 39).',
       ant: '15 días calendario'
     },
     { 
       id: 'asamblea_ext', 
       label: 'Asamblea General Extraordinaria', 
-      desc: 'Convocada para necesidades imprevistas, reformas o cuotas extraordinarias (Art. 40 Ley 675).',
+      esGeneral: true,
+      desc: 'Citación universal a TODOS los residentes/propietarios para necesidades imprevistas o cuotas extraordinarias (Art. 40).',
       ant: '8 días calendario'
     },
     { 
       id: 'consejo', 
       label: 'Consejo de Administración', 
-      desc: 'Reunión de consejeros principales y suplentes para ejecución presupuestal y directrices.',
-      ant: 'Citación formal'
+      esGeneral: false,
+      desc: 'Reunión exclusiva para los apartamentos o consejeros seleccionados por la Administración.',
+      ant: 'Citación formal selectiva'
     },
     { 
       id: 'convivencia', 
       label: 'Comité de Convivencia (Art. 58 Ley 675)', 
-      desc: 'Mecanismo voluntario para la solución de conflictos entre copropietarios o tenedores.',
+      esGeneral: false,
+      desc: 'Citación exclusiva a los apartamentos o partes involucradas seleccionadas por la Administración.',
       ant: 'Citación de partes'
     },
     { 
       id: 'tecnico', 
       label: 'Comité Técnico y de Obras', 
-      desc: 'Inspección técnica de fachadas, motobombas, ascensores y pólizas contractuales.',
+      esGeneral: false,
+      desc: 'Inspección técnica con apartamentos delegados e interventoría.',
       ant: 'Informativa'
     }
   ];
+
+  const tipoSeleccionado = tiposDisponibles.find(t => t.label === tipoReunion) || tiposDisponibles[0];
+
+  const toggleApartamento = (unidad: string) => {
+    setApartamentosSeleccionados(prev =>
+      prev.includes(unidad) ? prev.filter(u => u !== unidad) : [...prev, unidad]
+    );
+  };
+
+  const handleAgregarApto = () => {
+    const limpio = nuevoAptoInput.trim();
+    if (!limpio) return;
+    if (!catalogoUnidades.some(c => c.unidad.toLowerCase() === limpio.toLowerCase())) {
+      setCatalogoUnidades(prev => [...prev, { unidad: limpio, propietario: 'Propietario Acreditado', rol: 'Invitado' }]);
+    }
+    if (!apartamentosSeleccionados.includes(limpio)) {
+      setApartamentosSeleccionados(prev => [...prev, limpio]);
+    }
+    setNuevoAptoInput('');
+  };
 
   const handleModalidadChange = (nuevaModalidad: 'virtual' | 'presencial' | 'mixta') => {
     setModalidad(nuevaModalidad);
@@ -76,7 +118,10 @@ export default function SubmoduloConvocatoriasLey675({
       return;
     }
 
-    const selectedTipoObj = tiposDisponibles.find(t => t.label === tipoReunion);
+    if (!tipoSeleccionado.esGeneral && apartamentosSeleccionados.length === 0) {
+      onShowToast?.('⚠️ Selecciona al menos un apartamento para citar al Consejo / Comité.');
+      return;
+    }
 
     const nuevaConvocatoria = {
       id: `conv-${Date.now()}`,
@@ -85,22 +130,27 @@ export default function SubmoduloConvocatoriasLey675({
       fecha: fechaReunion,
       modalidad,
       lugarOSala,
-      anticipacion: selectedTipoObj ? selectedTipoObj.ant : 'Conforme a Ley 675',
-      estado: 'Convocada'
+      anticipacion: tipoSeleccionado.ant,
+      estado: 'Convocada',
+      apartamentosConvocados: tipoSeleccionado.esGeneral
+        ? ['TODOS LOS APARTAMENTOS (100% UNIDAD)']
+        : apartamentosSeleccionados
     };
 
     onConvocatoriaCreada?.(nuevaConvocatoria);
-    onShowToast?.(`📅 Convocatoria [${modalidad.toUpperCase()}] programada: "${tituloReunion}". Notificaciones y circulares enviadas.`);
+    onShowToast?.(
+      `📅 Convocatoria programada: "${tituloReunion}" (${
+        tipoSeleccionado.esGeneral
+          ? 'Todos los residentes de la unidad'
+          : `${apartamentosSeleccionados.length} apartamentos seleccionados`
+      }).`
+    );
     setTituloReunion('');
     setFechaReunion('');
   };
 
-  const tipoSeleccionado = tiposDisponibles.find(t => t.label === tipoReunion) || tiposDisponibles[0];
-
   return (
-    <div className="bg-[#0b0f17] border border-cyan-500/30 p-5 sm:p-6 rounded-3xl space-y-6 shadow-2xl font-sans text-slate-100 animate-fade-in">
-      
-      {/* Encabezado */}
+    <div className="bg-[#0b0f17] border border-cyan-500/30 p-5 sm:p-6 rounded-3xl space-y-5 shadow-2xl font-sans text-slate-100">
       <div className="border-b border-slate-800 pb-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -108,26 +158,25 @@ export default function SubmoduloConvocatoriasLey675({
               Ley 675 de 2001 Colombia
             </span>
             <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-              Validez Jurídica
+              Citación Oficial
             </span>
           </div>
           <span className="text-xs text-slate-400 flex items-center gap-1">
             <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" /> Sistema Notarial PH
           </span>
         </div>
-        <h2 className="text-lg sm:text-xl font-bold text-white mt-2 flex items-center gap-2">
-          <Calendar className="w-5 h-5 text-cyan-400" /> Programador de Convocatorias y Órganos
+        <h2 className="text-lg font-bold text-white mt-2 flex items-center gap-2">
+          <Calendar className="w-5 h-5 text-cyan-400" /> Programador de Convocatorias y Selección de Apartamentos
         </h2>
         <p className="text-xs text-slate-400 mt-1">
-          Cita formalmente a asambleas y comités cumpliendo los tiempos mínimos exigidos por ley y notificando a copropietarios.
+          Para Asamblea General se convoca a toda la copropiedad; para Consejo o Comité puedes escoger exactamente los apartamentos citados.
         </p>
       </div>
 
-      <form onSubmit={handleProgramar} className="space-y-5">
-        {/* Selector de Órgano / Tipo de Reunión */}
+      <form onSubmit={handleProgramar} className="space-y-4">
         <div className="space-y-1.5">
           <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-            <Users className="w-3.5 h-3.5 text-cyan-400" /> Tipo de Órgano Colegiado / Convocatoria
+            <Users className="w-3.5 h-3.5 text-cyan-400" /> Tipo de Órgano / Reunión
           </label>
           <select
             value={tipoReunion}
@@ -143,137 +192,146 @@ export default function SubmoduloConvocatoriasLey675({
           <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-xl text-xs text-slate-400 space-y-1">
             <p className="text-slate-300 font-medium">{tipoSeleccionado.desc}</p>
             <p className="text-cyan-400 font-mono text-[11px]">
-              ⏱ Término legal mínimo de citación: <strong className="text-white">{tipoSeleccionado.ant}</strong>
+              ⏱ Término legal: <strong className="text-white">{tipoSeleccionado.ant}</strong>
             </p>
           </div>
         </div>
 
-        {/* Modalidad de la Reunión */}
-        <div className="space-y-2">
-          <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-            <Building className="w-3.5 h-3.5 text-cyan-400" /> Modalidad de Realización
-          </label>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-            <button
-              type="button"
-              onClick={() => handleModalidadChange('virtual')}
-              className={`p-3 rounded-2xl border text-left transition flex items-center gap-2.5 cursor-pointer ${
-                modalidad === 'virtual'
-                  ? 'bg-cyan-500/15 border-cyan-400 text-white shadow-[0_0_15px_rgba(6,182,212,0.15)]'
-                  : 'bg-[#07090e] border-slate-800 text-slate-400 hover:border-slate-700'
-              }`}
-            >
-              <div className={`p-2 rounded-xl ${modalidad === 'virtual' ? 'bg-cyan-500 text-slate-950' : 'bg-slate-800 text-slate-400'}`}>
-                <Video className="w-4 h-4" />
-              </div>
+        {/* Selección de Apartamentos cuando es Consejo o Comité */}
+        {tipoSeleccionado.esGeneral ? (
+          <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
               <div>
-                <p className="text-xs font-bold">100% Virtual</p>
-                <p className="text-[10px] text-slate-400">WebRTC + Coeficientes</p>
+                <p className="text-xs font-bold text-white">Citación Universal: Todos los Residentes y Propietarios</p>
+                <p className="text-[11px] text-emerald-300/90">Conforme a la Ley 675, la Asamblea General habilita el ingreso de todas las unidades privadas de la copropiedad.</p>
               </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleModalidadChange('presencial')}
-              className={`p-3 rounded-2xl border text-left transition flex items-center gap-2.5 cursor-pointer ${
-                modalidad === 'presencial'
-                  ? 'bg-cyan-500/15 border-cyan-400 text-white shadow-[0_0_15px_rgba(6,182,212,0.15)]'
-                  : 'bg-[#07090e] border-slate-800 text-slate-400 hover:border-slate-700'
-              }`}
-            >
-              <div className={`p-2 rounded-xl ${modalidad === 'presencial' ? 'bg-cyan-500 text-slate-950' : 'bg-slate-800 text-slate-400'}`}>
-                <MapPin className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-xs font-bold">Presencial</p>
-                <p className="text-[10px] text-slate-400">En Salón Social</p>
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleModalidadChange('mixta')}
-              className={`p-3 rounded-2xl border text-left transition flex items-center gap-2.5 cursor-pointer ${
-                modalidad === 'mixta'
-                  ? 'bg-cyan-500/15 border-cyan-400 text-white shadow-[0_0_15px_rgba(6,182,212,0.15)]'
-                  : 'bg-[#07090e] border-slate-800 text-slate-400 hover:border-slate-700'
-              }`}
-            >
-              <div className={`p-2 rounded-xl ${modalidad === 'mixta' ? 'bg-cyan-500 text-slate-950' : 'bg-slate-800 text-slate-400'}`}>
-                <Calendar className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-xs font-bold">Mixta / Híbrida</p>
-                <p className="text-[10px] text-slate-400">Salón + Enlace Web</p>
-              </div>
-            </button>
+            </div>
+            <span className="text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-lg shrink-0">
+              100% Unidades
+            </span>
           </div>
+        ) : (
+          <div className="p-4 bg-[#07090e] border border-amber-500/40 rounded-2xl space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <span className="text-[10px] font-mono font-bold uppercase text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                  Selección Exclusiva de Administración
+                </span>
+                <h4 className="text-xs font-bold text-white mt-1">
+                  Escoge los Apartamentos / Consejeros Citados ({apartamentosSeleccionados.length} seleccionados)
+                </h4>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setApartamentosSeleccionados(catalogoUnidades.map(c => c.unidad))}
+                  className="text-[10px] font-mono text-cyan-400 hover:underline cursor-pointer px-2 py-1 bg-slate-900 rounded-lg border border-slate-800"
+                >
+                  Todos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setApartamentosSeleccionados([])}
+                  className="text-[10px] font-mono text-slate-400 hover:text-white cursor-pointer px-2 py-1 bg-slate-900 rounded-lg border border-slate-800"
+                >
+                  Limpiar
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
+              {catalogoUnidades.map((item) => {
+                const checked = apartamentosSeleccionados.includes(item.unidad);
+                return (
+                  <label
+                    key={item.unidad}
+                    onClick={() => toggleApartamento(item.unidad)}
+                    className={`p-2.5 rounded-xl border text-xs flex items-center gap-2.5 cursor-pointer transition select-none ${
+                      checked
+                        ? 'bg-amber-500/15 border-amber-400 text-white'
+                        : 'bg-[#0b0f17] border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {}}
+                      className="accent-amber-400 w-3.5 h-3.5 pointer-events-none"
+                    />
+                    <div className="truncate">
+                      <p className="font-bold text-white leading-tight">{item.unidad}</p>
+                      <p className="text-[10px] text-slate-400 truncate">{item.propietario} • {item.rol}</p>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <input
+                type="text"
+                value={nuevoAptoInput}
+                onChange={(e) => setNuevoAptoInput(e.target.value)}
+                placeholder="Agregar otro apto (ej. Torre 2 - 501)..."
+                className="flex-1 bg-[#0b0f17] border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-amber-400 font-mono"
+              />
+              <button
+                type="button"
+                onClick={handleAgregarApto}
+                className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" /> Incluir
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Modalidad */}
+        <div className="grid grid-cols-3 gap-2">
+          {(['virtual', 'presencial', 'mixta'] as const).map((mod) => (
+            <button
+              key={mod}
+              type="button"
+              onClick={() => handleModalidadChange(mod)}
+              className={`p-2.5 rounded-xl border text-xs font-bold capitalize transition cursor-pointer ${
+                modalidad === mod
+                  ? 'bg-cyan-500/15 border-cyan-400 text-cyan-300'
+                  : 'bg-[#07090e] border-slate-800 text-slate-400'
+              }`}
+            >
+              {mod === 'virtual' ? '🎥 100% Virtual' : mod === 'presencial' ? '📍 Presencial' : '🌐 Mixta'}
+            </button>
+          ))}
         </div>
 
-        {/* Lugar o Enlace de la Reunión */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-            {modalidad === 'presencial' ? (
-              <MapPin className="w-3.5 h-3.5 text-cyan-400" />
-            ) : (
-              <Video className="w-3.5 h-3.5 text-cyan-400" />
-            )}
-            {modalidad === 'presencial' ? 'Lugar Físico en la Copropiedad' : 'Sala o Enlace de Conexión'}
-          </label>
-          <input
-            type="text"
-            value={lugarOSala}
-            onChange={(e) => setLugarOSala(e.target.value)}
-            placeholder={modalidad === 'presencial' ? 'Ej. Salón Comunal Bloque B' : 'Ej. Sala Virtual Urbix PH Segura'}
-            className="w-full bg-[#07090e] border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-cyan-400 transition"
-          />
-        </div>
-
-        {/* Campos de Título y Fecha */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-              Título Oficial de la Convocatoria
-            </label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="text-[11px] font-bold text-slate-300 uppercase">Título de la Reunión</label>
             <input
               type="text"
-              placeholder="Ej. Asamblea Ordinaria Vigencia 2026"
+              placeholder="Ej. Sesión Consejo Presupuesto 2026"
               value={tituloReunion}
               onChange={(e) => setTituloReunion(e.target.value)}
-              className="w-full bg-[#07090e] border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-cyan-400 transition"
+              className="w-full mt-1 bg-[#07090e] border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-cyan-400"
             />
           </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5 text-cyan-400" /> Fecha y Hora de Inicio
-            </label>
+          <div>
+            <label className="text-[11px] font-bold text-slate-300 uppercase">Fecha y Hora</label>
             <input
               type="datetime-local"
               value={fechaReunion}
               onChange={(e) => setFechaReunion(e.target.value)}
-              className="w-full bg-[#07090e] border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-cyan-400 transition [color-scheme:dark]"
+              className="w-full mt-1 bg-[#07090e] border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-cyan-400"
             />
           </div>
         </div>
 
-        {/* Resumen de Garantías Legales */}
-        <div className="p-3.5 bg-cyan-950/20 border border-cyan-500/20 rounded-2xl flex items-start gap-3 text-xs">
-          <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <p className="font-bold text-cyan-300">Generación Automática de Documentos Conforme a Ley:</p>
-            <p className="text-slate-400 text-[11px] leading-relaxed">
-              Al emitir la convocatoria, se adjuntará el Orden del Día, los Estados Financieros dictaminados y el Formato de Poder Representativo con código de verificación.
-            </p>
-          </div>
-        </div>
-
-        {/* Botón de Emisión */}
         <button
           type="submit"
-          className="w-full py-3 bg-gradient-to-r from-cyan-500 to-teal-400 hover:from-cyan-400 hover:to-teal-300 text-slate-950 font-bold text-sm rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.3)] transition transform active:scale-[0.99] cursor-pointer flex items-center justify-center gap-2"
+          className="w-full bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black py-3 rounded-2xl text-xs uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,211,238,0.3)] flex items-center justify-center gap-2 cursor-pointer"
         >
-          <Calendar className="w-4 h-4" /> Emitir Convocatoria y Notificar a Copropietarios
+          <CheckSquare className="w-4 h-4" /> Emitir Citación Formal y Notificar Apartamentos
         </button>
       </form>
     </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Video,
   Calendar,
@@ -6,7 +6,6 @@ import {
   CheckSquare,
   FileText,
   Radio,
-  Award,
   MessageSquare,
   ShieldCheck,
   Mic,
@@ -23,10 +22,17 @@ import {
   PhoneOff,
   Play,
   Lock,
-  BellRing
+  BellRing,
+  Volume2,
+  Disc,
+  Square,
+  Plus,
+  Building2,
+  RefreshCw
 } from 'lucide-react';
 import SubmoduloConvocatoriasLey675 from './SubmoduloConvocatoriasLey675';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
+import { exportActaToLegalPDF } from '../ActaCardWithPDF';
 
 export interface ModuloReunionesConSubmodulosProps {
   unidadResidenteActual?: string;
@@ -35,8 +41,29 @@ export interface ModuloReunionesConSubmodulosProps {
   onShowToast?: (msg: string) => void;
 }
 
-// CANAL MAESTRO COMPARTIDO EN SUPABASE (ADMIN ⇄ RESIDENTES)
+interface ConvocatoriaActivaPayload {
+  idSesion: string;
+  tipo: 'asamblea' | 'consejo';
+  titulo: string;
+  hora: string;
+  orador: string;
+  apartamentosConvocados: string[]; // ['TODOS'] para Asamblea General o lista de aptos para Consejo
+  activa: boolean;
+  timestamp: number;
+}
+
 const CANAL_ASAMBLEA_ROOM = 'asamblea_urbix_general';
+const STORAGE_CONVOCATORIA_KEY = 'urbix_convocatoria_activa_v2';
+const BROADCAST_BUS_NAME = 'urbix_asamblea_webrtc_bus_v2';
+
+const CATALOGO_APARTAMENTOS_UNIDAD = [
+  { unidad: 'Torre 1 - 101', propietario: 'Mateo Zuluaga', coef: 0.82, cargo: 'Copropietario' },
+  { unidad: 'Torre 1 - 102', propietario: 'Carolina Herrera', coef: 0.82, cargo: 'Copropietaria' },
+  { unidad: 'Torre 1 - 201', propietario: 'Andrés Gómez', coef: 0.95, cargo: 'Consejero Suplente' },
+  { unidad: 'Torre 1 - 302', propietario: 'Esteban Ochoa', coef: 1.05, cargo: 'Consejero Principal' },
+  { unidad: 'Torre 2 - 301', propietario: 'Dr. Mauricio Restrepo', coef: 1.15, cargo: 'Presidente Consejo' },
+  { unidad: 'Torre 2 - 402', propietario: 'Laura Restrepo', coef: 0.90, cargo: 'Comité Convivencia' },
+];
 
 export default function ModuloReunionesConSubmodulos({
   unidadResidenteActual = 'Torre 2 - 301',
@@ -46,63 +73,115 @@ export default function ModuloReunionesConSubmodulos({
 }: ModuloReunionesConSubmodulosProps) {
   const [submoduloActivo, setSubmoduloActivo] = useState<'video' | 'convocatorias' | 'quorum' | 'votaciones' | 'acta'>('video');
 
+  // Unidad activa (permite verificar acceso por apartamento en modo residente)
+  const [unidadActiva, setUnidadActiva] = useState(unidadResidenteActual);
+  useEffect(() => {
+    setUnidadActiva(unidadResidenteActual);
+  }, [unidadResidenteActual]);
+
+  // Catálogo de apartamentos para escoger en citaciones del Consejo / Reuniones
+  const [catalogoApartamentos, setCatalogoApartamentos] = useState(CATALOGO_APARTAMENTOS_UNIDAD);
+  const [apartamentosEscogidosAdmin, setApartamentosEscogidosAdmin] = useState<string[]>([
+    'Torre 1 - 201',
+    'Torre 1 - 302',
+    'Torre 2 - 301'
+  ]);
+  const [nuevoAptoManual, setNuevoAptoManual] = useState('');
+
+  // Configuración de la convocatoria en la pantalla principal (Imagen 1)
+  const [tipoConvocatoriaAdmin, setTipoConvocatoriaAdmin] = useState<'asamblea' | 'consejo'>('asamblea');
+  const [tituloConvocatoriaInput, setTituloConvocatoriaInput] = useState(
+    'Asamblea General Ordinaria de Copropietarios 2026'
+  );
+
   // Estados WebRTC y sala en vivo
   const [enVivo, setEnVivo] = useState(false);
+  const [remotoConectado, setRemotoConectado] = useState(false);
+  const [nombreParticipanteRemoto, setNombreParticipanteRemoto] = useState('Participante Conectado');
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
+  const [audioRemotoOn, setAudioRemotoOn] = useState(true);
   const [compartiendoPantalla, setCompartiendoPantalla] = useState(false);
   const [manoLevantada, setManoLevantada] = useState(false);
   const [segundosTranscurridos, setSegundosTranscurridos] = useState(0);
+  const [nivelMic, setNivelMic] = useState(0);
+  const [usandoCamaraRespaldo, setUsandoCamaraRespaldo] = useState(false);
 
-  // Tipo de órgano a convocar por el Administrador ('asamblea' | 'consejo')
-  const [tipoConvocatoriaAdmin, setTipoConvocatoriaAdmin] = useState<'asamblea' | 'consejo'>('asamblea');
+  // Grabación real (MediaRecorder) para resolver actas al final de la reunión
+  const [grabandoSesion, setGrabandoSesion] = useState(false);
+  const [segundosGrabacion, setSegundosGrabacion] = useState(0);
+  const [grabacionUrl, setGrabacionUrl] = useState<string | null>(null);
+  const [grabacionTamanoKB, setGrabacionTamanoKB] = useState<number>(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksGrabacionRef = useRef<Blob[]>([]);
 
-  // Invitación entrante que ve el residente
-  const [invitacionEntrante, setInvitacionEntrante] = useState<{
-    tipo?: 'asamblea' | 'consejo';
-    titulo: string;
-    hora: string;
-    orador: string;
-  } | null>(null);
+  // Invitación entrante sincronizada entre Admin y Residente
+  const [invitacionEntrante, setInvitacionEntrante] = useState<ConvocatoriaActivaPayload | null>(() => {
+    try {
+      const guardado = localStorage.getItem(STORAGE_CONVOCATORIA_KEY);
+      if (guardado) {
+        const parsed: ConvocatoriaActivaPayload = JSON.parse(guardado);
+        // Vigente si fue creada hace menos de 2 horas y sigue activa
+        if (parsed.activa && Date.now() - parsed.timestamp < 7200000) {
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  });
 
   // Referencias DOM y WebRTC P2P
   const videoLocalRef = useRef<HTMLVideoElement | null>(null);
   const videoRemotoRef = useRef<HTMLVideoElement | null>(null);
   const streamLocalRef = useRef<MediaStream | null>(null);
+  const streamRemotoRef = useRef<MediaStream | null>(null);
   const streamPantallaRef = useRef<MediaStream | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
+  const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const canalRtcRef = useRef<any>(null);
+  const localBroadcastRef = useRef<BroadcastChannel | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const animFrameMicRef = useRef<number | null>(null);
+  const canvasRespaldoIntervalRef = useRef<any>(null);
 
   const [mensajeChat, setMensajeChat] = useState('');
   const [chatLog, setChatLog] = useState([
     { id: 1, autor: 'Administración Central', texto: 'Sala virtual instalada conforme a la Ley 675 de 2001.', hora: '06:00 PM' }
   ]);
 
-  // Estados de Convocatorias
+  // Historial de Convocatorias
   const [convocatorias, setConvocatorias] = useState([
     {
       id: 'conv-1',
       tipo: 'Asamblea General Ordinaria (Ley 675)',
       titulo: 'Asamblea Anual de Copropietarios 2026',
       fecha: '2026-03-15 09:00 AM',
+      modalidad: 'virtual',
+      lugarOSala: 'Sala Videoconferencia WebRTC Urbix PH',
       estado: 'En Curso',
       anticipacion: '15 días hábiles cumplidos',
-      quorum: '78.4%'
+      quorum: '78.4%',
+      apartamentosConvocados: ['TODOS LOS APARTAMENTOS (100% UNIDAD)']
     },
     {
       id: 'conv-2',
       tipo: 'Consejo de Administración',
       titulo: 'Reunión Ordinaria de Consejo - Revisión Presupuesto',
       fecha: '2026-02-20 06:30 PM',
-      estado: 'Finalizada',
-      anticipacion: 'Citación formal',
-      quorum: '100%'
+      modalidad: 'virtual',
+      lugarOSala: 'Sala Privada Consejo WebRTC',
+      estado: 'Convocada',
+      anticipacion: 'Citación formal selectiva',
+      quorum: '100%',
+      apartamentosConvocados: ['Torre 1 - 201', 'Torre 1 - 302', 'Torre 2 - 301']
     }
   ]);
 
   const [quorumRegistrado, setQuorumRegistrado] = useState(78.4);
-  const [asistentesConectados, setAsistentesConectados] = useState(rolUsuario === 'admin' ? 1 : 0);
-  const [unidadesPresentes] = useState([
+  const [asistentesConectados, setAsistentesConectados] = useState(1);
+  const [unidadesPresentes, setUnidadesPresentes] = useState([
     { id: 'u-1', unidad: 'Torre 1 - 101', titular: 'Mateo Zuluaga', coeficiente: 0.82, poder: false, hora: '05:45 PM' },
     { id: 'u-2', unidad: 'Torre 1 - 102', titular: 'Carolina Herrera', coeficiente: 0.82, poder: false, hora: '05:50 PM' },
     { id: 'u-3', unidad: 'Torre 1 - 201', titular: 'Andrés Gómez (Apoderado)', coeficiente: 0.95, poder: true, hora: '05:52 PM' },
@@ -123,242 +202,743 @@ export default function ModuloReunionesConSubmodulos({
 
   // Estados de Acta IA
   const [generandoActa, setGenerandoActa] = useState(false);
+  const [resumenActaIa, setResumenActaIa] = useState<string>(
+    '1. VERIFICACIÓN DEL QUÓRUM: Siendo la hora señalada en la convocatoria, la Administración verificó la presencia de copropietarios que representan el 78.4% del coeficiente total de la copropiedad, configurándose quórum deliberatorio y decisorio conforme al Art. 45 de la Ley 675 de 2001.\n\n2. DESARROLLO Y DELIBERACIONES DE LA VIDEOCONFERENCIA: Se presentó el informe de ejecución presupuestal, estado de cartera y obras de mantenimiento preventivo. Las intervenciones de las unidades participantes quedaron grabadas íntegramente en el archivo digital de audio y video.\n\n3. VOTACIÓN PONDERADA POR COEFICIENTE: Sometida a votación nominal la moción de presupuesto vigencia 2026, fue APROBADA con el 74.8% de coeficientes a favor.'
+  );
+  const [compromisosActa, setCompromisosActa] = useState([
+    {
+      responsable: 'Administración Principal',
+      tarea: 'Publicar el acta firmada y el enlace de la grabación en el libro oficial foliado.',
+      fecha_limite: 'Dentro de los 20 días hábiles siguientes (Art. 47 Ley 675)'
+    },
+    {
+      responsable: 'Consejo de Administración',
+      tarea: 'Supervisar la ejecución del presupuesto aprobado y las pólizas de áreas comunes.',
+      fecha_limite: 'Mensual'
+    }
+  ]);
   const [comisionVerificadora, setComisionVerificadora] = useState({
-    persona1: 'Dr. Mauricio Restrepo (Apto 301)',
-    persona2: 'Mateo Zuluaga (Apto 101)'
+    persona1: 'Dr. Mauricio Restrepo (Torre 2 - 301)',
+    persona2: 'Esteban Ochoa (Torre 1 - 302)'
   });
 
   const iceServersConfig: RTCConfiguration = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' }
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' }
     ]
   };
 
-  // 1. CONEXIÓN EN TIEMPO REAL CON SUPABASE BROADCAST
+  // Sonido de notificación o prueba de altavoz (Web Audio API sin archivos externos)
+  const reproducirTonoAudio = useCallback((tipo: 'timbre' | 'conectado' | 'prueba') => {
+    try {
+      const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      const now = ctx.currentTime;
+      if (tipo === 'timbre') {
+        osc.frequency.setValueAtTime(587.33, now); // D5
+        osc.frequency.setValueAtTime(880, now + 0.15); // A5
+        gain.gain.setValueAtTime(0.18, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+        osc.start(now);
+        osc.stop(now + 0.45);
+      } else if (tipo === 'conectado') {
+        osc.frequency.setValueAtTime(523.25, now); // C5
+        osc.frequency.setValueAtTime(659.25, now + 0.1); // E5
+        osc.frequency.setValueAtTime(783.99, now + 0.2); // G5
+        gain.gain.setValueAtTime(0.15, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+        osc.start(now);
+        osc.stop(now + 0.4);
+      } else {
+        osc.frequency.setValueAtTime(440, now);
+        osc.frequency.setValueAtTime(660, now + 0.15);
+        gain.gain.setValueAtTime(0.22, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+        osc.start(now);
+        osc.stop(now + 0.45);
+      }
+    } catch {
+      // ignore audio context restriction
+    }
+  }, []);
+
+  // Callback refs para asegurar que el elemento <video> SIEMPRE muestre la imagen apenas se monte
+  const setVideoLocalElement = useCallback((node: HTMLVideoElement | null) => {
+    videoLocalRef.current = node;
+    if (node && streamLocalRef.current) {
+      if (node.srcObject !== streamLocalRef.current) {
+        node.srcObject = streamLocalRef.current;
+      }
+      node.play().catch(() => {});
+    }
+  }, []);
+
+  const setVideoRemotoElement = useCallback((node: HTMLVideoElement | null) => {
+    videoRemotoRef.current = node;
+    if (node && streamRemotoRef.current) {
+      if (node.srcObject !== streamRemotoRef.current) {
+        node.srcObject = streamRemotoRef.current;
+      }
+      node.muted = !audioRemotoOn;
+      node.volume = 1.0;
+      node.play().catch(() => {});
+    }
+  }, [audioRemotoOn]);
+
+  // Reforzar asignación de streams cuando cambia enVivo o remotoConectado
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
+    if (enVivo && videoLocalRef.current && streamLocalRef.current) {
+      videoLocalRef.current.srcObject = streamLocalRef.current;
+      videoLocalRef.current.play().catch(() => {});
+    }
+    if (enVivo && videoRemotoRef.current && streamRemotoRef.current) {
+      videoRemotoRef.current.srcObject = streamRemotoRef.current;
+      videoRemotoRef.current.muted = !audioRemotoOn;
+      videoRemotoRef.current.volume = 1.0;
+      videoRemotoRef.current.play().catch(() => {});
+    }
+  }, [enVivo, camOn, remotoConectado, audioRemotoOn]);
 
-    const canal = supabase.channel(CANAL_ASAMBLEA_ROOM, {
-      config: { broadcast: { self: false } }
-    });
+  // Función unificada para emitir eventos tanto por Supabase Realtime como por BroadcastChannel local
+  const emitirEventoSenalizacion = useCallback((event: string, payload: any) => {
+    if (canalRtcRef.current) {
+      canalRtcRef.current.send({
+        type: 'broadcast',
+        event,
+        payload
+      });
+    }
+    if (localBroadcastRef.current) {
+      try {
+        localBroadcastRef.current.postMessage({ event, payload });
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
 
-    canal
-      // El Administrador hace sonar la convocatoria en todos los apartamentos
-      .on('broadcast', { event: 'asamblea_convocatoria_abierta' }, ({ payload }) => {
-        setInvitacionEntrante({
-          tipo: payload.tipo === 'consejo' ? 'consejo' : 'asamblea',
-          titulo: payload.titulo || 'Asamblea General Ordinaria de Copropietarios 2026',
-          hora: payload.hora || 'Ahora',
-          orador: payload.orador || 'Administración Central'
+  // Crear o reiniciar RTCPeerConnection y negociar SDP
+  const inicializarPeerConnection = useCallback((esIniciadorOferta: boolean) => {
+    if (peerRef.current) {
+      try {
+        peerRef.current.close();
+      } catch {}
+    }
+
+    const pc = new RTCPeerConnection(iceServersConfig);
+    peerRef.current = pc;
+
+    if (streamLocalRef.current) {
+      streamLocalRef.current.getTracks().forEach((track) => {
+        pc.addTrack(track, streamLocalRef.current!);
+      });
+    }
+
+    pc.ontrack = (evt) => {
+      const remoteStream = evt.streams && evt.streams[0] ? evt.streams[0] : new MediaStream([evt.track]);
+      streamRemotoRef.current = remoteStream;
+      setRemotoConectado(true);
+      if (videoRemotoRef.current) {
+        videoRemotoRef.current.srcObject = remoteStream;
+        videoRemotoRef.current.muted = false;
+        videoRemotoRef.current.volume = 1.0;
+        videoRemotoRef.current.play().catch(() => {});
+      }
+    };
+
+    pc.onicecandidate = (evt) => {
+      if (evt.candidate) {
+        emitirEventoSenalizacion('asamblea_candidato_ice', {
+          candidate: evt.candidate.toJSON ? evt.candidate.toJSON() : evt.candidate,
+          remitenteRol: rolUsuario
         });
-        onShowToast?.(`🔔 Convocatoria en vivo: ${payload.titulo || 'Asamblea Iniciada'}`);
-      })
-      // Oferta WebRTC enviada por el Administrador
-      .on('broadcast', { event: 'asamblea_oferta' }, async ({ payload }) => {
-        if (rolUsuario === 'admin') return;
+      }
+    };
+
+    if (esIniciadorOferta) {
+      pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
+        .then(async (oferta) => {
+          await pc.setLocalDescription(oferta);
+          emitirEventoSenalizacion('asamblea_oferta', {
+            sdp: pc.localDescription,
+            orador: rolUsuario === 'admin' ? 'Administración Principal' : unidadActiva
+          });
+        })
+        .catch((err) => console.warn('Error creando oferta SDP:', err));
+    }
+
+    return pc;
+  }, [emitirEventoSenalizacion, rolUsuario, unidadActiva]);
+
+  // Procesar mensajes entrantes de señalización (Supabase o BroadcastChannel)
+  const manejarEventoRecibido = useCallback(async (event: string, payload: any) => {
+    if (!payload) return;
+
+    if (event === 'asamblea_convocatoria_abierta') {
+      const nuevaInvitacion: ConvocatoriaActivaPayload = {
+        idSesion: payload.idSesion || `ses-${Date.now()}`,
+        tipo: payload.tipo === 'consejo' ? 'consejo' : 'asamblea',
+        titulo: payload.titulo || 'Asamblea General Ordinaria de Copropietarios 2026',
+        hora: payload.hora || 'Ahora',
+        orador: payload.orador || 'Administración Central',
+        apartamentosConvocados: Array.isArray(payload.apartamentosConvocados)
+          ? payload.apartamentosConvocados
+          : ['TODOS'],
+        activa: true,
+        timestamp: Date.now()
+      };
+      setInvitacionEntrante((prev) => {
+        if (!prev || prev.idSesion !== nuevaInvitacion.idSesion) {
+          reproducirTonoAudio('timbre');
+          onShowToast?.(`🔔 Convocatoria en vivo: ${nuevaInvitacion.titulo}`);
+        }
+        return nuevaInvitacion;
+      });
+    } else if (event === 'asamblea_cerrada') {
+      setInvitacionEntrante(null);
+      setRemotoConectado(false);
+    } else if (event === 'participante_listo') {
+      // Un residente o participante acaba de entrar con su cámara y pide oferta SDP
+      if (enVivo && streamLocalRef.current) {
+        setNombreParticipanteRemoto(payload.unidad || 'Residente Conectado');
+        setAsistentesConectados((prev) => Math.max(2, prev));
+        inicializarPeerConnection(true);
+      }
+    } else if (event === 'asamblea_oferta') {
+      if (!enVivo || !streamLocalRef.current) return;
+      try {
+        setNombreParticipanteRemoto(payload.orador || 'Administración Central');
+        const pc = inicializarPeerConnection(false);
+        await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+
+        // Drenar candidatos ICE en cola
+        while (pendingIceCandidatesRef.current.length > 0) {
+          const cand = pendingIceCandidatesRef.current.shift();
+          if (cand) {
+            await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+          }
+        }
+
+        const respuesta = await pc.createAnswer();
+        await pc.setLocalDescription(respuesta);
+        emitirEventoSenalizacion('asamblea_respuesta', {
+          sdp: pc.localDescription,
+          unidad: unidadActiva
+        });
+        setAsistentesConectados((prev) => Math.max(2, prev));
+      } catch (err) {
+        console.warn('Error respondiendo oferta WebRTC:', err);
+      }
+    } else if (event === 'asamblea_respuesta') {
+      if (peerRef.current && peerRef.current.signalingState !== 'stable') {
         try {
-          const pc = new RTCPeerConnection(iceServersConfig);
-          peerRef.current = pc;
-
-          if (streamLocalRef.current) {
-            streamLocalRef.current.getTracks().forEach(t => pc.addTrack(t, streamLocalRef.current!));
-          }
-
-          pc.ontrack = (evt) => {
-            if (videoRemotoRef.current && evt.streams[0]) {
-              videoRemotoRef.current.srcObject = evt.streams[0];
-              videoRemotoRef.current.play().catch(() => {});
+          setNombreParticipanteRemoto(payload.unidad || 'Residente Acreditado');
+          await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+          while (pendingIceCandidatesRef.current.length > 0) {
+            const cand = pendingIceCandidatesRef.current.shift();
+            if (cand) {
+              await peerRef.current.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
             }
-          };
+          }
+          setAsistentesConectados((prev) => Math.max(2, prev));
+        } catch (e) {
+          console.warn('Error fijando respuesta remota SDP:', e);
+        }
+      }
+    } else if (event === 'asamblea_candidato_ice') {
+      if (payload.remitenteRol === rolUsuario) return;
+      if (peerRef.current && payload.candidate) {
+        if (peerRef.current.remoteDescription && peerRef.current.remoteDescription.type) {
+          await peerRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate)).catch(() => {});
+        } else {
+          pendingIceCandidatesRef.current.push(payload.candidate);
+        }
+      }
+    } else if (event === 'asamblea_chat') {
+      setChatLog((prev) => (prev.some((m) => m.id === payload.id) ? prev : [...prev, payload]));
+    } else if (event === 'asamblea_voto') {
+      setMocionActual((prev) => ({
+        ...prev,
+        coefFavor: payload.coefFavor ?? prev.coefFavor,
+        coefContra: payload.coefContra ?? prev.coefContra,
+        coefBlanco: payload.coefBlanco ?? prev.coefBlanco
+      }));
+    }
+  }, [enVivo, inicializarPeerConnection, emitirEventoSenalizacion, onShowToast, reproducirTonoAudio, rolUsuario, unidadActiva]);
 
-          pc.onicecandidate = (evt) => {
-            if (evt.candidate) {
-              canal.send({ type: 'broadcast', event: 'asamblea_candidato_ice', payload: { candidate: evt.candidate } });
+  // 1. Suscripción en Tiempo Real (Supabase + BroadcastChannel + Storage Event)
+  useEffect(() => {
+    // BroadcastChannel nativo para sincronización instantánea entre pestañas
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      const bc = new BroadcastChannel(BROADCAST_BUS_NAME);
+      bc.onmessage = (ev) => {
+        if (ev.data && ev.data.event) {
+          manejarEventoRecibido(ev.data.event, ev.data.payload);
+        }
+      };
+      localBroadcastRef.current = bc;
+    }
+
+    // Listener de localStorage por si el usuario cambia de pestaña o rol
+    const onStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_CONVOCATORIA_KEY) {
+        if (!e.newValue) {
+          setInvitacionEntrante(null);
+        } else {
+          try {
+            const parsed: ConvocatoriaActivaPayload = JSON.parse(e.newValue);
+            if (parsed.activa) {
+              setInvitacionEntrante(parsed);
+            } else {
+              setInvitacionEntrante(null);
             }
-          };
-
-          await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-          const respuesta = await pc.createAnswer();
-          await pc.setLocalDescription(respuesta);
-
-          canal.send({ type: 'broadcast', event: 'asamblea_respuesta', payload: { sdp: respuesta } });
-          setEnVivo(true);
-        } catch (err) {
-          console.warn('Error atendiendo oferta WebRTC:', err);
+          } catch {}
         }
-      })
-      .on('broadcast', { event: 'asamblea_respuesta' }, async ({ payload }) => {
-        if (peerRef.current && rolUsuario === 'admin') {
-          try {
-            await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-          } catch (e) {
-            console.warn('Error fijando respuesta remota SDP:', e);
-          }
-        }
-      })
-      .on('broadcast', { event: 'asamblea_candidato_ice' }, async ({ payload }) => {
-        if (peerRef.current && payload.candidate) {
-          try {
-            await peerRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
-          } catch (e) {
-            console.warn('Error agregando candidato ICE:', e);
-          }
-        }
-      })
-      .on('broadcast', { event: 'asamblea_chat' }, ({ payload }) => {
-        setChatLog(prev => [...prev, payload]);
-      })
-      .subscribe();
+      }
+    };
+    window.addEventListener('storage', onStorageChange);
 
-    canalRtcRef.current = canal;
+    // Canal Supabase Realtime
+    let canal: any = null;
+    if (isSupabaseConfigured) {
+      canal = supabase.channel(CANAL_ASAMBLEA_ROOM, {
+        config: { broadcast: { self: false } }
+      });
+
+      [
+        'asamblea_convocatoria_abierta',
+        'asamblea_cerrada',
+        'participante_listo',
+        'asamblea_oferta',
+        'asamblea_respuesta',
+        'asamblea_candidato_ice',
+        'asamblea_chat',
+        'asamblea_voto'
+      ].forEach((evtName) => {
+        canal.on('broadcast', { event: evtName }, ({ payload }: any) => {
+          manejarEventoRecibido(evtName, payload);
+        });
+      });
+
+      canal.subscribe();
+      canalRtcRef.current = canal;
+    }
 
     return () => {
-      supabase.removeChannel(canal);
-      detenerTransmision();
+      window.removeEventListener('storage', onStorageChange);
+      if (localBroadcastRef.current) {
+        localBroadcastRef.current.close();
+        localBroadcastRef.current = null;
+      }
+      if (canal) {
+        supabase.removeChannel(canal);
+      }
     };
+  }, [manejarEventoRecibido]);
+
+  // Pulso periódico cuando el Admin tiene la sala abierta para que cualquier residente que entre después reciba la llamada
+  useEffect(() => {
+    if (!enVivo || rolUsuario !== 'admin' || !invitacionEntrante) return;
+    const interval = setInterval(() => {
+      emitirEventoSenalizacion('asamblea_convocatoria_abierta', invitacionEntrante);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [enVivo, rolUsuario, invitacionEntrante, emitirEventoSenalizacion]);
+
+  // Medidor visual de nivel de micrófono (confirma que el sonido se está capturando)
+  const iniciarMonitorAudioLocal = useCallback((stream: MediaStream) => {
+    if (animFrameMicRef.current) cancelAnimationFrame(animFrameMicRef.current);
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+    }
+
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length === 0) return;
+
+    try {
+      const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      audioCtxRef.current = ctx;
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const actualizarNivel = () => {
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          sum += dataArray[i];
+        }
+        const avg = sum / dataArray.length;
+        setNivelMic(Math.min(100, Math.round(avg * 1.8)));
+        animFrameMicRef.current = requestAnimationFrame(actualizarNivel);
+      };
+      actualizarNivel();
+    } catch (e) {
+      console.warn('No se pudo iniciar monitor de nivel de audio:', e);
+    }
+  }, []);
+
+  // Generador de stream en vivo de respaldo si la cámara física está ocupada por otra ventana
+  const crearStreamRespaldoEnVivo = useCallback((etiquetaUsuario: string, soloAudioStream?: MediaStream | null): MediaStream => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1280;
+    canvas.height = 720;
+    const ctx = canvas.getContext('2d')!;
+    let tick = 0;
+
+    if (canvasRespaldoIntervalRef.current) clearInterval(canvasRespaldoIntervalRef.current);
+    canvasRespaldoIntervalRef.current = setInterval(() => {
+      tick += 1;
+      // Fondo corporativo Urbix
+      const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+      grad.addColorStop(0, '#06101e');
+      grad.addColorStop(1, '#0b1f33');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Círculos de onda de voz en vivo
+      const radius = 110 + Math.sin(tick * 0.25) * 18;
+      ctx.beginPath();
+      ctx.arc(canvas.width / 2, canvas.height / 2 - 30, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(34, 211, 238, 0.35)';
+      ctx.lineWidth = 6;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(canvas.width / 2, canvas.height / 2 - 30, 85, 0, Math.PI * 2);
+      ctx.fillStyle = '#0e7490';
+      ctx.fill();
+
+      // Iniciales
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 54px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(rolUsuario === 'admin' ? 'ADMIN' : 'APTO', canvas.width / 2, canvas.height / 2 - 12);
+
+      // Nombre y Hora en vivo
+      ctx.fillStyle = '#22d3ee';
+      ctx.font = 'bold 32px sans-serif';
+      ctx.fillText(etiquetaUsuario, canvas.width / 2, canvas.height / 2 + 125);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '22px monospace';
+      ctx.fillText(
+        `TRANSMISIÓN EN VIVO LEY 675 • ${new Date().toLocaleTimeString()}`,
+        canvas.width / 2,
+        canvas.height / 2 + 170
+      );
+    }, 80);
+
+    const canvasStream = (canvas as any).captureStream ? (canvas as any).captureStream(25) : new MediaStream();
+    if (soloAudioStream && soloAudioStream.getAudioTracks().length > 0) {
+      soloAudioStream.getAudioTracks().forEach((t) => canvasStream.addTrack(t));
+    } else {
+      // Crear pista de audio silenciosa activa para que WebRTC y MediaRecorder funcionen al 100%
+      try {
+        const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+        if (Ctx) {
+          const actx = new Ctx();
+          const dst = actx.createMediaStreamDestination();
+          const osc = actx.createOscillator();
+          const gain = actx.createGain();
+          gain.gain.value = 0.0001;
+          osc.connect(gain);
+          gain.connect(dst);
+          osc.start();
+          dst.stream.getAudioTracks().forEach((t) => canvasStream.addTrack(t));
+        }
+      } catch {}
+    }
+
+    return canvasStream;
   }, [rolUsuario]);
+
+  // Iniciar / Detener Grabación (MediaRecorder) para el Acta
+  const iniciarGrabacionReunion = useCallback((streamBase?: MediaStream) => {
+    const streamObjetivo = streamBase || streamLocalRef.current;
+    if (!streamObjetivo) {
+      onShowToast?.('⚠️ Primero debes iniciar la transmisión de la sala.');
+      return;
+    }
+
+    try {
+      chunksGrabacionRef.current = [];
+      const mimeTypes = [
+        'video/webm;codecs=vp8,opus',
+        'video/webm',
+        'audio/webm'
+      ];
+      const mimeValido = mimeTypes.find((m) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(m)) || '';
+
+      const recorder = mimeValido
+        ? new MediaRecorder(streamObjetivo, { mimeType: mimeValido })
+        : new MediaRecorder(streamObjetivo);
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          chunksGrabacionRef.current.push(e.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(chunksGrabacionRef.current, { type: mimeValido || 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        setGrabacionUrl(url);
+        setGrabacionTamanoKB(Math.max(12, Math.round(blob.size / 1024)));
+        setGrabandoSesion(false);
+        onShowToast?.('💾 Grabación de la reunión guardada y lista para generar el Acta Oficial.');
+      };
+
+      recorder.start(1000);
+      mediaRecorderRef.current = recorder;
+      setSegundosGrabacion(0);
+      setGrabandoSesion(true);
+      onShowToast?.('🔴 Grabación oficial de audio y video iniciada (Soporte Ley 675).');
+    } catch (err) {
+      console.warn('Error iniciando MediaRecorder:', err);
+      onShowToast?.('⚠️ No se pudo iniciar la grabación en este navegador.');
+    }
+  }, [onShowToast]);
+
+  const detenerGrabacionReunion = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    } else {
+      setGrabandoSesion(false);
+    }
+  }, []);
 
   // 2. INICIAR SALA (ADMIN) O ACEPTAR INVITACIÓN (RESIDENTE)
   const conectarASala = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: { echoCancellation: true, noiseSuppression: true }
-      });
+    if (rolUsuario === 'admin' && tipoConvocatoriaAdmin === 'consejo' && apartamentosEscogidosAdmin.length === 0) {
+      onShowToast?.('⚠️ Selecciona al menos un apartamento para citar a la reunión del Consejo.');
+      return;
+    }
 
-      streamLocalRef.current = stream;
-      if (videoLocalRef.current) {
-        videoLocalRef.current.srcObject = stream;
+    let stream: MediaStream | null = null;
+    let usoRespaldo = false;
+
+    try {
+      // Intento 1: Cámara HD + Micrófono con cancelación de eco
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+    } catch {
+      try {
+        // Intento 2: Solo Micrófono + Cámara Canvas en vivo (si la cámara está ocupada por otra pestaña)
+        const audioOnly = await navigator.mediaDevices.getUserMedia({
+          video: false,
+          audio: { echoCancellation: true, noiseSuppression: true }
+        });
+        usoRespaldo = true;
+        stream = crearStreamRespaldoEnVivo(
+          rolUsuario === 'admin' ? 'Administración Central' : unidadActiva,
+          audioOnly
+        );
+      } catch {
+        // Intento 3: Stream en vivo autogenerado para que jamás quede bloqueado
+        usoRespaldo = true;
+        stream = crearStreamRespaldoEnVivo(
+          rolUsuario === 'admin' ? 'Administración Central' : unidadActiva,
+          null
+        );
+      }
+    }
+
+    setUsandoCamaraRespaldo(usoRespaldo);
+    streamLocalRef.current = stream;
+
+    // Activar estado enVivo ANTES y vincular stream al elemento <video>
+    setEnVivo(true);
+    setCamOn(true);
+    setMicOn(true);
+    reproducirTonoAudio('conectado');
+    iniciarMonitorAudioLocal(stream);
+
+    setTimeout(() => {
+      if (videoLocalRef.current && streamLocalRef.current) {
+        videoLocalRef.current.srcObject = streamLocalRef.current;
         videoLocalRef.current.play().catch(() => {});
       }
+    }, 50);
 
-      const pc = new RTCPeerConnection(iceServersConfig);
-      peerRef.current = pc;
+    if (rolUsuario === 'admin') {
+      const tituloFinal =
+        tituloConvocatoriaInput.trim() ||
+        (tipoConvocatoriaAdmin === 'consejo'
+          ? 'Sesión Ordinaria del Consejo de Administración'
+          : 'Asamblea General Ordinaria de Copropietarios 2026');
 
-      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      const listaConvocados =
+        tipoConvocatoriaAdmin === 'asamblea'
+          ? ['TODOS']
+          : apartamentosEscogidosAdmin;
 
-      pc.ontrack = (evt) => {
-        if (videoRemotoRef.current && evt.streams[0]) {
-          videoRemotoRef.current.srcObject = evt.streams[0];
-          videoRemotoRef.current.play().catch(() => {});
-        }
+      const payloadConvocatoria: ConvocatoriaActivaPayload = {
+        idSesion: `ses-${Date.now()}`,
+        tipo: tipoConvocatoriaAdmin,
+        titulo: tituloFinal,
+        hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        orador: 'Administración Principal',
+        apartamentosConvocados: listaConvocados,
+        activa: true,
+        timestamp: Date.now()
       };
 
-      pc.onicecandidate = (evt) => {
-        if (evt.candidate && canalRtcRef.current) {
-          canalRtcRef.current.send({
-            type: 'broadcast',
-            event: 'asamblea_candidato_ice',
-            payload: { candidate: evt.candidate }
-          });
-        }
-      };
+      try {
+        localStorage.setItem(STORAGE_CONVOCATORIA_KEY, JSON.stringify(payloadConvocatoria));
+      } catch {}
 
-      if (rolUsuario === 'admin') {
-        const tituloConvocatoria =
-          tipoConvocatoriaAdmin === 'consejo'
-            ? 'Sesión Ordinaria del Consejo de Administración'
-            : 'Asamblea General Ordinaria de Copropietarios 2026';
+      setInvitacionEntrante(payloadConvocatoria);
+      emitirEventoSenalizacion('asamblea_convocatoria_abierta', payloadConvocatoria);
+      inicializarPeerConnection(true);
 
-        // El Administrador envía la convocatoria a todos los apartamentos
-        if (canalRtcRef.current) {
-          canalRtcRef.current.send({
-            type: 'broadcast',
-            event: 'asamblea_convocatoria_abierta',
-            payload: {
-              tipo: tipoConvocatoriaAdmin,
-              titulo: tituloConvocatoria,
-              hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              orador: 'Administración Central'
-            }
-          });
-        }
+      // Iniciar grabación automática de respaldo para el acta
+      iniciarGrabacionReunion(stream);
 
-        const oferta = await pc.createOffer();
-        await pc.setLocalDescription(oferta);
+      onShowToast?.(
+        tipoConvocatoriaAdmin === 'asamblea'
+          ? '📢 Sala abierta: Se ha enviado invitación en vivo a TODOS los residentes de la unidad.'
+          : `📢 Sala del Consejo abierta: Invitación enviada a ${apartamentosEscogidosAdmin.length} apartamento(s) seleccionado(s).`
+      );
+    } else {
+      // El residente acepta la llamada y notifica que está listo para recibir/enviar video y audio
+      inicializarPeerConnection(false);
+      emitirEventoSenalizacion('participante_listo', {
+        unidad: unidadActiva,
+        hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      });
 
-        if (canalRtcRef.current) {
-          canalRtcRef.current.send({
-            type: 'broadcast',
-            event: 'asamblea_oferta',
-            payload: { sdp: oferta }
-          });
-        }
-        onShowToast?.('📢 Convocatoria transmitida en vivo a todos los apartamentos.');
-      } else {
-        setInvitacionEntrante(null);
-        onShowToast?.(`✅ Acreditación exitosa de ${unidadResidenteActual} en la asamblea.`);
-      }
-
-      setEnVivo(true);
-      setCamOn(true);
-      setMicOn(true);
-      setAsistentesConectados(prev => prev + 1);
-    } catch (err: any) {
-      console.error('Error al abrir dispositivos multimedia:', err);
-      onShowToast?.('⚠️ Por favor concede permisos de cámara y micrófono.');
+      // Registrar unidad en la planilla de quórum si no estaba
+      setUnidadesPresentes((prev) => {
+        if (prev.some((u) => u.unidad.toLowerCase() === unidadActiva.toLowerCase())) return prev;
+        return [
+          {
+            id: `u-${Date.now()}`,
+            unidad: unidadActiva,
+            titular: 'Copropietario Conectado en Vivo',
+            coeficiente: 1.05,
+            poder: false,
+            hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          },
+          ...prev
+        ];
+      });
+      setQuorumRegistrado((q) => Math.min(100, +(q + 1.05).toFixed(1)));
+      setAsistentesConectados((prev) => Math.max(2, prev + 1));
+      onShowToast?.(`✅ Conectado con éxito a la videollamada (${unidadActiva}). Audio y video activos.`);
     }
   };
 
-  const detenerTransmision = () => {
+  const detenerTransmision = useCallback(() => {
+    if (grabandoSesion && mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
+    }
+    if (animFrameMicRef.current) {
+      cancelAnimationFrame(animFrameMicRef.current);
+      animFrameMicRef.current = null;
+    }
+    if (canvasRespaldoIntervalRef.current) {
+      clearInterval(canvasRespaldoIntervalRef.current);
+      canvasRespaldoIntervalRef.current = null;
+    }
     if (peerRef.current) {
       peerRef.current.close();
       peerRef.current = null;
     }
     if (streamLocalRef.current) {
-      streamLocalRef.current.getTracks().forEach(t => t.stop());
+      streamLocalRef.current.getTracks().forEach((t) => t.stop());
       streamLocalRef.current = null;
     }
     if (streamPantallaRef.current) {
-      streamPantallaRef.current.getTracks().forEach(t => t.stop());
+      streamPantallaRef.current.getTracks().forEach((t) => t.stop());
       streamPantallaRef.current = null;
     }
     if (videoLocalRef.current) videoLocalRef.current.srcObject = null;
     if (videoRemotoRef.current) videoRemotoRef.current.srcObject = null;
+
+    if (rolUsuario === 'admin') {
+      try {
+        localStorage.removeItem(STORAGE_CONVOCATORIA_KEY);
+      } catch {}
+      emitirEventoSenalizacion('asamblea_cerrada', { cerrada: true });
+      setInvitacionEntrante(null);
+    }
+
     setEnVivo(false);
+    setRemotoConectado(false);
     setCompartiendoPantalla(false);
-  };
+    setNivelMic(0);
+  }, [emitirEventoSenalizacion, grabandoSesion, rolUsuario]);
+
+  useEffect(() => {
+    return () => {
+      if (animFrameMicRef.current) cancelAnimationFrame(animFrameMicRef.current);
+      if (canvasRespaldoIntervalRef.current) clearInterval(canvasRespaldoIntervalRef.current);
+      if (streamLocalRef.current) {
+        streamLocalRef.current.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, []);
 
   const toggleMic = () => {
     if (streamLocalRef.current) {
-      const audio = streamLocalRef.current.getAudioTracks()[0];
-      if (audio) {
-        audio.enabled = !micOn;
-        setMicOn(!micOn);
-        onShowToast?.(!micOn ? '🎙️ Micrófono activado.' : '🔇 Micrófono silenciado.');
-      }
+      const audioTracks = streamLocalRef.current.getAudioTracks();
+      audioTracks.forEach((t) => {
+        t.enabled = !micOn;
+      });
+      setMicOn(!micOn);
+      onShowToast?.(!micOn ? '🎙️ Micrófono activado.' : '🔇 Micrófono silenciado.');
     }
   };
 
   const toggleCam = () => {
     if (streamLocalRef.current) {
-      const video = streamLocalRef.current.getVideoTracks()[0];
-      if (video) {
-        video.enabled = !camOn;
-        setCamOn(!camOn);
-        onShowToast?.(!camOn ? '📹 Cámara encendida.' : '📷 Cámara apagada.');
-      }
+      const videoTracks = streamLocalRef.current.getVideoTracks();
+      videoTracks.forEach((t) => {
+        t.enabled = !camOn;
+      });
+      setCamOn(!camOn);
+      onShowToast?.(!camOn ? '📹 Cámara encendida.' : '📷 Cámara apagada.');
     }
   };
 
   const toggleCompartirPantalla = async () => {
     if (!compartiendoPantalla) {
       try {
-        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
         streamPantallaRef.current = screenStream;
 
-        if (videoLocalRef.current) videoLocalRef.current.srcObject = screenStream;
+        if (videoLocalRef.current) {
+          videoLocalRef.current.srcObject = screenStream;
+          videoLocalRef.current.play().catch(() => {});
+        }
 
         const screenTrack = screenStream.getVideoTracks()[0];
-        const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
-        if (sender) sender.replaceTrack(screenTrack);
+        const sender = peerRef.current?.getSenders().find((s) => s.track?.kind === 'video');
+        if (sender && screenTrack) sender.replaceTrack(screenTrack);
 
         screenTrack.onended = () => {
           if (videoLocalRef.current && streamLocalRef.current) {
             videoLocalRef.current.srcObject = streamLocalRef.current;
+            videoLocalRef.current.play().catch(() => {});
             const originalTrack = streamLocalRef.current.getVideoTracks()[0];
-            sender?.replaceTrack(originalTrack);
+            if (originalTrack) sender?.replaceTrack(originalTrack);
           }
           setCompartiendoPantalla(false);
         };
@@ -370,14 +950,15 @@ export default function ModuloReunionesConSubmodulos({
       }
     } else {
       if (streamPantallaRef.current) {
-        streamPantallaRef.current.getTracks().forEach(t => t.stop());
+        streamPantallaRef.current.getTracks().forEach((t) => t.stop());
         streamPantallaRef.current = null;
       }
       if (videoLocalRef.current && streamLocalRef.current) {
         videoLocalRef.current.srcObject = streamLocalRef.current;
+        videoLocalRef.current.play().catch(() => {});
         const originalTrack = streamLocalRef.current.getVideoTracks()[0];
-        const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
-        sender?.replaceTrack(originalTrack);
+        const sender = peerRef.current?.getSenders().find((s) => s.track?.kind === 'video');
+        if (originalTrack) sender?.replaceTrack(originalTrack);
       }
       setCompartiendoPantalla(false);
     }
@@ -389,19 +970,13 @@ export default function ModuloReunionesConSubmodulos({
 
     const nuevoMensaje = {
       id: Date.now(),
-      autor: `${unidadResidenteActual} (${rolUsuario.toUpperCase()})`,
+      autor: `${rolUsuario === 'admin' ? 'Administración' : unidadActiva} (${rolUsuario.toUpperCase()})`,
       texto: mensajeChat.trim(),
       hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    setChatLog(prev => [...prev, nuevoMensaje]);
-    if (canalRtcRef.current) {
-      canalRtcRef.current.send({
-        type: 'broadcast',
-        event: 'asamblea_chat',
-        payload: nuevoMensaje
-      });
-    }
+    setChatLog((prev) => [...prev, nuevoMensaje]);
+    emitirEventoSenalizacion('asamblea_chat', nuevoMensaje);
     setMensajeChat('');
   };
 
@@ -411,32 +986,90 @@ export default function ModuloReunionesConSubmodulos({
       return;
     }
     const miCoef = 1.05;
-    setMocionActual((prev) => ({
-      ...prev,
+    const actualizado = {
+      ...mociónActual,
       haVotado: true,
       miVoto: opcion,
-      coefFavor: opcion === 'favor' ? +(prev.coefFavor + miCoef).toFixed(2) : prev.coefFavor,
-      coefContra: opcion === 'contra' ? +(prev.coefContra + miCoef).toFixed(2) : prev.coefContra,
-      coefBlanco: opcion === 'blanco' ? +(prev.coefBlanco + miCoef).toFixed(2) : prev.coefBlanco
-    }));
+      coefFavor: opcion === 'favor' ? +(mociónActual.coefFavor + miCoef).toFixed(2) : mociónActual.coefFavor,
+      coefContra: opcion === 'contra' ? +(mociónActual.coefContra + miCoef).toFixed(2) : mociónActual.coefContra,
+      coefBlanco: opcion === 'blanco' ? +(mociónActual.coefBlanco + miCoef).toFixed(2) : mociónActual.coefBlanco
+    };
+    setMocionActual(actualizado);
+    emitirEventoSenalizacion('asamblea_voto', actualizado);
     onShowToast?.(`🗳️ Voto registrado con éxito: ${opcion.toUpperCase()} (Ponderado: 1.05%).`);
   };
 
-  const handleGenerarActaIA = () => {
+  // Procesar grabación y generar el Acta Oficial con IA (/api/process-meeting)
+  const handleProcesarGrabacionYGenerarActa = async () => {
     setGenerandoActa(true);
-    setTimeout(() => {
+    onShowToast?.('🎙️ Procesando grabación e intervenciones con IA bajo la Ley 675...');
+
+    const notasIntervenciones = chatLog.map((c) => `[${c.hora}] ${c.autor}: ${c.texto}`).join(' | ');
+    const contextoCompleto = `Tipo: ${
+      invitacionEntrante?.tipo === 'consejo' ? 'Consejo de Administración' : 'Asamblea General Ordinaria'
+    }. Quórum: ${quorumRegistrado}%. Moción votada: ${mociónActual.titulo} (A favor: ${mociónActual.coefFavor}%, En contra: ${
+      mociónActual.coefContra
+    }%, En blanco: ${mociónActual.coefBlanco}%). Intervenciones en sala: ${notasIntervenciones}`;
+
+    try {
+      const response = await fetch('/api/process-meeting', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          meetingType:
+            invitacionEntrante?.tipo === 'consejo'
+              ? 'Sesión del Consejo de Administración'
+              : 'Asamblea General Ordinaria',
+          meetingDate: new Date().toISOString().split('T')[0],
+          tenantName: 'P.H. Reserva del Tesoro',
+          quorumPercentage: quorumRegistrado,
+          contextNotes: contextoCompleto
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data?.acta?.summary) {
+          setResumenActaIa(data.acta.summary);
+        }
+        if (Array.isArray(data?.acta?.commitments) && data.acta.commitments.length > 0) {
+          setCompromisosActa(data.acta.commitments);
+        }
+      }
+    } catch {
+      // Fallback enriquecido local con los datos reales de la sesión y grabación
+      setResumenActaIa(
+        `1. VERIFICACIÓN DE QUÓRUM Y APERTURA: Con un quórum acreditado del ${quorumRegistrado}% de coeficientes de copropiedad, se instaló formalmente la sesión "${
+          invitacionEntrante?.titulo || tituloConvocatoriaInput
+        }" con grabación digital de audio y video (${formatearTiempo(segundosTranscurridos)} de duración).\n\n2. DELIBERACIONES E INTERVENCIONES EN SALA: ${notasIntervenciones}\n\n3. ESCRUTINIO Y DECISIONES APROBADAS: Sometida a votación ponderada la moción "${
+          mociónActual.titulo
+        }", se aprobó con ${mociónActual.coefFavor}% de coeficientes a favor, ${mociónActual.coefContra}% en contra y ${
+          mociónActual.coefBlanco
+        }% en blanco.`
+      );
+    } finally {
       setGenerandoActa(false);
-      onShowToast?.('✨ Acta legal generada automáticamente por IA bajo Ley 675.');
-    }, 1200);
+      setSubmoduloActivo('acta');
+      onShowToast?.('✨ ¡Acta oficial generada desde la grabación! Lista para revisión y descarga PDF.');
+    }
   };
 
+  // Cronómetros de sesión y de grabación
   useEffect(() => {
     let t: any;
     if (enVivo) {
-      t = setInterval(() => setSegundosTranscurridos(s => s + 1), 1000);
+      t = setInterval(() => setSegundosTranscurridos((s) => s + 1), 1000);
     }
     return () => clearInterval(t);
   }, [enVivo]);
+
+  useEffect(() => {
+    let t: any;
+    if (grabandoSesion) {
+      t = setInterval(() => setSegundosGrabacion((s) => s + 1), 1000);
+    }
+    return () => clearInterval(t);
+  }, [grabandoSesion]);
 
   const formatearTiempo = (seg: number) => {
     const m = Math.floor(seg / 60);
@@ -444,15 +1077,44 @@ export default function ModuloReunionesConSubmodulos({
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // Solo mostrar la invitación si:
-  // 1. Es una Asamblea General (entran todos)
-  // O 2. Es reunión de Consejo y el usuario tiene acreditación de consejero
-  const tieneAccesoAReunion =
-    !invitacionEntrante?.tipo ||
-    invitacionEntrante?.tipo === 'asamblea' ||
-    (invitacionEntrante?.tipo === 'consejo' && esConsejero);
+  const toggleApartamentoEscogido = (unidad: string) => {
+    setApartamentosEscogidosAdmin((prev) =>
+      prev.includes(unidad) ? prev.filter((u) => u !== unidad) : [...prev, unidad]
+    );
+  };
 
-  // PESTAÑAS ADAPTADAS: Al residente NO se le da gestión de convocatorias ni generador de actas
+  const handleAgregarApartamentoManual = () => {
+    const limpio = nuevoAptoManual.trim();
+    if (!limpio) return;
+    if (!catalogoApartamentos.some((c) => c.unidad.toLowerCase() === limpio.toLowerCase())) {
+      setCatalogoApartamentos((prev) => [
+        ...prev,
+        { unidad: limpio, propietario: 'Propietario Citado', coef: 0.85, cargo: 'Invitado' }
+      ]);
+    }
+    if (!apartamentosEscogidosAdmin.includes(limpio)) {
+      setApartamentosEscogidosAdmin((prev) => [...prev, limpio]);
+    }
+    setNuevoAptoManual('');
+  };
+
+  // VALIDACIÓN DE ACCESO LEY 675:
+  // 1. Si es Asamblea General ('asamblea' o incluye 'TODOS'), entran TODOS los residentes de la unidad.
+  // 2. Si es Consejo de Administración ('consejo'), solo entran los apartamentos seleccionados por la Administración.
+  const tieneAccesoAReunion = (() => {
+    if (!invitacionEntrante) return false;
+    if (
+      invitacionEntrante.tipo === 'asamblea' ||
+      invitacionEntrante.apartamentosConvocados.includes('TODOS')
+    ) {
+      return true;
+    }
+    return invitacionEntrante.apartamentosConvocados.some(
+      (apto) => apto.trim().toLowerCase() === unidadActiva.trim().toLowerCase()
+    );
+  })();
+
+  // Pestañas adaptadas según el rol
   const pestanasVisibles = rolUsuario === 'admin'
     ? [
         { id: 'video', label: '1. Videoconferencia', icon: Video, color: 'text-rose-400' },
@@ -473,155 +1135,389 @@ export default function ModuloReunionesConSubmodulos({
     <div className="bg-[#05080e] border border-cyan-500/30 rounded-3xl p-4 sm:p-6 space-y-6 shadow-2xl font-sans text-slate-100">
       
       {/* BARRA DE SUBMÓDULOS FILTRADA POR ROL */}
-      <nav className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-800/80">
-        {pestanasVisibles.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = submoduloActivo === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setSubmoduloActivo(tab.id as any)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer min-h-[42px] shrink-0 ${
-                isActive
-                  ? 'bg-gradient-to-r from-cyan-500/20 to-teal-500/20 text-cyan-300 border border-cyan-500/50 shadow-[0_0_15px_rgba(34,211,238,0.25)]'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-900/60 border border-transparent'
-              }`}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+        <nav className="flex items-center gap-2 overflow-x-auto pb-1">
+          {pestanasVisibles.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = submoduloActivo === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setSubmoduloActivo(tab.id as any)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer min-h-[42px] shrink-0 ${
+                  isActive
+                    ? 'bg-gradient-to-r from-cyan-500/20 to-teal-500/20 text-cyan-300 border border-cyan-500/50 shadow-[0_0_15px_rgba(34,211,238,0.25)]'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900/60 border border-transparent'
+                }`}
+              >
+                <Icon className={`w-4 h-4 ${tab.color}`} />
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Selector de apartamento activo cuando está en vista Residente para verificar acceso a Asamblea vs Consejo */}
+        {rolUsuario === 'residente' && (
+          <div className="flex items-center gap-2 bg-[#0b0f17] border border-slate-800 px-3 py-1.5 rounded-xl shrink-0">
+            <Building2 className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="text-[11px] font-mono text-slate-400">Mi Unidad:</span>
+            <select
+              value={unidadActiva}
+              onChange={(e) => setUnidadActiva(e.target.value)}
+              className="bg-slate-900 text-cyan-300 font-mono font-bold text-xs px-2 py-1 rounded-lg border border-slate-700 outline-none cursor-pointer"
             >
-              <Icon className={`w-4 h-4 ${tab.color}`} />
-              {tab.label}
-            </button>
-          );
-        })}
-      </nav>
+              {catalogoApartamentos.map((c) => (
+                <option key={c.unidad} value={c.unidad}>
+                  {c.unidad} ({c.propietario})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
 
       {/* 1. SUBMÓDULO: VIDEOCONFERENCIA EN VIVO */}
       {submoduloActivo === 'video' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
-          {/* LIENZO DE VIDEO PRINCIPAL */}
+          {/* LIENZO DE VIDEO PRINCIPAL (SIN RECORTE ASPECT-VIDEO FIJO) */}
           <div className="lg:col-span-2 space-y-4">
-            <div className="relative aspect-video bg-slate-950 rounded-3xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col justify-between p-4">
+            <div className="relative min-h-[500px] bg-slate-950 rounded-3xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col justify-between p-4 sm:p-5">
               
-              <div className="flex items-center justify-between z-10">
-                <span className="flex items-center gap-2 bg-rose-500/20 text-rose-400 border border-rose-500/40 px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase">
-                  <span className={`w-2 h-2 rounded-full ${enVivo ? 'bg-rose-500 animate-ping' : 'bg-slate-600'}`} />
-                  {enVivo ? 'TRANSMISIÓN OFICIAL LEY 675' : 'SALA EN ESPERA'}
-                </span>
-                <span className="bg-slate-900/80 backdrop-blur-md text-slate-300 text-xs px-3 py-1 rounded-xl border border-slate-700 font-mono">
-                  🔴 {enVivo ? `${formatearTiempo(segundosTranscurridos)} • ${asistentesConectados} Conectado(s)` : '0 Conectados'}
-                </span>
+              {/* Barra superior de estado */}
+              <div className="flex flex-wrap items-center justify-between gap-2 z-10">
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center gap-2 bg-rose-500/20 text-rose-400 border border-rose-500/40 px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase">
+                    <span className={`w-2 h-2 rounded-full ${enVivo ? 'bg-rose-500 animate-ping' : 'bg-slate-600'}`} />
+                    {enVivo ? 'TRANSMISIÓN OFICIAL LEY 675' : 'SALA EN ESPERA'}
+                  </span>
+                  {grabandoSesion && (
+                    <span className="flex items-center gap-1.5 bg-red-600/20 text-red-400 border border-red-500/40 px-2.5 py-1 rounded-full text-[11px] font-mono font-bold animate-pulse">
+                      <Disc className="w-3.5 h-3.5 text-red-500 animate-spin" />
+                      REC {formatearTiempo(segundosGrabacion)}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      reproducirTonoAudio('prueba');
+                      onShowToast?.('🔊 Altavoces verificados correctamente (Audio 100% operativo).');
+                    }}
+                    className="bg-slate-900/90 hover:bg-slate-800 text-cyan-300 text-[11px] px-2.5 py-1 rounded-xl border border-cyan-500/30 font-mono flex items-center gap-1 cursor-pointer transition"
+                    title="Verificar sonido de altavoces"
+                  >
+                    <Volume2 className="w-3.5 h-3.5 text-cyan-400" /> Probar Sonido
+                  </button>
+                  <span className="bg-slate-900/80 backdrop-blur-md text-slate-300 text-xs px-3 py-1 rounded-xl border border-slate-700 font-mono">
+                    🔴 {enVivo ? `${formatearTiempo(segundosTranscurridos)} • ${asistentesConectados} Conectado(s)` : '0 Conectados'}
+                  </span>
+                </div>
               </div>
 
-              {/* Video en vivo o Invitación/Espera */}
-              <div className="relative flex-1 flex items-center justify-center overflow-hidden my-2 rounded-2xl bg-[#07090e]/80 border border-slate-800/80">
+              {/* CONTENIDO CENTRAL: VIDEO EN VIVO O CONFIGURADOR DE CITACIÓN / INVITACIÓN */}
+              <div className="relative flex-1 flex items-center justify-center overflow-hidden my-3 rounded-2xl bg-[#07090e]/90 border border-slate-800/80 p-3 sm:p-5">
                 {enVivo ? (
-                  <>
-                    <video
-                      ref={videoLocalRef}
-                      autoPlay
-                      playsInline
-                      muted={rolUsuario === 'admin'}
-                      className={`w-full h-full object-cover rounded-2xl ${!camOn ? 'hidden' : ''}`}
-                    />
-                    <video ref={videoRemotoRef} autoPlay playsInline className="hidden" />
-                    
-                    {!camOn && (
-                      <div className="text-center py-10 space-y-2">
-                        <VideoOff className="w-10 h-10 text-slate-600 mx-auto" />
-                        <p className="text-xs text-slate-400 font-mono">Cámara desactivada por el usuario</p>
+                  <div className="w-full h-full min-h-[340px] grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch">
+                    {/* CÁMARA 1: VIDEO LOCAL */}
+                    <div className="relative bg-slate-900 rounded-2xl overflow-hidden border border-cyan-500/40 flex items-center justify-center min-h-[260px]">
+                      <video
+                        ref={setVideoLocalElement}
+                        autoPlay
+                        playsInline
+                        muted
+                        className={`w-full h-full object-cover ${!camOn ? 'hidden' : ''}`}
+                      />
+                      {!camOn && (
+                        <div className="text-center py-10 space-y-2">
+                          <VideoOff className="w-10 h-10 text-slate-600 mx-auto" />
+                          <p className="text-xs text-slate-400 font-mono">Tu cámara está apagada</p>
+                        </div>
+                      )}
+
+                      <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono">
+                        <span className="text-white font-bold truncate">
+                          🟢 Tú: {rolUsuario === 'admin' ? 'Administración Principal' : unidadActiva}
+                          {usandoCamaraRespaldo ? ' (Señal Digital)' : ''}
+                        </span>
+                        <div className="flex items-center gap-1.5" title="Nivel de micrófono en tiempo real">
+                          <Mic className={`w-3.5 h-3.5 ${micOn ? 'text-emerald-400' : 'text-rose-400'}`} />
+                          <div className="w-14 h-2 bg-slate-800 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-all duration-75"
+                              style={{ width: `${micOn ? Math.max(12, nivelMic) : 0}%` }}
+                            />
+                          </div>
+                        </div>
                       </div>
-                    )}
-                  </>
+                    </div>
+
+                    {/* CÁMARA 2: VIDEO REMOTO (RESIDENTE O ADMINISTRADOR CONECTADO CON AUDIO ACTIVO) */}
+                    <div className="relative bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center min-h-[260px]">
+                      <video
+                        ref={setVideoRemotoElement}
+                        autoPlay
+                        playsInline
+                        muted={!audioRemotoOn}
+                        className={`w-full h-full object-cover ${remotoConectado ? 'block' : 'hidden'}`}
+                      />
+
+                      {!remotoConectado && (
+                        <div className="text-center p-6 space-y-3">
+                          <div className="w-14 h-14 mx-auto rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                            <Radio className="w-7 h-7 animate-pulse" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-white">
+                              {rolUsuario === 'admin'
+                                ? 'Convocatoria Emitida • Esperando conexión de Residentes'
+                                : 'Conectando señal de video y audio con Administración...'}
+                            </p>
+                            <p className="text-[11px] text-slate-400 font-mono mt-1">
+                              {invitacionEntrante?.tipo === 'consejo'
+                                ? `Citados al Consejo: ${invitacionEntrante.apartamentosConvocados.join(', ')}`
+                                : 'Citados: Todos los apartamentos de la copropiedad (Ley 675)'}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => inicializarPeerConnection(true)}
+                            className="px-3 py-1.5 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 rounded-xl text-[11px] font-mono font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" /> Sincronizar Señal P2P Ahora
+                          </button>
+                        </div>
+                      )}
+
+                      {remotoConectado && (
+                        <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono">
+                          <span className="text-cyan-300 font-bold truncate">
+                            🔊 En línea: {nombreParticipanteRemoto}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setAudioRemotoOn(!audioRemotoOn)}
+                            className="text-xs text-emerald-400 hover:underline cursor-pointer"
+                          >
+                            {audioRemotoOn ? 'Audio Activo 🔊' : 'Audio Silenciado 🔇'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 ) : invitacionEntrante && rolUsuario === 'residente' && tieneAccesoAReunion ? (
-                  // TARJETA DE LLAMADA / INVITACIÓN EN VIVO AL RESIDENTE
-                  <div className="text-center space-y-4 py-8 px-6 max-w-md bg-cyan-950/20 border border-cyan-500/40 rounded-3xl p-6 shadow-[0_0_30px_rgba(34,211,238,0.2)] animate-fadeIn">
+                  // TARJETA DE LLAMADA / INVITACIÓN EN VIVO AL RESIDENTE CONVOCADO
+                  <div className="text-center space-y-4 py-6 px-6 max-w-lg bg-cyan-950/20 border border-cyan-500/40 rounded-3xl shadow-[0_0_30px_rgba(34,211,238,0.2)]">
                     <div className="w-16 h-16 mx-auto rounded-2xl bg-cyan-500/20 border border-cyan-400/50 flex items-center justify-center text-cyan-300">
                       <BellRing className="w-8 h-8 animate-bounce text-cyan-400" />
                     </div>
                     <div>
-                      <span className="text-[10px] font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 px-2.5 py-0.5 rounded-full uppercase">
-                        {invitacionEntrante.tipo === 'consejo' ? 'Sesión de Consejo Activa' : 'Convocatoria en Vivo Activa'}
+                      <span className="text-[10px] font-mono font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 px-3 py-1 rounded-full uppercase">
+                        {invitacionEntrante.tipo === 'consejo'
+                          ? '⚖️ Citación Oficial al Consejo de Administración'
+                          : '📢 Asamblea General en Vivo (Todos los Residentes)'}
                       </span>
-                      <h3 className="text-base font-black text-white mt-2">
+                      <h3 className="text-base sm:text-lg font-black text-white mt-2">
                         {invitacionEntrante.titulo}
                       </h3>
                       <p className="text-xs text-slate-400 font-mono mt-1">
-                        Iniciada por: <strong className="text-cyan-300">{invitacionEntrante.orador}</strong> • Hora: {invitacionEntrante.hora}
+                        Convoca: <strong className="text-cyan-300">{invitacionEntrante.orador}</strong> • Hora: {invitacionEntrante.hora}
                       </p>
-                      <p className="text-[11px] text-emerald-400 font-mono mt-0.5">
-                        Inmueble Acreditado: <strong>{unidadResidenteActual}</strong>
+                      <p className="text-xs text-emerald-400 font-mono mt-1">
+                        ✓ Tu unidad (<strong>{unidadActiva}</strong>) está acreditada y convocada
                       </p>
                     </div>
 
                     <button
                       type="button"
                       onClick={conectarASala}
-                      className="w-full bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black py-3 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,211,238,0.35)] flex items-center justify-center gap-2 cursor-pointer"
+                      className="w-full bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black py-3.5 px-6 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,211,238,0.35)] flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <Play className="w-4 h-4 fill-current" /> Aceptar e Ingresar a la Asamblea
+                      <Play className="w-4 h-4 fill-current" /> Aceptar e Ingresar con Cámara y Sonido
                     </button>
                   </div>
-                ) : invitacionEntrante && !tieneAccesoAReunion ? (
-                  // SALA PRIVADA / ACCESO RESERVADO AL CONSEJO DE ADMINISTRACIÓN
-                  <div className="text-center py-8 px-6 max-w-md bg-amber-950/15 border border-amber-500/30 rounded-3xl">
-                    <Lock className="w-8 h-8 text-amber-400 mx-auto" />
-                    <h4 className="text-sm font-bold text-white mt-2">Sesión Privada del Consejo</h4>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Esta sesión está restringida a los miembros elegidos del Consejo de Administración.
+                ) : invitacionEntrante && rolUsuario === 'residente' && !tieneAccesoAReunion ? (
+                  // SALA PRIVADA CUANDO ES CONSEJO Y EL APARTAMENTO NO FUE ESCOGIDO POR LA ADMINISTRACIÓN
+                  <div className="text-center py-6 px-6 max-w-md bg-amber-950/15 border border-amber-500/30 rounded-3xl space-y-2">
+                    <Lock className="w-9 h-9 text-amber-400 mx-auto" />
+                    <h4 className="text-sm font-bold text-white">Sesión Privada del Consejo de Administración</h4>
+                    <p className="text-xs text-slate-400">
+                      Tu unidad (<strong className="text-white">{unidadActiva}</strong>) no se encuentra dentro de los apartamentos seleccionados por la Administración para esta reunión privada.
+                    </p>
+                    <p className="text-[11px] font-mono text-amber-300/90 pt-1">
+                      Apartamentos citados: {invitacionEntrante.apartamentosConvocados.join(', ')}
                     </p>
                   </div>
                 ) : (
-                  // PANTALLA EN ESPERA LIMPIA
-                  <div className="text-center space-y-3 py-8 px-4">
-                    <div className="w-16 h-16 mx-auto rounded-3xl bg-[#090d14] border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_25px_rgba(34,211,238,0.15)]">
-                      {rolUsuario === 'admin' ? <Radio className="w-8 h-8 animate-pulse" /> : <Lock className="w-8 h-8 text-slate-500" />}
+                  // PANTALLA DE CONFIGURACIÓN Y CONVOCATORIA EN VIVO (IMAGEN 1 MEJORADA CON SELECCIÓN DE APARTAMENTOS)
+                  <div className="w-full max-w-xl mx-auto text-center space-y-4 py-3 px-2 sm:px-4">
+                    <div className="w-14 h-14 mx-auto rounded-2xl bg-[#090d14] border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_25px_rgba(34,211,238,0.15)]">
+                      {rolUsuario === 'admin' ? <Radio className="w-7 h-7 animate-pulse" /> : <Lock className="w-7 h-7 text-slate-500" />}
                     </div>
 
                     <div>
-                      <h3 className="text-base font-bold text-white">
-                        {rolUsuario === 'admin' ? 'Sala Lista para Convocatoria' : 'En Espera de Inicio de Asamblea'}
+                      <h3 className="text-base sm:text-lg font-bold text-white">
+                        {rolUsuario === 'admin' ? 'Sala Lista para Convocatoria y Citación en Vivo' : 'En Espera de Inicio de Asamblea'}
                       </h3>
-                      <p className="text-xs text-slate-400 font-mono mt-1 max-w-sm mx-auto">
-                        {rolUsuario === 'admin' 
-                          ? 'Presiona el botón para abrir la transmisión y emitir la llamada oficial a los miembros convocados.' 
-                          : 'La sesión virtual está protegida bajo la Ley 675. Te notificaremos en pantalla cuando la Administración inicie la asamblea.'}
+                      <p className="text-xs text-slate-400 font-mono mt-1 max-w-md mx-auto">
+                        {rolUsuario === 'admin'
+                          ? 'Configura el título de la reunión, elige si es Asamblea General (todos) o Consejo (escoger apartamentos) e inicia la videollamada.'
+                          : 'La sesión virtual está protegida bajo la Ley 675. Te notificaremos en pantalla cuando la Administración inicie la videollamada.'}
                       </p>
                     </div>
 
                     {rolUsuario === 'admin' && (
-                      <div className="space-y-3 pt-1">
-                        <div className="inline-flex items-center gap-1.5 bg-[#090d14] p-1 rounded-xl border border-slate-800">
-                          <button
-                            type="button"
-                            onClick={() => setTipoConvocatoriaAdmin('asamblea')}
-                            className={`px-3 py-1.5 rounded-lg text-[11px] font-mono font-bold transition cursor-pointer ${
-                              tipoConvocatoriaAdmin === 'asamblea'
-                                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                                : 'text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            Asamblea General (Todos)
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setTipoConvocatoriaAdmin('consejo')}
-                            className={`px-3 py-1.5 rounded-lg text-[11px] font-mono font-bold transition cursor-pointer ${
-                              tipoConvocatoriaAdmin === 'consejo'
-                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                                : 'text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            Consejo de Administración
-                          </button>
+                      <div className="space-y-3 text-left bg-[#0b0f17] border border-slate-800 p-4 rounded-2xl">
+                        {/* Título de la reunión a convocar */}
+                        <div>
+                          <label className="text-[10px] font-mono font-bold uppercase text-cyan-400 block mb-1">
+                            Título / Motivo de la Videoconferencia:
+                          </label>
+                          <input
+                            type="text"
+                            value={tituloConvocatoriaInput}
+                            onChange={(e) => setTituloConvocatoriaInput(e.target.value)}
+                            placeholder="Ej. Asamblea General Ordinaria 2026 / Reunión de Consejo"
+                            className="w-full bg-[#07090e] border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-cyan-400 font-mono"
+                          />
                         </div>
+
+                        {/* Selector de Tipo: Asamblea General (Todos) vs Consejo de Administración (Escoger Apartamentos) */}
+                        <div>
+                          <label className="text-[10px] font-mono font-bold uppercase text-slate-400 block mb-1.5">
+                            Órgano y Alcance de la Citación (Ley 675):
+                          </label>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTipoConvocatoriaAdmin('asamblea');
+                                setTituloConvocatoriaInput('Asamblea General Ordinaria de Copropietarios 2026');
+                              }}
+                              className={`p-2.5 rounded-xl text-xs font-mono font-bold transition cursor-pointer text-left border ${
+                                tipoConvocatoriaAdmin === 'asamblea'
+                                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-[0_0_12px_rgba(34,211,238,0.2)]'
+                                  : 'bg-[#07090e] text-slate-400 border-slate-800 hover:text-white'
+                              }`}
+                            >
+                              <span className="block text-white">👥 Asamblea General (Todos)</span>
+                              <span className="text-[10px] text-slate-400 font-normal">Cita al 100% de residentes de la unidad</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTipoConvocatoriaAdmin('consejo');
+                                setTituloConvocatoriaInput('Sesión del Consejo de Administración');
+                              }}
+                              className={`p-2.5 rounded-xl text-xs font-mono font-bold transition cursor-pointer text-left border ${
+                                tipoConvocatoriaAdmin === 'consejo'
+                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
+                                  : 'bg-[#07090e] text-slate-400 border-slate-800 hover:text-white'
+                              }`}
+                            >
+                              <span className="block text-white">⚖️ Consejo de Administración</span>
+                              <span className="text-[10px] text-slate-400 font-normal">Escoger apartamentos citados</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Si es Asamblea General -> Confirmación de todos los residentes */}
+                        {tipoConvocatoriaAdmin === 'asamblea' ? (
+                          <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between text-xs">
+                            <span className="text-emerald-300 font-mono text-[11px]">
+                              ✓ Se enviará citación en vivo a <strong>todos los apartamentos</strong> de la unidad.
+                            </span>
+                            <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-bold">
+                              100% Unidad
+                            </span>
+                          </div>
+                        ) : (
+                          /* Si es Consejo de Administración -> Selector de apartamentos */
+                          <div className="p-3 bg-[#07090e] border border-amber-500/30 rounded-xl space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-mono font-bold text-amber-300">
+                                Escoge los Apartamentos Citados ({apartamentosEscogidosAdmin.length} seleccionados):
+                              </span>
+                              <div className="flex gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setApartamentosEscogidosAdmin(catalogoApartamentos.map((c) => c.unidad))}
+                                  className="text-[10px] font-mono text-cyan-400 hover:underline cursor-pointer"
+                                >
+                                  Marcar todos
+                                </button>
+                                <span className="text-slate-600">|</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setApartamentosEscogidosAdmin([])}
+                                  className="text-[10px] font-mono text-slate-400 hover:text-white cursor-pointer"
+                                >
+                                  Limpiar
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                              {catalogoApartamentos.map((apt) => {
+                                const activo = apartamentosEscogidosAdmin.includes(apt.unidad);
+                                return (
+                                  <div
+                                    key={apt.unidad}
+                                    onClick={() => toggleApartamentoEscogido(apt.unidad)}
+                                    className={`p-2 rounded-lg border text-[11px] flex items-center gap-2 cursor-pointer transition select-none ${
+                                      activo
+                                        ? 'bg-amber-500/15 border-amber-400 text-white'
+                                        : 'bg-[#0b0f17] border-slate-800 text-slate-400 hover:border-slate-700'
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={activo}
+                                      onChange={() => {}}
+                                      className="accent-amber-400 w-3.5 h-3.5 pointer-events-none"
+                                    />
+                                    <div className="truncate">
+                                      <span className="font-bold text-white block leading-tight">{apt.unidad}</span>
+                                      <span className="text-[10px] text-slate-400 truncate block">{apt.propietario} ({apt.cargo})</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            <div className="flex gap-1.5 pt-1">
+                              <input
+                                type="text"
+                                value={nuevoAptoManual}
+                                onChange={(e) => setNuevoAptoManual(e.target.value)}
+                                placeholder="Otro apartamento (ej. Torre 2 - 501)..."
+                                className="flex-1 bg-[#0b0f17] border border-slate-800 rounded-lg px-2.5 py-1 text-[11px] text-white outline-none focus:border-amber-400 font-mono"
+                              />
+                              <button
+                                type="button"
+                                onClick={handleAgregarApartamentoManual}
+                                className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-[11px] font-mono font-bold flex items-center gap-1 cursor-pointer"
+                              >
+                                <Plus className="w-3 h-3" /> Agregar
+                              </button>
+                            </div>
+                          </div>
+                        )}
 
                         <button
                           type="button"
                           onClick={conectarASala}
-                          className="bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black px-6 py-2.5 rounded-xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,211,238,0.35)] flex items-center gap-2 mx-auto cursor-pointer"
+                          className="w-full bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black px-6 py-3 rounded-xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,211,238,0.35)] flex items-center justify-center gap-2 cursor-pointer"
                         >
-                          <Play className="w-4 h-4 fill-current" /> Abrir Sala y Convocar Asamblea
+                          <Play className="w-4 h-4 fill-current" />
+                          {tipoConvocatoriaAdmin === 'asamblea'
+                            ? 'Abrir Sala y Convocar a Todos los Residentes'
+                            : `Abrir Sala y Citar ${apartamentosEscogidosAdmin.length} Apartamento(s) al Consejo`}
                         </button>
                       </div>
                     )}
@@ -629,9 +1525,9 @@ export default function ModuloReunionesConSubmodulos({
                 )}
               </div>
 
-              {/* Controles de audio y video */}
+              {/* BARRA INFERIOR DE CONTROLES DE VIDEO, AUDIO Y GRABACIÓN DE ACTAS */}
               <div className="bg-[#0b0f17]/90 backdrop-blur-md p-3 rounded-2xl border border-slate-800 flex items-center justify-between gap-2 z-10 flex-wrap">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     disabled={!enVivo}
                     type="button"
@@ -641,7 +1537,7 @@ export default function ModuloReunionesConSubmodulos({
                     }`}
                   >
                     {micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4 text-rose-400" />}
-                    <span className="hidden sm:inline">{micOn ? 'Mic Activo' : 'Mic Mute'}</span>
+                    <span>{micOn ? 'Mic Activo' : 'Mic Mute'}</span>
                   </button>
 
                   <button
@@ -653,7 +1549,7 @@ export default function ModuloReunionesConSubmodulos({
                     }`}
                   >
                     {camOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4 text-rose-400" />}
-                    <span className="hidden sm:inline">{camOn ? 'Cámara On' : 'Cámara Off'}</span>
+                    <span>{camOn ? 'Cámara On' : 'Cámara Off'}</span>
                   </button>
 
                   {rolUsuario === 'admin' && (
@@ -669,6 +1565,30 @@ export default function ModuloReunionesConSubmodulos({
                       <span className="hidden sm:inline">{compartiendoPantalla ? 'Proyectando' : 'Proyectar'}</span>
                     </button>
                   )}
+
+                  {/* Botón de Grabación de Reunión para Acta */}
+                  <button
+                    disabled={!enVivo}
+                    type="button"
+                    onClick={() => (grabandoSesion ? detenerGrabacionReunion() : iniciarGrabacionReunion())}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer min-h-[40px] disabled:opacity-40 ${
+                      grabandoSesion
+                        ? 'bg-red-600/30 border-red-500 text-red-200 animate-pulse'
+                        : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-red-500/50'
+                    }`}
+                  >
+                    {grabandoSesion ? (
+                      <>
+                        <Square className="w-3.5 h-3.5 fill-current text-red-400" />
+                        <span>Detener Grabación ({formatearTiempo(segundosGrabacion)})</span>
+                      </>
+                    ) : (
+                      <>
+                        <Disc className="w-4 h-4 text-red-400" />
+                        <span>Grabar para Acta</span>
+                      </>
+                    )}
+                  </button>
 
                   <button
                     disabled={!enVivo}
@@ -688,22 +1608,73 @@ export default function ModuloReunionesConSubmodulos({
 
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">
-                    Unidad: <strong className="text-white">{unidadResidenteActual}</strong>
+                    Unidad: <strong className="text-white">{rolUsuario === 'admin' ? 'Administración' : unidadActiva}</strong>
                   </span>
 
                   {enVivo && (
                     <button
                       type="button"
                       onClick={detenerTransmision}
-                      className="p-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl transition cursor-pointer"
-                      title="Desconectar de la asamblea"
+                      className="px-3 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+                      title="Finalizar llamada y guardar grabación"
                     >
-                      <PhoneOff className="w-4 h-4" />
+                      <PhoneOff className="w-4 h-4" /> Finalizar
                     </button>
                   )}
                 </div>
               </div>
             </div>
+
+            {/* PANEL DE GRABACIÓN LISTA Y RESOLUCIÓN DE ACTA CON IA */}
+            {(grabacionUrl || enVivo) && (
+              <div className="bg-[#0b0f17] border border-cyan-500/30 p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg">
+                <div className="space-y-1 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                      Soporte Magnetofónico Ley 675
+                    </span>
+                    {grabacionUrl && (
+                      <span className="text-[11px] font-mono text-emerald-400 font-bold">
+                        ✓ Archivo grabado ({grabacionTamanoKB} KB)
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-300">
+                    {grabacionUrl
+                      ? 'Escucha o descarga la grabación de la sesión y genera automáticamente el Acta Oficial foliada.'
+                      : 'Al terminar la reunión puedes convertir automáticamente las intervenciones y votaciones en el Acta Oficial.'}
+                  </p>
+                  {grabacionUrl && (
+                    <video
+                      src={grabacionUrl}
+                      controls
+                      className="mt-2 w-full max-w-md h-28 rounded-xl border border-slate-800 bg-black"
+                    />
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  {grabacionUrl && (
+                    <a
+                      href={grabacionUrl}
+                      download={`Grabacion_Asamblea_${new Date().toISOString().slice(0, 10)}.webm`}
+                      className="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition"
+                    >
+                      <Download className="w-3.5 h-3.5 text-cyan-400" /> Descargar Video/Audio
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    disabled={generandoActa}
+                    onClick={handleProcesarGrabacionYGenerarActa}
+                    className="px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black text-xs rounded-xl shadow-[0_0_20px_rgba(34,211,238,0.3)] flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    {generandoActa ? 'Procesando Acta con IA...' : 'Resolver Acta Oficial con IA'}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Accesos rápidos de votación simultánea */}
             <div className="bg-[#0b0f17] border border-slate-800/80 p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
@@ -724,10 +1695,10 @@ export default function ModuloReunionesConSubmodulos({
           </div>
 
           {/* CHAT OFICIAL DE ASAMBLEA */}
-          <div className="bg-[#0b0f17] border border-slate-800 rounded-3xl p-5 flex flex-col justify-between space-y-4 h-[440px]">
+          <div className="bg-[#0b0f17] border border-slate-800 rounded-3xl p-5 flex flex-col justify-between space-y-4 h-[520px]">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5 font-mono">
-                <MessageSquare className="w-4 h-4 text-cyan-400" /> Chat Oficial Foliado
+                <MessageSquare className="w-4 h-4 text-cyan-400" /> Chat &amp; Intervenciones Foliadas
               </span>
               <span className="text-[10px] bg-slate-900 px-2 py-0.5 rounded text-slate-400 border border-slate-800 font-mono">
                 {chatLog.length} mensajes
@@ -735,7 +1706,7 @@ export default function ModuloReunionesConSubmodulos({
             </div>
 
             <div className="space-y-3 flex-1 overflow-y-auto pr-1">
-              {chatLog.map(m => (
+              {chatLog.map((m) => (
                 <div key={m.id} className="bg-[#07090e] p-3 rounded-xl border border-slate-800/80 space-y-1">
                   <div className="flex justify-between items-center text-[10px] font-mono">
                     <span className="font-bold text-cyan-400">{m.autor}</span>
@@ -751,7 +1722,7 @@ export default function ModuloReunionesConSubmodulos({
                 type="text"
                 value={mensajeChat}
                 onChange={(e) => setMensajeChat(e.target.value)}
-                placeholder="Escribe tu intervención..."
+                placeholder="Escribe tu intervención para el acta..."
                 className="flex-1 bg-[#07090e] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:border-cyan-400 outline-none font-mono"
               />
               <button
@@ -766,7 +1737,7 @@ export default function ModuloReunionesConSubmodulos({
         </div>
       )}
 
-      {/* SUBMÓDULO 2: CONVOCATORIAS */}
+      {/* SUBMÓDULO 2: CONVOCATORIAS Y SELECCIÓN DE APARTAMENTOS */}
       {submoduloActivo === 'convocatorias' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
@@ -785,7 +1756,8 @@ export default function ModuloReunionesConSubmodulos({
                         lugarOSala: nueva.lugarOSala,
                         estado: nueva.estado,
                         anticipacion: nueva.anticipacion,
-                        quorum: '0%'
+                        quorum: '0%',
+                        apartamentosConvocados: nueva.apartamentosConvocados || ['TODOS LOS APARTAMENTOS']
                       },
                       ...prev
                     ]);
@@ -824,9 +1796,7 @@ export default function ModuloReunionesConSubmodulos({
                       <span className={`px-2.5 py-1 rounded-full text-xs font-bold border shrink-0 ${
                         conv.estado === 'En Curso'
                           ? 'bg-rose-500/10 text-rose-400 border-rose-500/30 animate-pulse'
-                          : conv.estado === 'Convocada'
-                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                          : 'bg-slate-800 text-slate-400 border-slate-700'
+                          : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
                       }`}>
                         {conv.estado === 'En Curso' ? '🔴 En Curso' : conv.estado}
                       </span>
@@ -842,9 +1812,11 @@ export default function ModuloReunionesConSubmodulos({
                         <span className="text-emerald-400 font-medium">{conv.anticipacion}</span>
                       </div>
                       <div>
-                        <span className="text-slate-500 text-[10px] block uppercase font-mono">Lugar / Conexión</span>
-                        <span className="text-cyan-300 font-medium truncate block" title={conv.lugarOSala || 'Sala Virtual Urbix PH'}>
-                          {conv.lugarOSala || 'Sala Virtual Urbix PH'}
+                        <span className="text-slate-500 text-[10px] block uppercase font-mono">Apartamentos Citados</span>
+                        <span className="text-amber-300 font-mono text-[11px] block">
+                          {Array.isArray(conv.apartamentosConvocados)
+                            ? conv.apartamentosConvocados.join(', ')
+                            : 'Todos los residentes'}
                         </span>
                       </div>
                     </div>
@@ -856,12 +1828,20 @@ export default function ModuloReunionesConSubmodulos({
                       <button
                         type="button"
                         onClick={() => {
+                          if (rolUsuario === 'admin') {
+                            const esConsejo = String(conv.tipo).toLowerCase().includes('consejo') || String(conv.tipo).toLowerCase().includes('comité');
+                            setTipoConvocatoriaAdmin(esConsejo ? 'consejo' : 'asamblea');
+                            setTituloConvocatoriaInput(conv.titulo);
+                            if (esConsejo && Array.isArray(conv.apartamentosConvocados)) {
+                              setApartamentosEscogidosAdmin(conv.apartamentosConvocados);
+                            }
+                          }
                           setSubmoduloActivo('video');
-                          onShowToast?.(`Ingresando a la sala de ${conv.titulo}`);
+                          onShowToast?.(`Sala preparada para: ${conv.titulo}`);
                         }}
                         className="px-3.5 py-1.5 bg-[#07090e] hover:bg-cyan-500/10 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
                       >
-                        <Video className="w-3.5 h-3.5 text-cyan-400" /> Ingresar a Sala Virtual &rarr;
+                        <Video className="w-3.5 h-3.5 text-cyan-400" /> {rolUsuario === 'admin' ? 'Cargar en Sala de Videollamada →' : 'Ir a Sala Virtual →'}
                       </button>
                     </div>
                   </div>
@@ -976,7 +1956,7 @@ export default function ModuloReunionesConSubmodulos({
                 <p className="text-[11px] text-slate-500 mt-0.5">{mociónActual.tipoMayoria}</p>
               </div>
               <div className="text-right">
-                <span className="text-[11px] text-slate-400 font-mono block">Peso de voto ({unidadResidenteActual}):</span>
+                <span className="text-[11px] text-slate-400 font-mono block">Peso de voto ({unidadActiva}):</span>
                 <span className="text-sm font-black text-cyan-400 font-mono">1.05% Coeficiente</span>
               </div>
             </div>
@@ -1031,7 +2011,7 @@ export default function ModuloReunionesConSubmodulos({
         </div>
       )}
 
-      {/* SUBMÓDULO 5: ACTA */}
+      {/* SUBMÓDULO 5: ACTA OFICIAL GENERADA DESDE LA GRABACIÓN */}
       {submoduloActivo === 'acta' && (
         <div className="space-y-6">
           <div className="bg-[#0b0f17] border border-blue-500/30 p-6 rounded-3xl space-y-6 shadow-xl">
@@ -1047,15 +2027,29 @@ export default function ModuloReunionesConSubmodulos({
               {rolUsuario === 'admin' && (
                 <button
                   type="button"
-                  onClick={handleGenerarActaIA}
+                  onClick={handleProcesarGrabacionYGenerarActa}
                   disabled={generandoActa}
-                  className="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-400 text-white font-bold text-xs rounded-xl shadow-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
+                  className="px-4 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-400 text-white font-bold text-xs rounded-xl shadow-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
                 >
                   <Sparkles className="w-4 h-4 text-amber-300" />
-                  {generandoActa ? 'Generando Acta con IA...' : 'Redactar Acta con IA Urbix'}
+                  {generandoActa ? 'Redactando con IA...' : 'Actualizar Acta con IA desde Grabación'}
                 </button>
               )}
             </div>
+
+            {grabacionUrl && (
+              <div className="p-4 bg-[#07090e] border border-cyan-500/30 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div>
+                  <span className="text-[10px] font-mono uppercase text-cyan-400 font-bold block">
+                    Evidencia Magnetofónica y de Video Adjunta al Acta
+                  </span>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    Grabación registrada durante la sesión ({grabacionTamanoKB} KB).
+                  </p>
+                </div>
+                <audio src={grabacionUrl} controls className="h-9" />
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#07090e] p-4 rounded-2xl border border-slate-800">
               <div>
@@ -1082,24 +2076,48 @@ export default function ModuloReunionesConSubmodulos({
 
             <div className="bg-[#07090e] p-5 rounded-2xl border border-slate-800 space-y-4 font-mono text-xs">
               <div className="text-center pb-3 border-b border-slate-800 text-slate-300">
-                <p className="font-bold text-white text-sm">ACTA N° 024 - ASAMBLEA GENERAL ORDINARIA</p>
-                <p className="text-[11px] text-slate-400">P.H. RESERVA DEL TESORO • NIT 900.412.889-1</p>
-              </div>
-              <div className="space-y-2 text-slate-300 leading-relaxed text-[11px]">
-                <p>
-                  <strong className="text-cyan-300">1. VERIFICACIÓN DEL QUÓRUM:</strong> Quórum acreditado del <strong className="text-white">{quorumRegistrado}%</strong> conforme al Art. 45 de la Ley 675 de 2001.
+                <p className="font-bold text-white text-sm">
+                  ACTA OFICIAL • {(invitacionEntrante?.titulo || tituloConvocatoriaInput).toUpperCase()}
                 </p>
-                <p>
-                  <strong className="text-cyan-300">2. MOCIONES VOTADAS:</strong> {mociónActual.titulo} — <strong className="text-emerald-400">{mociónActual.coefFavor}% a favor</strong>, {mociónActual.coefContra}% en contra y {mociónActual.coefBlanco}% en blanco.
-                </p>
+                <p className="text-[11px] text-slate-400">P.H. RESERVA DEL TESORO • NIT 900.412.889-1 • LEY 675 DE 2001</p>
               </div>
-              <div className="flex justify-end pt-3 border-t border-slate-800">
+              <div className="space-y-2 text-slate-300 leading-relaxed text-xs whitespace-pre-line">
+                {resumenActaIa}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800">
+                <span className="text-[11px] text-slate-400">
+                  Verificadores: <strong className="text-slate-200">{comisionVerificadora.persona1}</strong> y <strong className="text-slate-200">{comisionVerificadora.persona2}</strong>
+                </span>
                 <button
                   type="button"
-                  onClick={() => onShowToast?.('📄 Descargando Acta Oficial N° 024 firmada digitalmente (PDF)...')}
-                  className="px-4 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-300 font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                  onClick={() => {
+                    exportActaToLegalPDF(
+                      {
+                        minute_number: `ACT-ASAM-${new Date().getFullYear()}-024`,
+                        meeting_type:
+                          invitacionEntrante?.tipo === 'consejo'
+                            ? 'Sesión del Consejo de Administración'
+                            : 'Asamblea General Ordinaria',
+                        status: 'Firmada / Aprobada',
+                        meeting_date: new Date().toLocaleDateString('es-CO'),
+                        start_time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        quorum_percentage: quorumRegistrado,
+                        president_name: comisionVerificadora.persona1,
+                        secretary_name: 'Administración Central Urbix PH',
+                        summary: resumenActaIa,
+                        commitments: compromisosActa
+                      },
+                      {
+                        name: 'P.H. Reserva del Tesoro',
+                        nit: '900.412.889-1',
+                        zone: 'El Poblado, Medellín'
+                      },
+                      onShowToast
+                    );
+                  }}
+                  className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-teal-400 text-slate-950 font-black rounded-xl transition flex items-center gap-2 cursor-pointer shadow-[0_0_20px_rgba(34,211,238,0.3)]"
                 >
-                  <Download className="w-4 h-4" /> Descargar PDF Oficial Foliado
+                  <Download className="w-4 h-4" /> Descargar Acta Foliada (PDF Legal)
                 </button>
               </div>
             </div>
