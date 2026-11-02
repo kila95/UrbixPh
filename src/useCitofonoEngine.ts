@@ -29,22 +29,17 @@ export function useCitofonoEngine({
     nombre: string;
     motivo?: string;
     origen: string;
+    offer?: any;
   } | null>(null);
   const [segundos, setSegundos] = useState(0);
-  const [colaLlamadas, setColaLlamadas] = useState<Array<{
-    unidad: string;
-    nombre: string;
-    motivo: string;
-    espera: string;
-  }>>([]);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const canalRef = useRef<any>(null);
+  const pendingOfferRef = useRef<any>(null);
 
   useEffect(() => {
-    // Instanciar audio de fondo para reproducir al interlocutor
     if (!remoteAudioRef.current && typeof window !== 'undefined') {
       const audio = new Audio();
       audio.autoplay = true;
@@ -55,51 +50,47 @@ export function useCitofonoEngine({
       config: { broadcast: { self: false } }
     });
 
-    // 1. Alguien inicia llamada
+    // 1. Recibir solicitud con la oferta SDP incluida directamente
     canal.on('broadcast', { event: 'solicitar_llamada' }, ({ payload }) => {
+      console.log('Solicitud entrante recibida:', payload);
       if (miRol === 'vigilante' && payload.destino === 'Garita') {
+        pendingOfferRef.current = payload.offer;
         setLlamadaActiva({
           unidad: payload.unidad,
           nombre: payload.nombre,
           motivo: payload.motivo || 'Llamada directa desde citófono',
-          origen: 'residente'
+          origen: 'residente',
+          offer: payload.offer
         });
         setEstado('entrante');
-        // Agregar a la cola si no está
-        setColaLlamadas(prev => {
-          if (prev.some(c => c.unidad === payload.unidad)) return prev;
-          return [{ unidad: payload.unidad, nombre: payload.nombre, motivo: payload.motivo || 'Consulta rápida', espera: '00:05s' }, ...prev];
-        });
       } else if (miRol === 'residente' && payload.destino === miUnidad) {
+        pendingOfferRef.current = payload.offer;
         setLlamadaActiva({
           unidad: 'Portería Principal',
           nombre: payload.nombre || 'Guarda en Turno',
-          origen: 'vigilante'
+          origen: 'vigilante',
+          offer: payload.offer
         });
         setEstado('entrante');
       }
     });
 
-    // 2. Intercambio de Oferta WebRTC
-    canal.on('broadcast', { event: 'webrtc_offer' }, async ({ payload }) => {
-      const esParaMi = (miRol === 'vigilante' && payload.destino === 'Garita') ||
-                       (miRol === 'residente' && payload.destino === miUnidad);
-      if (esParaMi) {
-        (window as any).__pendingOffer = payload.offer;
-      }
-    });
-
-    // 3. Respuesta WebRTC al contestar
+    // 2. Respuesta al contestar
     canal.on('broadcast', { event: 'webrtc_answer' }, async ({ payload }) => {
+      console.log('Respuesta recibida:', payload);
       const esMiLlamada = (miRol === 'residente' && payload.destino === miUnidad) ||
                           (miRol === 'vigilante' && payload.destino === 'Garita');
       if (esMiLlamada && pcRef.current) {
-        await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
-        setEstado('conectado');
+        try {
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
+          setEstado('conectado');
+        } catch (e) {
+          console.error('Error al fijar remote description:', e);
+        }
       }
     });
 
-    // 4. Candidatos ICE de red
+    // 3. Candidatos ICE
     canal.on('broadcast', { event: 'webrtc_ice' }, async ({ payload }) => {
       const esParaMi = (miRol === 'vigilante' && payload.destino === 'Garita') ||
                        (miRol === 'residente' && payload.destino === miUnidad);
@@ -107,12 +98,12 @@ export function useCitofonoEngine({
         try {
           await pcRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
         } catch (e) {
-          console.warn('Candidato ICE:', e);
+          console.warn('Aviso candidato ICE:', e);
         }
       }
     });
 
-    // 5. Fin de la llamada
+    // 4. Fin de llamada
     canal.on('broadcast', { event: 'terminar_llamada' }, ({ payload }) => {
       const involucrado = (miRol === 'vigilante' && (payload.destino === 'Garita' || payload.origen === 'Garita')) ||
                           (miRol === 'residente' && (payload.destino === miUnidad || payload.unidad === miUnidad));
@@ -128,9 +119,9 @@ export function useCitofonoEngine({
       supabase.removeChannel(canal);
       cerrarConexion(false);
     };
-  }, [tenantId, miRol, miUnidad, miNombre]);
+  }, [tenantId, miRol, miUnidad]);
 
-  // Cronómetro de llamada activa
+  // Cronómetro
   useEffect(() => {
     let t: any;
     if (estado === 'conectado') {
@@ -141,7 +132,7 @@ export function useCitofonoEngine({
     return () => clearInterval(t);
   }, [estado]);
 
-  // A. Iniciar llamada hacia Garita o hacia un Apartamento
+  // Iniciar llamada
   const iniciarLlamada = async (destinoApto?: string) => {
     const destinoFinal = miRol === 'residente' ? 'Garita' : (destinoApto || 'Torre 2 - 301');
     setEstado('llamando');
@@ -152,7 +143,7 @@ export function useCitofonoEngine({
     });
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       localStreamRef.current = stream;
 
       const pc = new RTCPeerConnection(ICE_CONFIG);
@@ -187,29 +178,29 @@ export function useCitofonoEngine({
           unidad: miUnidad,
           nombre: miNombre,
           destino: destinoFinal,
-          motivo: 'Llamada directa desde citófono'
+          motivo: 'Autorización ingreso domicilio farmacia',
+          offer: offer
         }
       });
-
-      canalRef.current?.send({
-        type: 'broadcast',
-        event: 'webrtc_offer',
-        payload: { destino: destinoFinal, offer }
-      });
-    } catch (err) {
-      console.error('Error micrófono:', err);
-      alert('Debes permitir el acceso al micrófono en el navegador para usar el citófono.');
+    } catch (err: any) {
+      console.error('Error al iniciar llamada:', err);
+      alert(`No se pudo acceder al micrófono: ${err.message || 'Permiso denegado'}`);
       cerrarConexion(false);
     }
   };
 
-  // B. Contestar llamada entrante
+  // Contestar llamada
   const contestarLlamada = async () => {
-    const pendingOffer = (window as any).__pendingOffer;
+    const offerToUse = pendingOfferRef.current || llamadaActiva?.offer;
     const destinoRespuesta = miRol === 'vigilante' ? (llamadaActiva?.unidad || 'Torre 2 - 301') : 'Garita';
 
+    if (!offerToUse) {
+      alert('Error: La oferta de audio no llegó a tiempo. Vuelve a intentar marcar.');
+      return;
+    }
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       localStreamRef.current = stream;
 
       const pc = new RTCPeerConnection(ICE_CONFIG);
@@ -234,28 +225,24 @@ export function useCitofonoEngine({
         }
       };
 
-      if (pendingOffer) {
-        await pc.setRemoteDescription(new RTCSessionDescription(pendingOffer));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
+      await pc.setRemoteDescription(new RTCSessionDescription(offerToUse));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
 
-        canalRef.current?.send({
-          type: 'broadcast',
-          event: 'webrtc_answer',
-          payload: { destino: destinoRespuesta, answer }
-        });
-      }
+      canalRef.current?.send({
+        type: 'broadcast',
+        event: 'webrtc_answer',
+        payload: { destino: destinoRespuesta, answer }
+      });
 
       setEstado('conectado');
-      // Quitar de la cola de espera en vigilante
-      setColaLlamadas(prev => prev.filter(c => c.unidad !== llamadaActiva?.unidad));
-    } catch (err) {
-      console.error('Error al contestar:', err);
+    } catch (err: any) {
+      console.error('Error al contestar citófono:', err);
+      alert(`Error al contestar: ${err.message || 'Verifica permisos del micrófono'}`);
       cerrarConexion(true);
     }
   };
 
-  // C. Colgar llamada
   const colgarLlamada = () => {
     cerrarConexion(true);
   };
@@ -277,7 +264,7 @@ export function useCitofonoEngine({
       localStreamRef.current.getTracks().forEach(t => t.stop());
       localStreamRef.current = null;
     }
-    (window as any).__pendingOffer = null;
+    pendingOfferRef.current = null;
     setLlamadaActiva(null);
     setEstado('disponible');
   };
@@ -293,7 +280,7 @@ export function useCitofonoEngine({
     segundos,
     tiempoFormateado: formatearTiempo(segundos),
     llamadaActiva,
-    colaLlamadas,
+    colaLlamadas: [],
     iniciarLlamada,
     contestarLlamada,
     colgarLlamada

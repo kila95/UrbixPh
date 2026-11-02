@@ -51,22 +51,13 @@ export default function CitofonoVirtualEnterprise({
   const [estadoGarita, setEstadoGarita] = useState<'disponible' | 'ocupado'>('disponible');
 
   // Cola de residentes llamando a portería (vista vigilante)
-  const [colaLlamadasGarita, setColaLlamadasGarita] = useState([
-    {
-      id: 'call_1',
-      unidad: 'Torre 2 - 301',
-      residente: 'Esteban Ochoa Mesa',
-      motivo: 'Autorización ingreso domicilio farmacia',
-      tiempoEspera: '00:18s'
-    },
-    {
-      id: 'call_2',
-      unidad: 'Torre 1 - 502',
-      residente: 'Martha Lucía Gómez',
-      motivo: 'Consulta llegada de paquete Servientrega',
-      tiempoEspera: '00:45s'
-    }
-  ]);
+  const [colaLlamadasGarita, setColaLlamadasGarita] = useState<Array<{
+    id: string;
+    unidad: string;
+    residente: string;
+    motivo: string;
+    tiempoEspera: string;
+  }>>([]);
 
   // Directorio rápido de unidades para marcado directo desde Garita
   const directorioUnidades = [
@@ -259,124 +250,156 @@ export default function CitofonoVirtualEnterprise({
             )}
           </div>
 
-          {/* ESTADO 1: EN COLA DE ESPERA */}
-          {enColaEspera ? (
-            <div className="space-y-5 animate-fadeIn">
-              <div className="w-24 h-24 bg-amber-500/20 border border-amber-500/40 rounded-full mx-auto flex items-center justify-center text-amber-400 shadow-[0_0_30px_rgba(245,158,11,0.2)]">
-                <Users className="w-10 h-10 animate-pulse" />
-              </div>
-              <div>
-                <h4 className="text-lg font-black text-white">Vigilante en otra llamada</h4>
-                <p className="text-xs text-amber-300 font-mono mt-1">
-                  Estás en la cola de espera. Posición: <strong className="text-white text-base">#{posicionCola}</strong>
-                </p>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  El sistema te conectará automáticamente cuando sea tu turno.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={cancelarCola}
-                className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-6 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer"
-              >
-                Cancelar y Salir de la Cola
-              </button>
-            </div>
-          ) : !enLlamada ? (
-            /* ESTADO 2: DISPONIBLE / RECEPCIÓN DE LLAMADA ENTRANTE */
-            <div className="space-y-4 animate-fadeIn">
-              <div
-                className={`w-24 h-24 rounded-full mx-auto flex items-center justify-center transition ${
-                  esVigilante && colaLlamadasGarita.length > 0
-                    ? 'bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.3)] animate-pulse'
-                    : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.15)]'
-                }`}
-              >
-                {esVigilante && colaLlamadasGarita.length > 0 ? (
-                  <PhoneCall className="w-10 h-10 animate-bounce text-emerald-400" />
-                ) : (
-                  <Phone className="w-10 h-10 text-emerald-400" />
-                )}
-              </div>
-              <div>
-                <h4 className="text-lg font-black text-white">
-                  {esVigilante
-                    ? colaLlamadasGarita.length > 0
-                      ? `🔔 Llamada Entrante: ${colaLlamadasGarita[0].unidad} (${colaLlamadasGarita[0].residente})`
-                      : '🟢 Disponible para Llamadas'
-                    : 'Llamar a Portería / Garita'}
-                </h4>
-                <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
-                  {esVigilante
-                    ? colaLlamadasGarita.length > 0
-                      ? `Motivo: "${colaLlamadasGarita[0].motivo}". Presiona el botón para contestar de inmediato.`
-                      : 'La consola de portería está lista. Selecciona un apartamento del directorio para marcar o aguarda llamadas entrantes.'
-                    : estadoGarita === 'disponible'
-                    ? 'Presiona el botón para entablar comunicación directa por voz con el guarda de turno.'
-                    : '⚠️ La línea está ocupada. Si llamas, ingresarás a la cola de espera automática.'}
-                </p>
-              </div>
+          {esVigilante ? (
+            /* CONSOLA DE VIGILANTE DEDICADA Y 100% DINÁMICA */
+            <div className="w-full space-y-5">
+              {/* 1. ESTADO EN ESPERA (NADIE ESTÁ LLAMANDO) */}
+              {estado === 'disponible' && (
+                <div className="space-y-4 py-8">
+                  <div className="w-20 h-20 mx-auto rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500">
+                    <Phone className="w-8 h-8 opacity-40" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-slate-300 font-mono">
+                      Línea en Espera
+                    </h4>
+                    <p className="text-xs text-slate-500 font-mono mt-1">
+                      Esperando llamadas entrantes de residentes o marca desde el directorio.
+                    </p>
+                  </div>
+                  <span className="inline-block px-3 py-1 rounded-full text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    ● Garita Lista para Recibir
+                  </span>
+                </div>
+              )}
 
-              {esVigilante ? (
-                colaLlamadasGarita.length > 0 ? (
+              {/* 2. ESTADO ENTRANTE (CUANDO EL RESIDENTE MARCA EN VIVO) */}
+              {estado === 'entrante' && (
+                <div className="space-y-4 py-4 animate-pulse">
+                  <div className="w-20 h-20 mx-auto rounded-full bg-cyan-950/60 border-2 border-cyan-400 flex items-center justify-center text-cyan-300 shadow-[0_0_25px_rgba(0,242,254,0.4)]">
+                    <PhoneCall className="w-9 h-9 animate-bounce text-cyan-400" />
+                  </div>
+
+                  <div>
+                    <span className="text-[11px] font-mono uppercase bg-amber-500/10 text-amber-300 border border-amber-500/30 px-3 py-0.5 rounded-full font-bold">
+                      🔔 Llamada Entrante: {llamadaActiva?.unidad || 'Torre 2 - 301'}
+                    </span>
+                    <h3 className="text-lg font-black text-white font-mono mt-2">
+                      {llamadaActiva?.nombre || 'Residente'}
+                    </h3>
+                    <p className="text-xs text-slate-400 font-mono mt-1">
+                      Motivo: &ldquo;{llamadaActiva?.motivo || 'Llamada a portería'}&rdquo;
+                    </p>
+                  </div>
+
                   <button
                     type="button"
-                    onClick={() => atenderLlamadaDeCola(colaLlamadasGarita[0])}
-                    className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-8 py-3.5 rounded-2xl text-xs transition cursor-pointer shadow-[0_0_20px_rgba(16,185,129,0.4)] inline-flex items-center gap-2 animate-bounce"
+                    onClick={contestarLlamada}
+                    className="w-full max-w-xs mx-auto bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3.5 px-6 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(16,185,129,0.4)] flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    <PhoneCall className="w-4 h-4" /> Contestar a {colaLlamadasGarita[0].unidad}
+                    <PhoneCall className="w-4 h-4" />
+                    Contestar a {llamadaActiva?.unidad || 'Torre 2 - 301'}
                   </button>
-                ) : (
-                  <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900/80 border border-slate-800 rounded-2xl text-xs font-mono text-emerald-400">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    Línea de Portería Libre • Listo para recibir o marcar
+                </div>
+              )}
+
+              {/* 3. ESTADO CONECTADO (AUDIO ACTIVO EN VIVO) */}
+              {estado === 'conectado' && (
+                <div className="space-y-4 py-4">
+                  <div className="w-20 h-20 mx-auto rounded-full bg-emerald-950/60 border-2 border-emerald-400 flex items-center justify-center text-emerald-300 shadow-[0_0_25px_rgba(16,185,129,0.4)]">
+                    <Phone className="w-9 h-9 text-emerald-400" />
                   </div>
-                )
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => intentarLlamada(unidadConectada)}
-                  className="bg-gradient-to-r from-cyan-500 to-teal-400 hover:opacity-90 text-slate-950 font-black px-8 py-3.5 rounded-2xl text-xs transition cursor-pointer shadow-[0_0_20px_rgba(34,211,238,0.3)] inline-flex items-center gap-2"
-                >
-                  <PhoneCall className="w-4 h-4" />{' '}
-                  {estadoGarita === 'disponible'
-                    ? 'Iniciar Llamada a Garita'
-                    : 'Llamar (Entrar en Cola de Espera)'}
-                </button>
+
+                  <div>
+                    <span className="text-[11px] font-mono uppercase bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 px-3 py-0.5 rounded-full font-bold">
+                      ● COMUNICACIÓN ACTIVA ({tiempoFormateado})
+                    </span>
+                    <h3 className="text-lg font-black text-white font-mono mt-2">
+                      {llamadaActiva?.unidad || unidadConectada} {llamadaActiva?.nombre ? `(${llamadaActiva.nombre})` : ''}
+                    </h3>
+                    <p className="text-xs text-cyan-400 font-mono mt-1">
+                      Audio WebRTC bidireccional transmitiendo
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setAudioActivo(!audioActivo)}
+                      className={`p-3 rounded-2xl text-xs font-bold font-mono transition cursor-pointer flex items-center gap-1.5 ${
+                        audioActivo ? 'bg-slate-800 text-white border border-slate-700' : 'bg-amber-500 text-slate-950 font-black'
+                      }`}
+                    >
+                      {audioActivo ? <Mic className="w-4 h-4 text-emerald-400" /> : <MicOff className="w-4 h-4" />}
+                      {audioActivo ? 'Micrófono Abierto' : 'Micrófono Silenciado'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={colgarLlamadaAccion}
+                      className="w-full max-w-xs mx-auto bg-rose-600 hover:bg-rose-500 text-white font-black py-3.5 px-6 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(244,63,94,0.4)] flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <PhoneOff className="w-4 h-4" />
+                      Finalizar Llamada
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           ) : (
-            /* ESTADO 3: EN LLAMADA ACTIVA */
-            <div className="space-y-6 animate-fadeIn">
-              <div className="w-24 h-24 bg-rose-500/20 border border-rose-500/40 rounded-full mx-auto flex items-center justify-center text-rose-400 shadow-[0_0_30px_rgba(244,63,94,0.3)]">
-                <PhoneCall className="w-10 h-10 animate-bounce" />
-              </div>
-              <div>
-                <h4 className="text-lg font-black text-white">🔴 En Llamada con {unidadConectada}</h4>
-                <p className="text-xs text-emerald-400 font-mono mt-1">
-                  Canal de audio WebRTC seguro activo en tiempo real
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setAudioActivo(!audioActivo)}
-                  className={`p-3 rounded-2xl text-xs font-bold font-mono transition cursor-pointer flex items-center gap-1.5 ${
-                    audioActivo ? 'bg-slate-800 text-white border border-slate-700' : 'bg-amber-500 text-slate-950 font-black'
-                  }`}
-                >
-                  {audioActivo ? <Mic className="w-4 h-4 text-emerald-400" /> : <MicOff className="w-4 h-4" />}
-                  {audioActivo ? 'Micrófono Abierto' : 'Micrófono Silenciado'}
-                </button>
-                <button
-                  type="button"
-                  onClick={colgarLlamada}
-                  className="bg-rose-600 hover:bg-rose-500 text-white font-black px-6 py-3 rounded-2xl text-xs transition cursor-pointer inline-flex items-center gap-2 shadow-lg shadow-rose-500/20"
-                >
-                  <PhoneOff className="w-4 h-4" /> Colgar / Finalizar
-                </button>
-              </div>
+            /* CONSOLA DE RESIDENTE */
+            <div className="w-full space-y-4">
+              {estado === 'entrante' ? (
+                <div className="space-y-4 animate-pulse">
+                  <div className="w-20 h-20 mx-auto rounded-full bg-cyan-950/60 border-2 border-cyan-400 flex items-center justify-center text-cyan-300 shadow-[0_0_25px_rgba(0,242,254,0.4)]">
+                    <PhoneCall className="w-9 h-9 animate-bounce text-cyan-400" />
+                  </div>
+                  <div>
+                    <span className="text-[11px] font-mono uppercase bg-amber-500/10 text-amber-300 border border-amber-500/30 px-3 py-0.5 rounded-full font-bold">
+                      🔔 Llamada de Portería
+                    </span>
+                    <h3 className="text-lg font-black text-white font-mono mt-2">
+                      Portería Principal
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={contestarLlamada}
+                    className="w-full max-w-xs mx-auto bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3 px-6 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(16,185,129,0.4)] flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <PhoneCall className="w-4 h-4" /> Contestar
+                  </button>
+                </div>
+              ) : estado === 'conectado' ? (
+                <div className="space-y-4">
+                  <div className="w-20 h-20 mx-auto rounded-full bg-emerald-950/60 border-2 border-emerald-400 flex items-center justify-center text-emerald-300">
+                    <Phone className="w-9 h-9 text-emerald-400" />
+                  </div>
+                  <h4 className="text-lg font-black text-white font-mono">
+                    En Llamada con Portería ({tiempoFormateado})
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={colgarLlamadaAccion}
+                    className="bg-rose-600 hover:bg-rose-500 text-white font-black py-3 px-6 rounded-2xl text-xs font-mono uppercase tracking-wider transition cursor-pointer"
+                  >
+                    Colgar
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="w-20 h-20 mx-auto rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-cyan-400">
+                    <Phone className="w-8 h-8" />
+                  </div>
+                  <h4 className="text-base font-bold text-white font-mono">Llamar a Portería</h4>
+                  <button
+                    type="button"
+                    onClick={() => intentarLlamada()}
+                    className="bg-[#00f2fe] hover:bg-cyan-300 text-slate-950 font-black py-3 px-6 rounded-2xl text-xs font-mono uppercase tracking-wider transition cursor-pointer"
+                  >
+                    Iniciar Llamada a Garita
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
