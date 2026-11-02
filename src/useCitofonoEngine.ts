@@ -40,13 +40,17 @@ export function useCitofonoEngine({
   const canalRef = useRef<any>(null);
   const pendingOfferRef = useRef<any>(null);
 
+  // 1. Asegurar el elemento de audio remoto
   useEffect(() => {
     if (!remoteAudioRef.current && typeof window !== 'undefined') {
       const audio = new Audio();
       audio.autoplay = true;
+      (audio as any).playsInline = true;
       remoteAudioRef.current = audio;
     }
+  }, []);
 
+  useEffect(() => {
     const canal = supabase.channel(`citofonia_${tenantId}`, {
       config: { broadcast: { self: false } }
     });
@@ -133,6 +137,40 @@ export function useCitofonoEngine({
     return () => clearInterval(t);
   }, [estado]);
 
+  // 2. FUNCIÓN DE CAPTURA SEGURA (Tanto en iniciarLlamada como en contestarLlamada)
+  const configurarStreamLocal = async (pc: RTCPeerConnection) => {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      },
+      video: false
+    });
+
+    localStreamRef.current = stream;
+
+    // FORZAR QUE EL MICRÓFONO LOCAL ESTÉ ACTIVO (NO MUDO)
+    stream.getAudioTracks().forEach((track) => {
+      track.enabled = true; // <-- CRÍTICO: Garantiza que no arranque silenciado
+      pc.addTrack(track, stream);
+    });
+
+    // ESCUCHAR Y FORZAR REPRODUCCIÓN DEL AUDIO QUE LLEGA DEL OTRO LADO
+    pc.ontrack = (event) => {
+      console.log('🔊 Pista de audio remota recibida con éxito:', event.streams);
+      if (remoteAudioRef.current && event.streams && event.streams[0]) {
+        remoteAudioRef.current.srcObject = event.streams[0];
+        remoteAudioRef.current.volume = 1.0;
+        remoteAudioRef.current.play().catch((err) => {
+          console.warn('El navegador requirió interacción para reproducir audio:', err);
+        });
+      }
+    };
+
+    return stream;
+  };
+
   // Iniciar llamada
   const iniciarLlamada = async (destinoApto?: string) => {
     const destinoFinal = miRol === 'residente' ? 'Garita' : (destinoApto || 'Torre 2 - 301');
@@ -144,20 +182,10 @@ export function useCitofonoEngine({
     });
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      localStreamRef.current = stream;
-
       const pc = new RTCPeerConnection(ICE_CONFIG);
       pcRef.current = pc;
 
-      stream.getTracks().forEach(t => pc.addTrack(t, stream));
-
-      pc.ontrack = (event) => {
-        if (remoteAudioRef.current) {
-          remoteAudioRef.current.srcObject = event.streams[0];
-          remoteAudioRef.current.play().catch(console.error);
-        }
-      };
+      await configurarStreamLocal(pc);
 
       pc.onicecandidate = (event) => {
         if (event.candidate && canalRef.current) {
@@ -201,20 +229,10 @@ export function useCitofonoEngine({
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      localStreamRef.current = stream;
-
       const pc = new RTCPeerConnection(ICE_CONFIG);
       pcRef.current = pc;
 
-      stream.getTracks().forEach(t => pc.addTrack(t, stream));
-
-      pc.ontrack = (event) => {
-        if (remoteAudioRef.current) {
-          remoteAudioRef.current.srcObject = event.streams[0];
-          remoteAudioRef.current.play().catch(console.error);
-        }
-      };
+      await configurarStreamLocal(pc);
 
       pc.onicecandidate = (event) => {
         if (event.candidate && canalRef.current) {
