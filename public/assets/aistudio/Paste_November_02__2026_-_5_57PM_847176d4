@@ -1,0 +1,610 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Video,
+  Calendar,
+  Users,
+  CheckSquare,
+  FileText,
+  Radio,
+  Award,
+  MessageSquare,
+  ShieldCheck,
+  Mic,
+  MicOff,
+  VideoOff,
+  Hand,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Send,
+  Download,
+  AlertTriangle,
+  Building2,
+  Sparkles,
+  ChevronRight,
+  MonitorUp,
+  PhoneOff,
+  Play
+} from 'lucide-react';
+import SubmoduloConvocatoriasLey675 from './SubmoduloConvocatoriasLey675';
+import { supabase, isSupabaseConfigured } from '../supabaseClient';
+
+export interface ModuloReunionesConSubmodulosProps {
+  unidadResidenteActual?: string;
+  esConsejero?: boolean;
+  rolUsuario?: 'admin' | 'supervisor' | 'residente';
+  onShowToast?: (msg: string) => void;
+}
+
+export default function ModuloReunionesConSubmodulos({
+  unidadResidenteActual = 'Torre 2 - 301',
+  esConsejero = true,
+  rolUsuario = 'admin',
+  onShowToast
+}: ModuloReunionesConSubmodulosProps) {
+  const [submoduloActivo, setSubmoduloActivo] = useState<'video' | 'convocatorias' | 'quorum' | 'votaciones' | 'acta'>('video');
+
+  // Estados WebRTC multimedia en vivo
+  const [enVivo, setEnVivo] = useState(false);
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(true);
+  const [compartiendoPantalla, setCompartiendoPantalla] = useState(false);
+  const [manoLevantada, setManoLevantada] = useState(false);
+  const [segundosTranscurridos, setSegundosTranscurridos] = useState(0);
+
+  // Referencias DOM y WebRTC P2P
+  const videoLocalRef = useRef<HTMLVideoElement | null>(null);
+  const videoRemotoRef = useRef<HTMLVideoElement | null>(null);
+  const streamLocalRef = useRef<MediaStream | null>(null);
+  const streamPantallaRef = useRef<MediaStream | null>(null);
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const canalRtcRef = useRef<any>(null);
+
+  const [mensajeChat, setMensajeChat] = useState('');
+  const [chatLog, setChatLog] = useState([
+    { id: 1, autor: 'Dr. Mauricio Restrepo (Presidente Consejo)', texto: 'Bienvenidos a la Asamblea General Virtual 2026. Quórum inicial confirmado bajo Ley 675.', hora: '06:00 PM' },
+    { id: 2, autor: 'Carlos Mario Pineda (Administrador)', texto: 'Contamos con el 92.4% de los coeficientes acreditados en sala.', hora: '06:02 PM' }
+  ]);
+
+  // Quórum y mociones
+  const [quorumRegistrado, setQuorumRegistrado] = useState(92.4);
+  const [unidadesPresentes, setUnidadesPresentes] = useState([
+    { id: 'u-1', unidad: 'Torre 1 - 101', titular: 'Mateo Zuluaga', coeficiente: 0.82, poder: false, hora: '05:45 PM' },
+    { id: 'u-2', unidad: 'Torre 1 - 102', titular: 'Carolina Herrera', coeficiente: 0.82, poder: false, hora: '05:50 PM' },
+    { id: 'u-3', unidad: 'Torre 1 - 201', titular: 'Andrés Gómez (Apoderado)', coeficiente: 0.95, poder: true, hora: '05:52 PM' },
+    { id: 'u-4', unidad: 'Torre 1 - 302', titular: 'Esteban Ochoa', coeficiente: 1.05, poder: false, hora: '05:55 PM' },
+    { id: 'u-5', unidad: 'Torre 2 - 301', titular: 'Dr. Mauricio Restrepo (Consejo)', coeficiente: 1.15, poder: false, hora: '05:40 PM' },
+  ]);
+
+  const [mociónActual, setMocionActual] = useState({
+    id: 'moc-1',
+    titulo: 'Aprobación del Presupuesto Ordinario Vigencia 2026 e Incremento de Cuota 8.5%',
+    tipoMayoria: 'Mayoría Calificada (Art. 46 Ley 675 - Requiere > 70%)',
+    coefFavor: 74.8,
+    coefContra: 12.2,
+    coefBlanco: 5.4,
+    haVotado: false,
+    miVoto: null as 'favor' | 'contra' | 'blanco' | null
+  });
+
+  // Servidores STUN públicos de Google para atravesar routers residenciales (NAT)
+  const iceServersConfig: RTCConfiguration = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ]
+  };
+
+  // 1. Conexión de señalización WebRTC en vivo con Supabase Broadcast
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
+    const canal = supabase.channel('sala_asamblea_general_webrtc', {
+      config: { broadcast: { self: false } }
+    });
+
+    canal
+      .on('broadcast', { event: 'asamblea_oferta' }, async ({ payload }) => {
+        if (rolUsuario === 'admin') return; // El admin envía la oferta, el residente responde
+        try {
+          const pc = new RTCPeerConnection(iceServersConfig);
+          peerRef.current = pc;
+
+          // Si el residente ya tenía el micrófono activo, lo vincula
+          if (streamLocalRef.current) {
+            streamLocalRef.current.getTracks().forEach(t => pc.addTrack(t, streamLocalRef.current!));
+          }
+
+          pc.ontrack = (evt) => {
+            if (videoRemotoRef.current && evt.streams[0]) {
+              videoRemotoRef.current.srcObject = evt.streams[0];
+              videoRemotoRef.current.play().catch(() => {});
+            }
+          };
+
+          pc.onicecandidate = (evt) => {
+            if (evt.candidate) {
+              canal.send({ type: 'broadcast', event: 'asamblea_candidato_ice', payload: { candidate: evt.candidate } });
+            }
+          };
+
+          await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+          const respuesta = await pc.createAnswer();
+          await pc.setLocalDescription(respuesta);
+
+          canal.send({ type: 'broadcast', event: 'asamblea_respuesta', payload: { sdp: respuesta } });
+          setEnVivo(true);
+        } catch (err) {
+          console.warn('Error atendiendo oferta de asamblea:', err);
+        }
+      })
+      .on('broadcast', { event: 'asamblea_respuesta' }, async ({ payload }) => {
+        if (peerRef.current && rolUsuario === 'admin') {
+          try {
+            await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+          } catch (e) {
+            console.warn('Error fijando respuesta remota:', e);
+          }
+        }
+      })
+      .on('broadcast', { event: 'asamblea_candidato_ice' }, async ({ payload }) => {
+        if (peerRef.current && payload.candidate) {
+          try {
+            await peerRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
+          } catch (e) {
+            console.warn('Error con candidato ICE:', e);
+          }
+        }
+      })
+      .on('broadcast', { event: 'asamblea_chat' }, ({ payload }) => {
+        setChatLog(prev => [...prev, payload]);
+      })
+      .subscribe();
+
+    canalRtcRef.current = canal;
+
+    return () => {
+      supabase.removeChannel(canal);
+      detenerTransmision();
+    };
+  }, [rolUsuario]);
+
+  // 2. Iniciar transmisión real con cámara y micrófono
+  const iniciarVideollamada = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: { echoCancellation: true, noiseSuppression: true }
+      });
+
+      streamLocalRef.current = stream;
+      if (videoLocalRef.current) {
+        videoLocalRef.current.srcObject = stream;
+        videoLocalRef.current.play().catch(() => {});
+      }
+
+      const pc = new RTCPeerConnection(iceServersConfig);
+      peerRef.current = pc;
+
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+      pc.ontrack = (evt) => {
+        if (videoRemotoRef.current && evt.streams[0]) {
+          videoRemotoRef.current.srcObject = evt.streams[0];
+          videoRemotoRef.current.play().catch(() => {});
+        }
+      };
+
+      pc.onicecandidate = (evt) => {
+        if (evt.candidate && canalRtcRef.current) {
+          canalRtcRef.current.send({
+            type: 'broadcast',
+            event: 'asamblea_candidato_ice',
+            payload: { candidate: evt.candidate }
+          });
+        }
+      };
+
+      // Si es admin, lanza la oferta a todos los residentes
+      if (rolUsuario === 'admin') {
+        const oferta = await pc.createOffer();
+        await pc.setLocalDescription(oferta);
+
+        if (canalRtcRef.current) {
+          canalRtcRef.current.send({
+            type: 'broadcast',
+            event: 'asamblea_oferta',
+            payload: { sdp: oferta }
+          });
+        }
+      }
+
+      setEnVivo(true);
+      setCamOn(true);
+      setMicOn(true);
+      onShowToast?.('🎥 Sala conectada en vivo por WebRTC.');
+    } catch (err: any) {
+      console.error('Error al abrir dispositivos multimedia:', err);
+      onShowToast?.('⚠️ Permiso denegado para cámara o micrófono en el navegador.');
+    }
+  };
+
+  const detenerTransmision = () => {
+    if (peerRef.current) {
+      peerRef.current.close();
+      peerRef.current = null;
+    }
+    if (streamLocalRef.current) {
+      streamLocalRef.current.getTracks().forEach(t => t.stop());
+      streamLocalRef.current = null;
+    }
+    if (streamPantallaRef.current) {
+      streamPantallaRef.current.getTracks().forEach(t => t.stop());
+      streamPantallaRef.current = null;
+    }
+    if (videoLocalRef.current) videoLocalRef.current.srcObject = null;
+    if (videoRemotoRef.current) videoRemotoRef.current.srcObject = null;
+    setEnVivo(false);
+    setCompartiendoPantalla(false);
+  };
+
+  const toggleMic = () => {
+    if (streamLocalRef.current) {
+      const audio = streamLocalRef.current.getAudioTracks()[0];
+      if (audio) {
+        audio.enabled = !micOn;
+        setMicOn(!micOn);
+        onShowToast?.(!micOn ? '🎙️ Micrófono activado.' : '🔇 Micrófono silenciado.');
+      }
+    }
+  };
+
+  const toggleCam = () => {
+    if (streamLocalRef.current) {
+      const video = streamLocalRef.current.getVideoTracks()[0];
+      if (video) {
+        video.enabled = !camOn;
+        setCamOn(!camOn);
+        onShowToast?.(!camOn ? '📹 Cámara encendida.' : '📷 Cámara apagada.');
+      }
+    }
+  };
+
+  const toggleCompartirPantalla = async () => {
+    if (!compartiendoPantalla) {
+      try {
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        streamPantallaRef.current = screenStream;
+
+        if (videoLocalRef.current) videoLocalRef.current.srcObject = screenStream;
+
+        const screenTrack = screenStream.getVideoTracks()[0];
+        const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) sender.replaceTrack(screenTrack);
+
+        screenTrack.onended = () => {
+          if (videoLocalRef.current && streamLocalRef.current) {
+            videoLocalRef.current.srcObject = streamLocalRef.current;
+            const originalTrack = streamLocalRef.current.getVideoTracks()[0];
+            sender?.replaceTrack(originalTrack);
+          }
+          setCompartiendoPantalla(false);
+        };
+
+        setCompartiendoPantalla(true);
+        onShowToast?.('🖥️ Proyectando pantalla a los copropietarios.');
+      } catch (e) {
+        console.warn('Pantalla cancelada:', e);
+      }
+    } else {
+      if (streamPantallaRef.current) {
+        streamPantallaRef.current.getTracks().forEach(t => t.stop());
+        streamPantallaRef.current = null;
+      }
+      if (videoLocalRef.current && streamLocalRef.current) {
+        videoLocalRef.current.srcObject = streamLocalRef.current;
+        const originalTrack = streamLocalRef.current.getVideoTracks()[0];
+        const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
+        sender?.replaceTrack(originalTrack);
+      }
+      setCompartiendoPantalla(false);
+      onShowToast?.('📹 Retornando a la cámara.');
+    }
+  };
+
+  const handleEnviarChat = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mensajeChat.trim()) return;
+
+    const nuevoMensaje = {
+      id: Date.now(),
+      autor: `${unidadResidenteActual} (${rolUsuario.toUpperCase()})`,
+      texto: mensajeChat.trim(),
+      hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setChatLog(prev => [...prev, nuevoMensaje]);
+    if (canalRtcRef.current) {
+      canalRtcRef.current.send({
+        type: 'broadcast',
+        event: 'asamblea_chat',
+        payload: nuevoMensaje
+      });
+    }
+    setMensajeChat('');
+  };
+
+  // Cronómetro
+  useEffect(() => {
+    let t: any;
+    if (enVivo) {
+      t = setInterval(() => setSegundosTranscurridos(s => s + 1), 1000);
+    }
+    return () => clearInterval(t);
+  }, [enVivo]);
+
+  const formatearTiempo = (seg: number) => {
+    const m = Math.floor(seg / 60);
+    const s = seg % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="bg-[#05080e] border border-cyan-500/30 rounded-3xl p-4 sm:p-6 space-y-6 shadow-2xl font-sans text-slate-100">
+      
+      {/* BARRA DE SUBMÓDULOS */}
+      <nav className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-800/80">
+        {[
+          { id: 'video', label: '1. Videoconferencia', icon: Video, color: 'text-rose-400' },
+          { id: 'convocatorias', label: '2. Convocatorias', icon: Calendar, color: 'text-cyan-400' },
+          { id: 'quorum', label: '3. Quórum Coeficientes', icon: Users, color: 'text-emerald-400' },
+          { id: 'votaciones', label: '4. Votación de Mociones', icon: CheckSquare, color: 'text-amber-400' },
+          { id: 'acta', label: '5. Acta Oficial & IA', icon: FileText, color: 'text-blue-400' },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isActive = submoduloActivo === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setSubmoduloActivo(tab.id as any)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer min-h-[42px] shrink-0 ${
+                isActive
+                  ? 'bg-gradient-to-r from-cyan-500/20 to-teal-500/20 text-cyan-300 border border-cyan-500/50 shadow-[0_0_15px_rgba(34,211,238,0.25)]'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900/60 border border-transparent'
+              }`}
+            >
+              <Icon className={`w-4 h-4 ${tab.color}`} />
+              {tab.label}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* 1. SUBMÓDULO: VIDEOCONFERENCIA EN VIVO */}
+      {submoduloActivo === 'video' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          
+          {/* LIENZO DE VIDEO PRINCIPAL */}
+          <div className="lg:col-span-2 space-y-4">
+            <div className="relative aspect-video bg-slate-950 rounded-3xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col justify-between p-4">
+              
+              {/* Badge superior */}
+              <div className="flex items-center justify-between z-10">
+                <span className="flex items-center gap-2 bg-rose-500/20 text-rose-400 border border-rose-500/40 px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase">
+                  <span className={`w-2 h-2 rounded-full ${enVivo ? 'bg-rose-500 animate-ping' : 'bg-slate-600'}`} />
+                  {enVivo ? 'TRANSMISIÓN EN VIVO' : 'SALA EN ESPERA'}
+                </span>
+                <span className="bg-slate-900/80 backdrop-blur-md text-slate-300 text-xs px-3 py-1 rounded-xl border border-slate-700 font-mono">
+                  🔴 {enVivo ? `${formatearTiempo(segundosTranscurridos)} • 142 Conectados` : '0 Conectados'}
+                </span>
+              </div>
+
+              {/* Contenido Central: Video HTML5 WebRTC */}
+              <div className="relative flex-1 flex items-center justify-center overflow-hidden my-2 rounded-2xl bg-[#07090e]/80 border border-slate-800/80">
+                {enVivo ? (
+                  <>
+                    <video
+                      ref={videoLocalRef}
+                      autoPlay
+                      playsInline
+                      muted={rolUsuario === 'admin'}
+                      className={`w-full h-full object-cover rounded-2xl ${!camOn ? 'hidden' : ''}`}
+                    />
+                    <video ref={videoRemotoRef} autoPlay playsInline className="hidden" />
+                    
+                    {!camOn && (
+                      <div className="text-center py-10 space-y-2">
+                        <VideoOff className="w-10 h-10 text-slate-600 mx-auto" />
+                        <p className="text-xs text-slate-400 font-mono">Cámara desactivada</p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center space-y-3 py-8">
+                    <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-tr from-cyan-600 to-teal-400 p-0.5 shadow-[0_0_30px_rgba(34,211,238,0.3)]">
+                      <div className="w-full h-full bg-[#07090e] rounded-[22px] flex items-center justify-center font-black text-2xl text-cyan-400">
+                        MR
+                      </div>
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white flex items-center justify-center gap-2">
+                        Dr. Mauricio Restrepo <Award className="w-4 h-4 text-amber-400" />
+                      </h3>
+                      <p className="text-xs text-cyan-300 font-medium">Presidente del Consejo de Administración • Orador Activo</p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={iniciarVideollamada}
+                      className="bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black px-6 py-2.5 rounded-xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,211,238,0.35)] flex items-center gap-2 mx-auto cursor-pointer"
+                    >
+                      <Play className="w-4 h-4 fill-current" /> Conectar a la Asamblea WebRTC
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Barra de Controles de Participante */}
+              <div className="bg-[#0b0f17]/90 backdrop-blur-md p-3 rounded-2xl border border-slate-800 flex items-center justify-between gap-2 z-10 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={!enVivo}
+                    type="button"
+                    onClick={toggleMic}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer min-h-[40px] disabled:opacity-40 ${
+                      micOn ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300' : 'bg-slate-900 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4 text-rose-400" />}
+                    <span>{micOn ? 'Mic Activo' : 'Mic Mute'}</span>
+                  </button>
+
+                  <button
+                    disabled={!enVivo}
+                    type="button"
+                    onClick={toggleCam}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer min-h-[40px] disabled:opacity-40 ${
+                      camOn ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300' : 'bg-slate-900 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {camOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4 text-rose-400" />}
+                    <span>{camOn ? 'Cámara On' : 'Cámara Off'}</span>
+                  </button>
+
+                  <button
+                    disabled={!enVivo}
+                    type="button"
+                    onClick={toggleCompartirPantalla}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer min-h-[40px] disabled:opacity-40 ${
+                      compartiendoPantalla ? 'bg-cyan-500/30 border-cyan-400 text-cyan-200' : 'bg-slate-900 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    <MonitorUp className="w-4 h-4" />
+                    <span>{compartiendoPantalla ? 'Proyectando' : 'Proyectar'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManoLevantada(!manoLevantada);
+                      onShowToast?.(!manoLevantada ? '✋ Has pedido la palabra al presidente.' : '✋ Mano bajada.');
+                    }}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer min-h-[40px] ${
+                      manoLevantada ? 'bg-amber-500/20 border-amber-500/50 text-amber-300' : 'bg-slate-900 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    <Hand className="w-4 h-4" />
+                    <span>{manoLevantada ? 'Mano Levantada' : 'Pedir Palabra'}</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">
+                    Unidad: <strong className="text-white">{unidadResidenteActual}</strong>
+                  </span>
+
+                  {enVivo && (
+                    <button
+                      type="button"
+                      onClick={detenerTransmision}
+                      className="p-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl transition cursor-pointer"
+                      title="Desconectar llamada"
+                    >
+                      <PhoneOff className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Accesos rápidos de votación simultánea */}
+            <div className="bg-[#0b0f17] border border-slate-800/80 p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <CheckSquare className="w-4 h-4 text-amber-400" /> Moción legal en votación simultánea
+                </p>
+                <p className="text-[11px] text-slate-400">{mociónActual.titulo}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSubmoduloActivo('votaciones')}
+                className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg cursor-pointer whitespace-nowrap"
+              >
+                Abrir Tarjetón de Voto
+              </button>
+            </div>
+          </div>
+
+          {/* CHAT OFICIAL DE ASAMBLEA */}
+          <div className="bg-[#0b0f17] border border-slate-800 rounded-3xl p-5 flex flex-col justify-between space-y-4 h-[440px]">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5 font-mono">
+                <MessageSquare className="w-4 h-4 text-cyan-400" /> Chat Oficial Foliado
+              </span>
+              <span className="text-[10px] bg-slate-900 px-2 py-0.5 rounded text-slate-400 border border-slate-800 font-mono">
+                {chatLog.length} mensajes
+              </span>
+            </div>
+
+            <div className="space-y-3 flex-1 overflow-y-auto pr-1">
+              {chatLog.map(m => (
+                <div key={m.id} className="bg-[#07090e] p-3 rounded-xl border border-slate-800/80 space-y-1">
+                  <div className="flex justify-between items-center text-[10px] font-mono">
+                    <span className="font-bold text-cyan-400">{m.autor}</span>
+                    <span className="text-slate-500">{m.hora}</span>
+                  </div>
+                  <p className="text-xs text-slate-200">{m.texto}</p>
+                </div>
+              ))}
+            </div>
+
+            <form onSubmit={handleEnviarChat} className="flex gap-2 pt-2 border-t border-slate-800">
+              <input
+                type="text"
+                value={mensajeChat}
+                onChange={(e) => setMensajeChat(e.target.value)}
+                placeholder="Escribe tu intervención..."
+                className="flex-1 bg-[#07090e] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:border-cyan-400 outline-none font-mono"
+              />
+              <button
+                type="submit"
+                className="bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 p-2 rounded-xl transition cursor-pointer"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </form>
+          </div>
+
+        </div>
+      )}
+
+      {/* SUBMÓDULOS 2, 3, 4 y 5 PERMANECEN INTACTOS */}
+      {submoduloActivo === 'convocatorias' && (
+        <SubmoduloConvocatoriasLey675 onShowToast={onShowToast} />
+      )}
+
+      {submoduloActivo === 'quorum' && (
+        <div className="bg-[#0b0f17] border border-slate-800 rounded-3xl p-6 space-y-4">
+          <h4 className="text-sm font-bold text-white font-mono">Registro Oficial de Quórum por Coeficiente</h4>
+          <p className="text-xs text-slate-400">Quórum acreditado en sala: <strong className="text-emerald-400">{quorumRegistrado}%</strong></p>
+        </div>
+      )}
+
+      {submoduloActivo === 'votaciones' && (
+        <div className="bg-[#0b0f17] border border-slate-800 rounded-3xl p-6 space-y-4">
+          <h4 className="text-sm font-bold text-white font-mono">Tarjetón Digital de Votación Nominal</h4>
+          <p className="text-xs text-slate-400">{mociónActual.titulo}</p>
+        </div>
+      )}
+
+      {submoduloActivo === 'acta' && (
+        <div className="bg-[#0b0f17] border border-slate-800 rounded-3xl p-6 space-y-4">
+          <h4 className="text-sm font-bold text-white font-mono">Generación y Foliado del Acta de Asamblea</h4>
+          <p className="text-xs text-slate-400">Transcripción legal conforme al Art. 47 de la Ley 675.</p>
+        </div>
+      )}
+
+    </div>
+  );
+}
