@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import { URBIX_COPILOT_SYSTEM_PROMPT } from "./src/urbixCopilotPrompt";
 
 dotenv.config();
 
@@ -492,6 +493,122 @@ Responde EXCLUSIVAMENTE con un JSON válido con esta estructura:
           status: "Borrador",
         },
       });
+    }
+  });
+
+  app.post("/api/copilot-chat", async (req, res) => {
+    const { prompt, residentContext, chatHistory } = req.body || {};
+    if (!prompt || typeof prompt !== "string") {
+      return res.status(400).json({ error: "El mensaje es obligatorio." });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "GEMINI_API_KEY no configurada en el servidor." });
+    }
+
+    let userPromptWithContext = prompt;
+    if (residentContext) {
+      userPromptWithContext = `[DATOS EN TIEMPO REAL DEL APARTAMENTO DEL RESIDENTE CONSULTANTE]:
+- Unidad / Inmueble: ${residentContext.unidad || 'Torre 2 - 301'}
+- Propietario / Residente: ${residentContext.propietario || 'Esteban Ochoa'}
+- Valor Cuota Ordinaria Mensual: $${Number(residentContext.cuotaMensual || 450000).toLocaleString('es-CO')} COP
+- Saldo Actual Pendiente de Pago: $${Number(residentContext.saldoPendiente || 0).toLocaleString('es-CO')} COP
+- Estado de Cartera: ${residentContext.estadoCartera || 'Al día'}
+- Fecha Próximo Vencimiento sin Recargo: ${residentContext.proximoVencimiento || '10 del mes en curso'}
+- Días antes de incurrir en mora / recargo: ${residentContext.diasParaMora ?? 9} días
+${residentContext.movimientos ? `- Historial de Movimientos Recientes: ${JSON.stringify(residentContext.movimientos)}` : ''}
+
+[PREGUNTA O REQUERIMIENTO DEL RESIDENTE]:
+"${prompt}"`;
+    }
+
+    // Convertir el historial previo al formato que espera Gemini SDK
+    const formattedHistory = Array.isArray(chatHistory)
+      ? chatHistory.map((msg: any) => ({
+          role: msg.remitente === 'usuario' || msg.role === 'user' ? 'user' : 'model',
+          parts: [{ text: String(msg.texto || msg.parts?.[0]?.text || '') }]
+        })).filter(item => Boolean(item.parts[0].text && !item.parts[0].text.startsWith('⏳') && !item.parts[0].text.startsWith('💬') && !item.parts[0].text.startsWith('👋') && !item.parts[0].text.startsWith('💳') && !item.parts[0].text.startsWith('🐕') && !item.parts[0].text.startsWith('🔊') && !item.parts[0].text.startsWith('👷') && !item.parts[0].text.startsWith('📦') && !item.parts[0].text.startsWith('⚖️') && !item.parts[0].text.startsWith('💭')))
+      : [];
+
+    const contents = [
+      ...formattedHistory,
+      {
+        role: 'user',
+        parts: [{ text: userPromptWithContext }]
+      }
+    ];
+
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: "gemini-3.8-flash",
+        contents: contents,
+        config: {
+          systemInstruction: URBIX_COPILOT_SYSTEM_PROMPT,
+        },
+      });
+
+      return res.json({ reply: response.text || "" });
+    } catch (err: any) {
+      console.error("Error en /api/copilot-chat:", err);
+      return res.status(500).json({ error: err.message || "Error al procesar consulta." });
+    }
+  });
+
+  app.post("/api/copilot-chat-stream", async (req, res) => {
+    const { prompt, residentContext } = req.body || {};
+    if (!prompt || typeof prompt !== "string") {
+      return res.status(400).json({ error: "El mensaje es obligatorio." });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "GEMINI_API_KEY no configurada en el servidor." });
+    }
+
+    let fullPrompt = prompt;
+    if (residentContext) {
+      fullPrompt = `[DATOS EN TIEMPO REAL DEL APARTAMENTO DEL RESIDENTE CONSULTANTE]:
+- Unidad / Inmueble: ${residentContext.unidad || 'Torre 2 - 301'}
+- Propietario / Residente: ${residentContext.propietario || 'Esteban Ochoa'}
+- Valor Cuota Ordinaria Mensual: $${Number(residentContext.cuotaMensual || 450000).toLocaleString('es-CO')} COP
+- Saldo Actual Pendiente de Pago: $${Number(residentContext.saldoPendiente || 0).toLocaleString('es-CO')} COP
+- Estado de Cartera: ${residentContext.estadoCartera || 'Al día'}
+- Fecha Próximo Vencimiento sin Recargo: ${residentContext.proximoVencimiento || '10 del mes en curso'}
+- Días antes de incurrir en mora / recargo: ${residentContext.diasParaMora ?? 9} días
+
+[PREGUNTA O REQUERIMIENTO DEL RESIDENTE]:
+"${prompt}"`;
+    }
+
+    try {
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+
+      const ai = new GoogleGenAI({ apiKey });
+      const responseStream = await ai.models.generateContentStream({
+        model: "gemini-3.8-flash",
+        contents: fullPrompt,
+        config: {
+          systemInstruction: URBIX_COPILOT_SYSTEM_PROMPT,
+        },
+      });
+
+      for await (const chunk of responseStream) {
+        if (chunk.text) {
+          res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+        }
+      }
+      res.write(`data: [DONE]\n\n`);
+      res.end();
+    } catch (err: any) {
+      console.error("Error en /api/copilot-chat-stream:", err);
+      if (!res.headersSent) {
+        return res.status(500).json({ error: err.message || "Error al procesar streaming." });
+      }
+      res.end();
     }
   });
 

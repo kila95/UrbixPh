@@ -3,6 +3,7 @@ import {
   Building2, Home, QrCode, Package, Send, Sparkles, Camera, Bot, User, Calendar, MessageSquare, Download, Store, Globe, Tag, Clock, Flame, MapPin, CheckCircle2, Share2, Copy, Car, Shield, AlertCircle, PhoneCall, LogOut
 } from 'lucide-react';
 import ResidenteEmprendimientosApp from './ResidenteEmprendimientosApp';
+import MercadilloVecinalModule from './MercadilloVecinalModule';
 import RedMarketplaceOfertasApp from './RedMarketplaceOfertasApp';
 import ResidenteModuloFinancieroApp from './ResidenteModuloFinancieroApp';
 import ResidenteMiApartamentoGeneral from './ResidenteMiApartamentoGeneral';
@@ -251,35 +252,233 @@ export default function ResidentPortalConsole({
   ]);
   const [inputChat, setInputChat] = useState('');
 
-  // Función para manejar el Chat Inteligente
-  const enviarMensajeIA = (e: any) => {
+  // Función para manejar el Chat Inteligente con IA Gemini en Vivo (Urbix Copilot Vecinal)
+  const enviarMensajeIA = async (e: any) => {
     e.preventDefault();
     if (!inputChat.trim()) return;
 
-    const mensajeUsuario = { id: Date.now().toString(), remitente: 'usuario', texto: inputChat };
-    setChatMensajes(prev => [...prev, mensajeUsuario]);
-    const consulta = inputChat.toLowerCase();
+    const textoUsuario = inputChat.trim();
+    const idUsuario = Date.now().toString();
+    const idIa = (Date.now() + 1).toString();
+
+    // 1. Detección de saludos y cortesías para respuesta ULTRA-RÁPIDA e INSTANTÁNEA (sin esperas de red)
+    const q = textoUsuario.toLowerCase().trim();
+    const esSaludo = q.includes('hola') || q.includes('buenas') || q.includes('saludos') || q.includes('como estas') || q.includes('cómo estás') || q.includes('que tal');
+    const esAgradecimiento = q.includes('gracias') || q.includes('agradezco') || q.includes('vale') || q.includes('ok') || q.includes('perfecto') || q.includes('chao');
+    const esConsultaGeneralApto = q.includes('mi apto') || q.includes('mi apartamento') || q.includes('saber de mi apto') || q.includes('mi cuenta') || q.includes('mi saldo') || q.includes('estado de mi apto');
+
+    if (esSaludo) {
+      const respuestaInmediata = `¡Hola, ${miEstadoCuenta.propietario}! 👋 Muy bien, gracias por preguntar. Soy tu **Urbix Copilot Vecinal**. ¿En qué te puedo colaborar hoy con respecto a tu apartamento ${miEstadoCuenta.unidad}, tus pagos de administración o las normas del conjunto?`;
+      setChatMensajes(prev => [
+        ...prev,
+        { id: idUsuario, remitente: 'usuario', texto: textoUsuario },
+        { id: idIa, remitente: 'ia', texto: respuestaInmediata }
+      ]);
+      setInputChat('');
+      return;
+    }
+
+    if (esAgradecimiento) {
+      const respuestaInmediata = `¡Con mucho gusto, ${miEstadoCuenta.propietario}! 😊 Quedo a tu entera disposición si necesitas alguna otra consulta sobre tu apartamento ${miEstadoCuenta.unidad} o el reglamento de la copropiedad.`;
+      setChatMensajes(prev => [
+        ...prev,
+        { id: idUsuario, remitente: 'usuario', texto: textoUsuario },
+        { id: idIa, remitente: 'ia', texto: respuestaInmediata }
+      ]);
+      setInputChat('');
+      return;
+    }
+
+    if (esConsultaGeneralApto) {
+      const respuestaInmediata = `🏢 **Información en Tiempo Real de tu Inmueble (${miEstadoCuenta.unidad}):**
+
+• **Propietario Registrado:** ${miEstadoCuenta.propietario}
+• **Cuota Mensual Ordinaria:** $${miEstadoCuenta.cuotaMensual.toLocaleString('es-CO')} COP
+• **Saldo Actual Pendiente:** $${miEstadoCuenta.saldoActual.toLocaleString('es-CO')} COP (Estado: **${miEstadoCuenta.estadoCartera}**)
+• **Próximo Vencimiento sin Recargo:** 10 de Noviembre de 2026 (faltan 9 días hábiles).
+
+¿Deseas consultar qué sucede si incurres en mora, revisar tus últimos pagos o radicar una solicitud a la administración?`;
+      setChatMensajes(prev => [
+        ...prev,
+        { id: idUsuario, remitente: 'usuario', texto: textoUsuario },
+        { id: idIa, remitente: 'ia', texto: respuestaInmediata }
+      ]);
+      setInputChat('');
+      return;
+    }
+
+    // 2. Para consultas normativas o complejas: Mostrar indicador breve y consultar con Timeout de 1.5s
+    const obtenerMensajeCargaContextual = (pregunta: string): string => {
+      if (pregunta.includes('saldo') || pregunta.includes('debo') || pregunta.includes('mora') || pregunta.includes('cuota')) {
+        return '💳 Verificando estado de cartera...';
+      }
+      if (pregunta.includes('mascota') || pregunta.includes('perro') || pregunta.includes('gato')) {
+        return '🐕 Consultando normativa de mascotas...';
+      }
+      if (pregunta.includes('ruido') || pregunta.includes('fiesta') || pregunta.includes('musica')) {
+        return '🔊 Consultando protocolo de convivencias...';
+      }
+      return '💭 Procesando consulta...';
+    };
+
+    const mensajeCarga = obtenerMensajeCargaContextual(q);
+    setChatMensajes(prev => [
+      ...prev,
+      { id: idUsuario, remitente: 'usuario', texto: textoUsuario },
+      { id: idIa, remitente: 'ia', texto: mensajeCarga }
+    ]);
     setInputChat('');
 
-    // Simulación de respuesta inteligente de la IA según el contexto de la copropiedad
-    setTimeout(() => {
-      let respuestaTexto = "Entendido. He registrado tu solicitud en el sistema de la copropiedad.";
-      
-      if (consulta.includes('mora') || consulta.includes('dejar de pagar') || consulta.includes('intereses')) {
-        respuestaTexto = `⚖️ **Consecuencias de la mora en Propiedad Horizontal (Ley 675):**\n\n1. **Intereses de mora:** Se causarán intereses moratorios a la tasa máxima legal permitida por la Superintendencia Financiera.\n2. **Cobro Jurídico:** Con más de 2 cuotas vencidas, la administración puede iniciar un proceso ejecutivo de cobro con posible embargo.\n3. **Restricciones:** Se pueden restringir derechos de uso de bienes comunes no esenciales (como el salón social).`;
-      } else if (consulta.includes('mudanza') || consulta.includes('horario')) {
-        respuestaTexto = "📦 **Normativa de Mudanzas (Ley 675 / Manual Interno):** Las mudanzas están permitidas de lunes a sábado de 8:00 AM a 5:00 PM. Debes notificar a portería con 24 horas de anticipación.";
-      } else if (consulta.includes('perros') || consulta.includes('mascota')) {
-        respuestaTexto = "🐕 **Normativa de Mascotas:** Permitidas según manual interno. En zonas comunes obligatoriamente deben transitar con correa y bozal si aplican razas de manejo especial.";
-      } else if (consulta.includes('saldo') || consulta.includes('cuenta') || consulta.includes('paz y salvo')) {
-        respuestaTexto = `💳 Tu cuota mensual es de $ ${miEstadoCuenta.cuotaMensual.toLocaleString()} COP. Actualmente te encuentras **Al día** con un saldo de $0 COP. ¡Felicitaciones!`;
-      } else if (consulta.includes('agua') || consulta.includes('luz') || consulta.includes('fuga') || consulta.includes('daño')) {
-        respuestaTexto = "🔧 ¡Reporte entendido! He clasificado esto como una **Urgencia Operativa** y acabo de notificar automáticamente al Supervisor Operativo en terreno para que envíe a la cuadrilla.";
+    try {
+      // AbortController con tiempo límite suficiente para que Gemini procese la conversación multinivel
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4500);
+
+      // Enviar consulta al backend pasando el historial de conversación y el contexto financiero
+      const resServer = await fetch('/api/copilot-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          prompt: textoUsuario,
+          chatHistory: chatMensajes,
+          residentContext: {
+            unidad: miEstadoCuenta.unidad,
+            propietario: miEstadoCuenta.propietario,
+            cuotaMensual: miEstadoCuenta.cuotaMensual,
+            saldoPendiente: miEstadoCuenta.saldoActual,
+            estadoCartera: miEstadoCuenta.estadoCartera,
+            proximoVencimiento: '10 de Noviembre de 2026',
+            diasParaMora: miEstadoCuenta.saldoActual > 0 ? 0 : 9,
+            movimientos: miEstadoCuenta.movimientos
+          }
+        })
+      });
+
+      clearTimeout(timeoutId);
+
+      if (resServer.ok) {
+        const dataServer = await resServer.json();
+        if (dataServer.reply) {
+          setChatMensajes(prev =>
+            prev.map(msg => msg.id === idIa ? { ...msg, texto: dataServer.reply } : msg)
+          );
+          return;
+        }
       }
 
-      const respuestaIA = { id: (Date.now() + 1).toString(), remitente: 'ia', texto: respuestaTexto };
-      setChatMensajes(prev => [...prev, respuestaIA]);
-    }, 800);
+      throw new Error("Respuesta de red cancelada por tiempo");
+    } catch (err: any) {
+      console.warn('Aviso Copilot (Respuesta optimizada activada):', err);
+      
+      // Fallback inteligente inmediato con datos precisos del apartamento y norma colombiana
+      let respuestaFallback = `⚖️ **Marco Jurídico Aplicable en Propiedad Horizontal (Ley 675 de 2001 & Ley 1801 de 2016):**
+
+• **Inmueble Consultante:** ${miEstadoCuenta.unidad} (${miEstadoCuenta.propietario})
+• **Cuota Mensual Ordinaria:** $${miEstadoCuenta.cuotaMensual.toLocaleString('es-CO')} COP
+• **Saldo Pendiente Actual:** $${miEstadoCuenta.saldoActual.toLocaleString('es-CO')} COP (Estado: **${miEstadoCuenta.estadoCartera}**)
+
+Para formalizar una solicitud o queja específica ante la administración, puedes radicar tu petición formal en la pestaña PQRSD.`;
+
+      if (q.includes('muerde') || q.includes('mordida') || q.includes('ataque') || q.includes('agresivo') || q.includes('lesiona') || q.includes('mordio') || q.includes('ataco')) {
+        respuestaFallback = `🐕 **Consecuencias Legales si una Mascota Muerde o Ataca a una Persona (Ley 1801 de 2016, Art. 124 & Código Civil Art. 2353):**
+
+En Colombia, el tenedor o propietario de un animal es plenamente responsable de las consecuencias médicas y legales:
+
+• **Responsabilidad Civil Extracontractual:** El tenedor debe asumir el 100% de los gastos médicos, vacunas antirrábicas, incapacidades y daños morales causados a la víctima.
+• **Sanción Policial (Multa Tipo 4):** La Policía Nacional impone una multa aproximada de $1.400.000 COP por no portar bozal o traílla en áreas comunes de la copropiedad.
+• **Evaluación de Zoonosis:** Las autoridades sanitarias y de policía pueden decomisar preventivamente al animal para evaluación de comportamiento y rabia.
+• **Sanción del Reglamento Interno:** La administración notificará al Comité de Convivencia e impondrá la multa máxima prevista en el reglamento de la copropiedad (Art. 59 Ley 675).
+
+Para reportar un caso activo de agresión de mascota en áreas comunes de la copropiedad, avisa de inmediato a portería por citófono o radica el caso en PQRSD.`;
+      } else if (q.includes('3 meses') || q.includes('tres meses') || (q.includes('mora') && (q.includes('3') || q.includes('tres')))) {
+        const acumuladoTresMeses = miEstadoCuenta.cuotaMensual * 3;
+        respuestaFallback = `⚖️ **Análisis de Mora de 3 Meses en ${miEstadoCuenta.unidad} (Ley 675 de 2001, Art. 29 y 30):**
+
+Si dejas de pagar 3 meses consecutivos de administración:
+
+• **Monto Acumulado de Deuda:** $${acumuladoTresMeses.toLocaleString('es-CO')} COP (cuota ordinaria $${miEstadoCuenta.cuotaMensual.toLocaleString('es-CO')} COP/mes).
+• **Intereses de Mora:** Se causan intereses a la tasa máxima de usura autorizada por la Superfinanciera de Colombia.
+• **Suspensión de Zonas Comunes:** A partir del primer mes vencido se restringe la reserva de salón social, BBQ y áreas recreativas no esenciales.
+• **Proceso Ejecutivo:** Con 3 meses de mora se inicia cobro prejurídico o demanda judicial con posible embargo de inmueble o cuentas.
+• **Publicación en Lista de Morosos:** Se publica en la cartelera del conjunto (Art. 30 Ley 675).`;
+      } else if (q.includes('mora') || q.includes('pagar') || q.includes('cuota') || q.includes('interes') || q.includes('debo') || q.includes('saldo')) {
+        respuestaFallback = `💳 **Estado Financiero de tu Unidad ${miEstadoCuenta.unidad}:**
+
+• **Propietario:** ${miEstadoCuenta.propietario}
+• **Cuota mensual ordinaria:** $${miEstadoCuenta.cuotaMensual.toLocaleString('es-CO')} COP
+• **Saldo actual:** $${miEstadoCuenta.saldoActual.toLocaleString('es-CO')} COP (**${miEstadoCuenta.estadoCartera}**)
+• **Próximo vencimiento:** 10 de Noviembre de 2026 (faltan 9 días hábiles).
+
+**Efectos Legales de Incurrir en Mora (Art. 30 Ley 675):**
+1. **Intereses de mora:** Tasa máxima certificada por la Superfinanciera.
+2. **Pérdida de Paz y Salvo:** Restricción temporal para trámites y reservas.
+3. **Proceso Ejecutivo:** Acumular más de 2 cuotas autoriza cobro judicial.`;
+      } else if (q.includes('animal') || q.includes('perro') || q.includes('gato') || q.includes('mascota')) {
+        respuestaFallback = "🐕 **Reglas de Mascotas en Propiedad Horizontal (Corte Constitucional & Ley 1801):**\n\n1. **No se pueden prohibir:** La Corte Constitucional ampara el libre desarrollo de la personalidad.\n2. **Uso de correa:** Traílla obligatoria en pasillos y ascensores.\n3. **Razas de manejo especial:** Bozal y póliza de responsabilidad civil.\n4. **Higiene:** Recoger inmediatamente las deposiciones.";
+      } else if (q.includes('ruido') || q.includes('fiesta') || q.includes('musica')) {
+        respuestaFallback = `🔊 **Normativa contra Ruidos Molestos (Ley 1801 de 2016 - Código de Policía):**\n\n• **Llamado de atención:** Vía citófono virtual a portería para inspección del vigilante.\n• **Policía Nacional:** Si persiste, la Policía impone Multa Tipo 3 y orden de apagar la fuente de ruido.\n• **Sanciones Internas:** Trámite sancionatorio ante el Comité de Convivencia (Art. 59 Ley 675).`;
+      } else if (q.includes('derecho') || q.includes('deber') || q.includes('obligacion')) {
+        respuestaFallback = `⚖️ **Derechos y Deberes Fundamentales de los Copropietarios (Ley 675 de 2001 & Art. 18):**
+
+• **Derechos Principales:**
+  1. Uso y goce exclusivo de su bien privado (apartamento, parqueadero privado, depósito).
+  2. Voz y voto en la Asamblea de Propietarios proporcional a su coeficiente.
+  3. Uso de zonas comunes no esenciales respetando a los demás vecinos.
+  4. Inspección de libros contables de la copropiedad durante los 15 días hábiles previos a la Asamblea Ordinaria (Art. 51).
+  5. Garantía del Debido Proceso (Art. 29 C.N. y Art. 60 Ley 675) en caso de cualquier señalamiento o multa.
+
+• **Deberes Principales (Art. 18 Ley 675):**
+  1. Pagar puntualmente las expensas comunes ordinarias y extraordinarias.
+  2. Usar la unidad privada respetando su destinación residencial o comercial.
+  3. Ejecutar de inmediato reparaciones privadas que eviten humedades o daños a vecinos.
+  4. Permitir el ingreso técnico indispensable para reparar bienes comunes o contener emergencias.
+  5. Exigir planillas de ARL y EPS a todo contratista de obras privadas (Decreto 1072/2015).`;
+      } else if (q.includes('multa') || q.includes('sancion') || q.includes('sanciones') || q.includes('debido proceso')) {
+        respuestaFallback = `⚖️ **Régimen de Sanciones, Multas y Límites Legales en Propiedad Horizontal (Ley 675 de 2001, Art. 59, 60 y 61):**
+
+• **Sanciones Permitidas por Ley (Art. 59):**
+  1. Publicación de listas de infractores/morosos en carteleras de la copropiedad (Art. 30 y 38).
+  2. Multas sucesivas: Mientras persista la infracción, hasta de 2 veces el valor de la cuota mensual de administración (máximo acumulado de 10 cuotas por año).
+  3. Restricción del uso y goce de bienes comunes NO esenciales (salón social, piscina, gimnasio, BBQ).
+
+• **PROHIBICIONES ABSOLUTAS A LA ADMINISTRACIÓN (Límites de la Corte Constitucional):**
+  🚫 **PROHIBIDO cortar servicios públicos domiciliarios** (agua, luz, gas) por mora o multas (Sentencia T-454/98).
+  🚫 **PROHIBIDO suspender el acceso a parqueaderos privados** o bloquear el ingreso peatonal o vehicular (Sentencia T-630/97).
+  🚫 **PROHIBIDO prohibir el uso del ascensor** a personas mayores, niños, enfermos o con movilidad reducida (Sentencia T-211/12).
+  🚫 **PROHIBIDO retener correspondencia o paquetes** en portería como medida de presión.
+
+• **Requisitos para la Validez de la Multa (Art. 60):** Debe estar en el Reglamento registrado en escritura pública, notificar previa formulación de cargos, otorgar plazo de descargos e imponerse por la Asamblea o el Consejo (NUNCA arbitrariamente por el Administrador o Guarda).`;
+      } else if (q.includes('corta') || q.includes('corte') || q.includes('agua') || q.includes('luz') || q.includes('servicio publico')) {
+        respuestaFallback = `🚫 **Prohibición de Corte de Servicios Públicos Domiciliarios (Sentencia Corte Constitucional T-454/98):**
+
+En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pueden suspender el agua, la luz o el gas** de un apartamento por mora en la cuota de administración o multas de convivencia:
+
+• **Fundamento Constitucional:** El acceso a los servicios públicos es un derecho fundamental ligado a la vida digna, salud y mínimo vital.
+• **Mecanismo Legal de Cobro:** La ley 675 otorga la vía del proceso ejecutivo civil con embargo de bienes, pero prohíbe las vías de hecho o la suspensión de servicios domiciliarios.`;
+      } else if (q.includes('ascensor') || q.includes('elevador')) {
+        respuestaFallback = `🛗 **Uso del Ascensor y Restricciones Legales (Sentencia Corte Constitucional T-211/12):**
+
+• **Regla General:** El uso de ascensores no puede ser suspendido a personas mayores, niños, mujeres embarazadas, enfermos o personas con movilidad reducida, incluso si el apartamento presenta mora en la administración.
+• **Límite de Carga y Mudanzas:** Se deben respetar los horarios para uso de ascensor de carga en trasteos (lunes a sábado 8 AM - 5 PM) previa notificación a portería.`;
+      } else if (q.includes('parqueadero') || q.includes('carro') || q.includes('moto') || q.includes('vehiculo')) {
+        respuestaFallback = `🚗 **Régimen de Parqueaderos en Propiedad Horizontal (Ley 675 de 2001, Art. 22 y 23):**
+
+• **Parqueaderos Privados:** Son bienes de propiedad exclusiva. La administración no puede impedir su uso ni el ingreso del vehículo del propietario.
+• **Parqueaderos de Visitantes:** Son bienes comunes destinados exclusivamente para estancias temporales de invitados. Prohibido usarlos como parqueadero permanente de residentes.
+• **Parqueaderos Comunes de Asignación:** Su uso se reglamenta mediante sorteo periódico aprobado en Asamblea General.`;
+      } else if (q.includes('asamblea') || q.includes('impugnar') || q.includes('voto') || q.includes('quorum')) {
+        respuestaFallback = `🏛️ **Asambleas y Decisiones de Propietarios (Ley 675 de 2001, Art. 37 a 49):**
+
+• **Quórum Deliberatorio:** Ordinario con más del 50% de los coeficientes de copropiedad.
+• **Quórum Calificado (70%):** Requerido para reformas de reglamento, adición de expensas extraordinarias superiores a 4 veces la cuota mensual, asignación de bienes comunes o desafectación.
+• **Impugnación de Actas (Art. 49):** Si una decisión violó la ley o el reglamento, los propietarios pueden impugnarla ante un juez civil dentro de los 2 meses siguientes a la publicación del acta.`;
+      }
+
+      setChatMensajes(prev =>
+        prev.map(msg => msg.id === idIa ? { ...msg, texto: respuestaFallback } : msg)
+      );
+    }
   };
 
   // Estado financiero de la unidad (Fase 3)
@@ -1088,9 +1287,13 @@ export default function ResidentPortalConsole({
           <ResidenteModuloFinancieroApp onShowToast={onShowToast} />
         )}
 
-        {/* PESTAÑA: EMPRENDIMIENTOS */}
+        {/* PESTAÑA: EMPRENDIMIENTOS & MERCADILLO VECINAL */}
         {activeTabResidente === 'emprendimientos' && (
-          <ResidenteEmprendimientosApp />
+          <ResidenteEmprendimientosApp
+            unidadResidente={miEstadoCuenta.unidad}
+            nombreResidente={miEstadoCuenta.propietario}
+            onShowToast={onShowToast}
+          />
         )}
 
         {/* PESTAÑA: RED VECINAL */}

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
-import { Lock, Mail, ShieldCheck, ArrowRight, Eye, EyeOff, Building2 } from 'lucide-react';
+import { Lock, Mail, ShieldCheck, ArrowRight, Eye, EyeOff, Building2, MessageSquare } from 'lucide-react';
 
 export default function AuthLoginExecutive({
   onLoginSuccess,
@@ -397,10 +397,35 @@ export default function AuthLoginExecutive({
           </div>
         </div>
 
-        <div className="w-full pt-2 border-t border-slate-800 text-center">
-          <span className="text-[10px] font-mono text-slate-500 flex items-center justify-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-[#00f2fe]" /> Sesión Cifrada SHA-256
-          </span>
+        <div className="pt-4 mt-3 border-t border-slate-800/80 space-y-2.5 font-mono select-none">
+          {/* Insignias de Criptografía y Ley de Datos */}
+          <div className="flex flex-wrap items-center justify-center gap-2 text-[10px]">
+            <div className="flex items-center gap-1.5 text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-0.5 rounded-full">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Sesión Cifrada SHA-256</span>
+            </div>
+            <span className="text-slate-700 hidden sm:inline">•</span>
+            <span className="text-slate-500 text-[10px]">
+              Habeas Data (Ley 1581)
+            </span>
+          </div>
+
+          {/* Fila de Soporte Técnico y Versión */}
+          <div className="flex items-center justify-between text-[10px] text-slate-400 px-1 pt-1">
+            <a
+              href="https://wa.me/573103056071?text=Hola,%20requiero%20soporte%20t%C3%A9cnico%20o%20asistencia%20para%20ingresar%20a%20la%20plataforma%20Urbix%20PH."
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-emerald-400 hover:text-emerald-300 transition-colors underline underline-offset-2"
+            >
+              <MessageSquare className="w-3 h-3" />
+              <span>Soporte Técnico WhatsApp</span>
+            </a>
+
+            <span className="text-slate-600 text-[9px]">
+              Urbix PH v2.4 • Enterprise Cloud
+            </span>
+          </div>
         </div>
 
       </div>
