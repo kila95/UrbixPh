@@ -477,8 +477,10 @@ export default function ConsolaGerencialUrbixPH({
 
         {/* 2. CENTRO INTEGRAL DE ASAMBLEAS & ACTAS LEGALES (LEY 675 DE 2001) */}
         {(activeTab === 'asamblea' || activeTab === 'actas') && (
-          <AsambleasActasLegalesHub
-            copropiedadNombre={resolvedTenantName}
+          <ModuloReunionesConSubmodulos
+            unidadResidenteActual="Administración Principal"
+            rolUsuario="admin"
+            esConsejero={true}
             onShowToast={onShowToast}
           />
         )}

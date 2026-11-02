@@ -1,0 +1,680 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Video,
+  Calendar,
+  Users,
+  CheckSquare,
+  FileText,
+  Radio,
+  Award,
+  MessageSquare,
+  ShieldCheck,
+  Mic,
+  MicOff,
+  VideoOff,
+  Hand,
+  Clock,
+  Send,
+  MonitorUp,
+  PhoneOff,
+  Play,
+  Lock,
+  BellRing
+} from 'lucide-react';
+import SubmoduloConvocatoriasLey675 from './SubmoduloConvocatoriasLey675';
+import { supabase, isSupabaseConfigured } from '../supabaseClient';
+
+export interface ModuloReunionesConSubmodulosProps {
+  unidadResidenteActual?: string;
+  esConsejero?: boolean;
+  rolUsuario?: 'admin' | 'supervisor' | 'residente';
+  onShowToast?: (msg: string) => void;
+}
+
+// CANAL MAESTRO COMPARTIDO EN SUPABASE (ADMIN ⇄ RESIDENTES)
+const CANAL_ASAMBLEA_ROOM = 'asamblea_urbix_general';
+
+export default function ModuloReunionesConSubmodulos({
+  unidadResidenteActual = 'Torre 2 - 301',
+  esConsejero = true,
+  rolUsuario = 'residente',
+  onShowToast
+}: ModuloReunionesConSubmodulosProps) {
+  const [submoduloActivo, setSubmoduloActivo] = useState<'video' | 'convocatorias' | 'quorum' | 'votaciones' | 'acta'>('video');
+
+  // Estados WebRTC y sala en vivo
+  const [enVivo, setEnVivo] = useState(false);
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(true);
+  const [compartiendoPantalla, setCompartiendoPantalla] = useState(false);
+  const [manoLevantada, setManoLevantada] = useState(false);
+  const [segundosTranscurridos, setSegundosTranscurridos] = useState(0);
+
+  // Invitación entrante que ve el residente
+  const [invitacionEntrante, setInvitacionEntrante] = useState<{
+    titulo: string;
+    hora: string;
+    orador: string;
+  } | null>(null);
+
+  // Referencias DOM y WebRTC P2P
+  const videoLocalRef = useRef<HTMLVideoElement | null>(null);
+  const videoRemotoRef = useRef<HTMLVideoElement | null>(null);
+  const streamLocalRef = useRef<MediaStream | null>(null);
+  const streamPantallaRef = useRef<MediaStream | null>(null);
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const canalRtcRef = useRef<any>(null);
+
+  const [mensajeChat, setMensajeChat] = useState('');
+  const [chatLog, setChatLog] = useState([
+    { id: 1, autor: 'Administración Central', texto: 'Sala virtual instalada conforme a la Ley 675 de 2001.', hora: '06:00 PM' }
+  ]);
+
+  const [quorumRegistrado, setQuorumRegistrado] = useState(78.4);
+  const [asistentesConectados, setAsistentesConectados] = useState(rolUsuario === 'admin' ? 1 : 0);
+
+  const [mociónActual, setMocionActual] = useState({
+    id: 'moc-1',
+    titulo: 'Aprobación del Presupuesto Ordinario Vigencia 2026 e Incremento de Cuota 8.5%',
+    tipoMayoria: 'Mayoría Calificada (Art. 46 Ley 675 - Requiere > 70%)',
+    coefFavor: 74.8,
+    coefContra: 12.2,
+    coefBlanco: 5.4,
+    haVotado: false,
+    miVoto: null as 'favor' | 'contra' | 'blanco' | null
+  });
+
+  const iceServersConfig: RTCConfiguration = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ]
+  };
+
+  // 1. CONEXIÓN EN TIEMPO REAL CON SUPABASE BROADCAST
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
+    const canal = supabase.channel(CANAL_ASAMBLEA_ROOM, {
+      config: { broadcast: { self: false } }
+    });
+
+    canal
+      // El Administrador hace sonar la convocatoria en todos los apartamentos
+      .on('broadcast', { event: 'asamblea_convocatoria_abierta' }, ({ payload }) => {
+        setInvitacionEntrante({
+          titulo: payload.titulo || 'Asamblea General Ordinaria de Copropietarios 2026',
+          hora: payload.hora || 'Ahora',
+          orador: payload.orador || 'Administración Central'
+        });
+        onShowToast?.(`🔔 Convocatoria en vivo: ${payload.titulo || 'Asamblea Iniciada'}`);
+      })
+      // Oferta WebRTC enviada por el Administrador
+      .on('broadcast', { event: 'asamblea_oferta' }, async ({ payload }) => {
+        if (rolUsuario === 'admin') return;
+        try {
+          const pc = new RTCPeerConnection(iceServersConfig);
+          peerRef.current = pc;
+
+          if (streamLocalRef.current) {
+            streamLocalRef.current.getTracks().forEach(t => pc.addTrack(t, streamLocalRef.current!));
+          }
+
+          pc.ontrack = (evt) => {
+            if (videoRemotoRef.current && evt.streams[0]) {
+              videoRemotoRef.current.srcObject = evt.streams[0];
+              videoRemotoRef.current.play().catch(() => {});
+            }
+          };
+
+          pc.onicecandidate = (evt) => {
+            if (evt.candidate) {
+              canal.send({ type: 'broadcast', event: 'asamblea_candidato_ice', payload: { candidate: evt.candidate } });
+            }
+          };
+
+          await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+          const respuesta = await pc.createAnswer();
+          await pc.setLocalDescription(respuesta);
+
+          canal.send({ type: 'broadcast', event: 'asamblea_respuesta', payload: { sdp: respuesta } });
+          setEnVivo(true);
+        } catch (err) {
+          console.warn('Error atendiendo oferta WebRTC:', err);
+        }
+      })
+      .on('broadcast', { event: 'asamblea_respuesta' }, async ({ payload }) => {
+        if (peerRef.current && rolUsuario === 'admin') {
+          try {
+            await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+          } catch (e) {
+            console.warn('Error fijando respuesta remota SDP:', e);
+          }
+        }
+      })
+      .on('broadcast', { event: 'asamblea_candidato_ice' }, async ({ payload }) => {
+        if (peerRef.current && payload.candidate) {
+          try {
+            await peerRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
+          } catch (e) {
+            console.warn('Error agregando candidato ICE:', e);
+          }
+        }
+      })
+      .on('broadcast', { event: 'asamblea_chat' }, ({ payload }) => {
+        setChatLog(prev => [...prev, payload]);
+      })
+      .subscribe();
+
+    canalRtcRef.current = canal;
+
+    return () => {
+      supabase.removeChannel(canal);
+      detenerTransmision();
+    };
+  }, [rolUsuario]);
+
+  // 2. INICIAR SALA (ADMIN) O ACEPTAR INVITACIÓN (RESIDENTE)
+  const conectarASala = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: { echoCancellation: true, noiseSuppression: true }
+      });
+
+      streamLocalRef.current = stream;
+      if (videoLocalRef.current) {
+        videoLocalRef.current.srcObject = stream;
+        videoLocalRef.current.play().catch(() => {});
+      }
+
+      const pc = new RTCPeerConnection(iceServersConfig);
+      peerRef.current = pc;
+
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+      pc.ontrack = (evt) => {
+        if (videoRemotoRef.current && evt.streams[0]) {
+          videoRemotoRef.current.srcObject = evt.streams[0];
+          videoRemotoRef.current.play().catch(() => {});
+        }
+      };
+
+      pc.onicecandidate = (evt) => {
+        if (evt.candidate && canalRtcRef.current) {
+          canalRtcRef.current.send({
+            type: 'broadcast',
+            event: 'asamblea_candidato_ice',
+            payload: { candidate: evt.candidate }
+          });
+        }
+      };
+
+      if (rolUsuario === 'admin') {
+        // El Administrador envía la convocatoria a todos los apartamentos
+        if (canalRtcRef.current) {
+          canalRtcRef.current.send({
+            type: 'broadcast',
+            event: 'asamblea_convocatoria_abierta',
+            payload: {
+              titulo: 'Asamblea General Ordinaria de Copropietarios 2026',
+              hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              orador: 'Administración Central'
+            }
+          });
+        }
+
+        const oferta = await pc.createOffer();
+        await pc.setLocalDescription(oferta);
+
+        if (canalRtcRef.current) {
+          canalRtcRef.current.send({
+            type: 'broadcast',
+            event: 'asamblea_oferta',
+            payload: { sdp: oferta }
+          });
+        }
+        onShowToast?.('📢 Convocatoria transmitida en vivo a todos los apartamentos.');
+      } else {
+        setInvitacionEntrante(null);
+        onShowToast?.(`✅ Acreditación exitosa de ${unidadResidenteActual} en la asamblea.`);
+      }
+
+      setEnVivo(true);
+      setCamOn(true);
+      setMicOn(true);
+      setAsistentesConectados(prev => prev + 1);
+    } catch (err: any) {
+      console.error('Error al abrir dispositivos multimedia:', err);
+      onShowToast?.('⚠️ Por favor concede permisos de cámara y micrófono.');
+    }
+  };
+
+  const detenerTransmision = () => {
+    if (peerRef.current) {
+      peerRef.current.close();
+      peerRef.current = null;
+    }
+    if (streamLocalRef.current) {
+      streamLocalRef.current.getTracks().forEach(t => t.stop());
+      streamLocalRef.current = null;
+    }
+    if (streamPantallaRef.current) {
+      streamPantallaRef.current.getTracks().forEach(t => t.stop());
+      streamPantallaRef.current = null;
+    }
+    if (videoLocalRef.current) videoLocalRef.current.srcObject = null;
+    if (videoRemotoRef.current) videoRemotoRef.current.srcObject = null;
+    setEnVivo(false);
+    setCompartiendoPantalla(false);
+  };
+
+  const toggleMic = () => {
+    if (streamLocalRef.current) {
+      const audio = streamLocalRef.current.getAudioTracks()[0];
+      if (audio) {
+        audio.enabled = !micOn;
+        setMicOn(!micOn);
+        onShowToast?.(!micOn ? '🎙️ Micrófono activado.' : '🔇 Micrófono silenciado.');
+      }
+    }
+  };
+
+  const toggleCam = () => {
+    if (streamLocalRef.current) {
+      const video = streamLocalRef.current.getVideoTracks()[0];
+      if (video) {
+        video.enabled = !camOn;
+        setCamOn(!camOn);
+        onShowToast?.(!camOn ? '📹 Cámara encendida.' : '📷 Cámara apagada.');
+      }
+    }
+  };
+
+  const toggleCompartirPantalla = async () => {
+    if (!compartiendoPantalla) {
+      try {
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        streamPantallaRef.current = screenStream;
+
+        if (videoLocalRef.current) videoLocalRef.current.srcObject = screenStream;
+
+        const screenTrack = screenStream.getVideoTracks()[0];
+        const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) sender.replaceTrack(screenTrack);
+
+        screenTrack.onended = () => {
+          if (videoLocalRef.current && streamLocalRef.current) {
+            videoLocalRef.current.srcObject = streamLocalRef.current;
+            const originalTrack = streamLocalRef.current.getVideoTracks()[0];
+            sender?.replaceTrack(originalTrack);
+          }
+          setCompartiendoPantalla(false);
+        };
+
+        setCompartiendoPantalla(true);
+        onShowToast?.('🖥️ Proyectando pantalla a los copropietarios.');
+      } catch (e) {
+        console.warn('Pantalla cancelada:', e);
+      }
+    } else {
+      if (streamPantallaRef.current) {
+        streamPantallaRef.current.getTracks().forEach(t => t.stop());
+        streamPantallaRef.current = null;
+      }
+      if (videoLocalRef.current && streamLocalRef.current) {
+        videoLocalRef.current.srcObject = streamLocalRef.current;
+        const originalTrack = streamLocalRef.current.getVideoTracks()[0];
+        const sender = peerRef.current?.getSenders().find(s => s.track?.kind === 'video');
+        sender?.replaceTrack(originalTrack);
+      }
+      setCompartiendoPantalla(false);
+    }
+  };
+
+  const handleEnviarChat = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mensajeChat.trim()) return;
+
+    const nuevoMensaje = {
+      id: Date.now(),
+      autor: `${unidadResidenteActual} (${rolUsuario.toUpperCase()})`,
+      texto: mensajeChat.trim(),
+      hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setChatLog(prev => [...prev, nuevoMensaje]);
+    if (canalRtcRef.current) {
+      canalRtcRef.current.send({
+        type: 'broadcast',
+        event: 'asamblea_chat',
+        payload: nuevoMensaje
+      });
+    }
+    setMensajeChat('');
+  };
+
+  useEffect(() => {
+    let t: any;
+    if (enVivo) {
+      t = setInterval(() => setSegundosTranscurridos(s => s + 1), 1000);
+    }
+    return () => clearInterval(t);
+  }, [enVivo]);
+
+  const formatearTiempo = (seg: number) => {
+    const m = Math.floor(seg / 60);
+    const s = seg % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  // PESTAÑAS ADAPTADAS: Al residente NO se le da gestión de convocatorias ni generador de actas
+  const pestanasVisibles = rolUsuario === 'admin'
+    ? [
+        { id: 'video', label: '1. Videoconferencia', icon: Video, color: 'text-rose-400' },
+        { id: 'convocatorias', label: '2. Programar Convocatorias', icon: Calendar, color: 'text-cyan-400' },
+        { id: 'quorum', label: '3. Auditoría de Quórum', icon: Users, color: 'text-emerald-400' },
+        { id: 'votaciones', label: '4. Mesa de Votaciones', icon: CheckSquare, color: 'text-amber-400' },
+        { id: 'acta', label: '5. Generador de Actas IA', icon: FileText, color: 'text-blue-400' },
+      ]
+    : [
+        { id: 'video', label: '1. Sala en Vivo', icon: Video, color: 'text-rose-400' },
+        { id: 'convocatorias', label: '2. Citaciones Formales', icon: Calendar, color: 'text-cyan-400' },
+        { id: 'quorum', label: '3. Mi Coeficiente & Quórum', icon: Users, color: 'text-emerald-400' },
+        { id: 'votaciones', label: '4. Tarjetón de Voto', icon: CheckSquare, color: 'text-amber-400' },
+        { id: 'acta', label: '5. Consultar Actas Aprobadas', icon: FileText, color: 'text-blue-400' },
+      ];
+
+  return (
+    <div className="bg-[#05080e] border border-cyan-500/30 rounded-3xl p-4 sm:p-6 space-y-6 shadow-2xl font-sans text-slate-100">
+      
+      {/* BARRA DE SUBMÓDULOS FILTRADA POR ROL */}
+      <nav className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-800/80">
+        {pestanasVisibles.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = submoduloActivo === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setSubmoduloActivo(tab.id as any)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer min-h-[42px] shrink-0 ${
+                isActive
+                  ? 'bg-gradient-to-r from-cyan-500/20 to-teal-500/20 text-cyan-300 border border-cyan-500/50 shadow-[0_0_15px_rgba(34,211,238,0.25)]'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900/60 border border-transparent'
+              }`}
+            >
+              <Icon className={`w-4 h-4 ${tab.color}`} />
+              {tab.label}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* 1. SUBMÓDULO: VIDEOCONFERENCIA EN VIVO */}
+      {submoduloActivo === 'video' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          
+          {/* LIENZO DE VIDEO PRINCIPAL */}
+          <div className="lg:col-span-2 space-y-4">
+            <div className="relative aspect-video bg-slate-950 rounded-3xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col justify-between p-4">
+              
+              <div className="flex items-center justify-between z-10">
+                <span className="flex items-center gap-2 bg-rose-500/20 text-rose-400 border border-rose-500/40 px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase">
+                  <span className={`w-2 h-2 rounded-full ${enVivo ? 'bg-rose-500 animate-ping' : 'bg-slate-600'}`} />
+                  {enVivo ? 'TRANSMISIÓN OFICIAL LEY 675' : 'SALA EN ESPERA'}
+                </span>
+                <span className="bg-slate-900/80 backdrop-blur-md text-slate-300 text-xs px-3 py-1 rounded-xl border border-slate-700 font-mono">
+                  🔴 {enVivo ? `${formatearTiempo(segundosTranscurridos)} • ${asistentesConectados} Conectado(s)` : '0 Conectados'}
+                </span>
+              </div>
+
+              {/* Video en vivo o Invitación/Espera */}
+              <div className="relative flex-1 flex items-center justify-center overflow-hidden my-2 rounded-2xl bg-[#07090e]/80 border border-slate-800/80">
+                {enVivo ? (
+                  <>
+                    <video
+                      ref={videoLocalRef}
+                      autoPlay
+                      playsInline
+                      muted={rolUsuario === 'admin'}
+                      className={`w-full h-full object-cover rounded-2xl ${!camOn ? 'hidden' : ''}`}
+                    />
+                    <video ref={videoRemotoRef} autoPlay playsInline className="hidden" />
+                    
+                    {!camOn && (
+                      <div className="text-center py-10 space-y-2">
+                        <VideoOff className="w-10 h-10 text-slate-600 mx-auto" />
+                        <p className="text-xs text-slate-400 font-mono">Cámara desactivada por el usuario</p>
+                      </div>
+                    )}
+                  </>
+                ) : invitacionEntrante && rolUsuario === 'residente' ? (
+                  // TARJETA DE LLAMADA / INVITACIÓN EN VIVO AL RESIDENTE
+                  <div className="text-center space-y-4 py-8 px-6 max-w-md bg-cyan-950/20 border border-cyan-500/40 rounded-3xl p-6 shadow-[0_0_30px_rgba(34,211,238,0.2)] animate-fadeIn">
+                    <div className="w-16 h-16 mx-auto rounded-2xl bg-cyan-500/20 border border-cyan-400/50 flex items-center justify-center text-cyan-300">
+                      <BellRing className="w-8 h-8 animate-bounce text-cyan-400" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 px-2.5 py-0.5 rounded-full uppercase">
+                        Convocatoria en Vivo Activa
+                      </span>
+                      <h3 className="text-base font-black text-white mt-2">
+                        {invitacionEntrante.titulo}
+                      </h3>
+                      <p className="text-xs text-slate-400 font-mono mt-1">
+                        Iniciada por: <strong className="text-cyan-300">{invitacionEntrante.orador}</strong> • Hora: {invitacionEntrante.hora}
+                      </p>
+                      <p className="text-[11px] text-emerald-400 font-mono mt-0.5">
+                        Inmueble Acreditado: <strong>{unidadResidenteActual}</strong>
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={conectarASala}
+                      className="w-full bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black py-3 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,211,238,0.35)] flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Play className="w-4 h-4 fill-current" /> Aceptar e Ingresar a la Asamblea
+                    </button>
+                  </div>
+                ) : (
+                  // PANTALLA EN ESPERA LIMPIA
+                  <div className="text-center space-y-3 py-8 px-4">
+                    <div className="w-16 h-16 mx-auto rounded-3xl bg-[#090d14] border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_25px_rgba(34,211,238,0.15)]">
+                      {rolUsuario === 'admin' ? <Radio className="w-8 h-8 animate-pulse" /> : <Lock className="w-8 h-8 text-slate-500" />}
+                    </div>
+
+                    <div>
+                      <h3 className="text-base font-bold text-white">
+                        {rolUsuario === 'admin' ? 'Sala Lista para Convocatoria' : 'En Espera de Inicio de Asamblea'}
+                      </h3>
+                      <p className="text-xs text-slate-400 font-mono mt-1 max-w-sm mx-auto">
+                        {rolUsuario === 'admin' 
+                          ? 'Presiona el botón para abrir la transmisión y emitir la llamada oficial a los miembros convocados.' 
+                          : 'La sesión virtual está protegida bajo la Ley 675. Te notificaremos en pantalla cuando la Administración inicie la asamblea.'}
+                      </p>
+                    </div>
+
+                    {rolUsuario === 'admin' && (
+                      <button
+                        type="button"
+                        onClick={conectarASala}
+                        className="bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black px-6 py-2.5 rounded-xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,211,238,0.35)] flex items-center gap-2 mx-auto cursor-pointer"
+                      >
+                        <Play className="w-4 h-4 fill-current" /> Abrir Sala y Convocar Asamblea
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Controles de audio y video */}
+              <div className="bg-[#0b0f17]/90 backdrop-blur-md p-3 rounded-2xl border border-slate-800 flex items-center justify-between gap-2 z-10 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={!enVivo}
+                    type="button"
+                    onClick={toggleMic}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer min-h-[40px] disabled:opacity-40 ${
+                      micOn ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300' : 'bg-slate-900 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4 text-rose-400" />}
+                    <span className="hidden sm:inline">{micOn ? 'Mic Activo' : 'Mic Mute'}</span>
+                  </button>
+
+                  <button
+                    disabled={!enVivo}
+                    type="button"
+                    onClick={toggleCam}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer min-h-[40px] disabled:opacity-40 ${
+                      camOn ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300' : 'bg-slate-900 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {camOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4 text-rose-400" />}
+                    <span className="hidden sm:inline">{camOn ? 'Cámara On' : 'Cámara Off'}</span>
+                  </button>
+
+                  {rolUsuario === 'admin' && (
+                    <button
+                      disabled={!enVivo}
+                      type="button"
+                      onClick={toggleCompartirPantalla}
+                      className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer min-h-[40px] disabled:opacity-40 ${
+                        compartiendoPantalla ? 'bg-cyan-500/30 border-cyan-400 text-cyan-200' : 'bg-slate-900 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      <MonitorUp className="w-4 h-4" />
+                      <span className="hidden sm:inline">{compartiendoPantalla ? 'Proyectando' : 'Proyectar'}</span>
+                    </button>
+                  )}
+
+                  <button
+                    disabled={!enVivo}
+                    type="button"
+                    onClick={() => {
+                      setManoLevantada(!manoLevantada);
+                      onShowToast?.(!manoLevantada ? '✋ Has pedido la palabra al presidente.' : '✋ Mano bajada.');
+                    }}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer min-h-[40px] disabled:opacity-40 ${
+                      manoLevantada ? 'bg-amber-500/20 border-amber-500/50 text-amber-300' : 'bg-slate-900 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    <Hand className="w-4 h-4" />
+                    <span className="hidden sm:inline">{manoLevantada ? 'Mano Levantada' : 'Pedir Palabra'}</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">
+                    Unidad: <strong className="text-white">{unidadResidenteActual}</strong>
+                  </span>
+
+                  {enVivo && (
+                    <button
+                      type="button"
+                      onClick={detenerTransmision}
+                      className="p-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl transition cursor-pointer"
+                      title="Desconectar de la asamblea"
+                    >
+                      <PhoneOff className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Accesos rápidos de votación simultánea */}
+            <div className="bg-[#0b0f17] border border-slate-800/80 p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <CheckSquare className="w-4 h-4 text-amber-400" /> Moción legal en votación simultánea
+                </p>
+                <p className="text-[11px] text-slate-400">{mociónActual.titulo}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSubmoduloActivo('votaciones')}
+                className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg cursor-pointer whitespace-nowrap"
+              >
+                Abrir Tarjetón de Voto
+              </button>
+            </div>
+          </div>
+
+          {/* CHAT OFICIAL DE ASAMBLEA */}
+          <div className="bg-[#0b0f17] border border-slate-800 rounded-3xl p-5 flex flex-col justify-between space-y-4 h-[440px]">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5 font-mono">
+                <MessageSquare className="w-4 h-4 text-cyan-400" /> Chat Oficial Foliado
+              </span>
+              <span className="text-[10px] bg-slate-900 px-2 py-0.5 rounded text-slate-400 border border-slate-800 font-mono">
+                {chatLog.length} mensajes
+              </span>
+            </div>
+
+            <div className="space-y-3 flex-1 overflow-y-auto pr-1">
+              {chatLog.map(m => (
+                <div key={m.id} className="bg-[#07090e] p-3 rounded-xl border border-slate-800/80 space-y-1">
+                  <div className="flex justify-between items-center text-[10px] font-mono">
+                    <span className="font-bold text-cyan-400">{m.autor}</span>
+                    <span className="text-slate-500">{m.hora}</span>
+                  </div>
+                  <p className="text-xs text-slate-200">{m.texto}</p>
+                </div>
+              ))}
+            </div>
+
+            <form onSubmit={handleEnviarChat} className="flex gap-2 pt-2 border-t border-slate-800">
+              <input
+                type="text"
+                value={mensajeChat}
+                onChange={(e) => setMensajeChat(e.target.value)}
+                placeholder="Escribe tu intervención..."
+                className="flex-1 bg-[#07090e] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:border-cyan-400 outline-none font-mono"
+              />
+              <button
+                type="submit"
+                className="bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 p-2 rounded-xl transition cursor-pointer"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </form>
+          </div>
+
+        </div>
+      )}
+
+      {/* SUBMÓDULO 2: CONVOCATORIAS */}
+      {submoduloActivo === 'convocatorias' && (
+        <SubmoduloConvocatoriasLey675 onShowToast={onShowToast} />
+      )}
+
+      {/* SUBMÓDULO 3: QUÓRUM */}
+      {submoduloActivo === 'quorum' && (
+        <div className="bg-[#0b0f17] border border-slate-800 rounded-3xl p-6 space-y-4">
+          <h4 className="text-sm font-bold text-white font-mono">Registro Oficial de Quórum por Coeficiente</h4>
+          <p className="text-xs text-slate-400">Quórum acreditado en sala: <strong className="text-emerald-400">{quorumRegistrado}%</strong></p>
+        </div>
+      )}
+
+      {/* SUBMÓDULO 4: VOTACIONES */}
+      {submoduloActivo === 'votaciones' && (
+        <div className="bg-[#0b0f17] border border-slate-800 rounded-3xl p-6 space-y-4">
+          <h4 className="text-sm font-bold text-white font-mono">Tarjetón Digital de Votación Nominal</h4>
+          <p className="text-xs text-slate-400">{mociónActual.titulo}</p>
+        </div>
+      )}
+
+      {/* SUBMÓDULO 5: ACTA */}
+      {submoduloActivo === 'acta' && (
+        <div className="bg-[#0b0f17] border border-slate-800 rounded-3xl p-6 space-y-4">
+          <h4 className="text-sm font-bold text-white font-mono">Generación y Foliado del Acta de Asamblea</h4>
+          <p className="text-xs text-slate-400">Transcripción legal conforme al Art. 47 de la Ley 675.</p>
+        </div>
+      )}
+
+    </div>
+  );
+}

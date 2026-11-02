@@ -18,10 +18,7 @@ import {
   Clock,
   Send,
   Download,
-  AlertTriangle,
-  Building2,
   Sparkles,
-  ChevronRight,
   MonitorUp,
   PhoneOff,
   Play,
@@ -38,15 +35,18 @@ export interface ModuloReunionesConSubmodulosProps {
   onShowToast?: (msg: string) => void;
 }
 
+// CANAL MAESTRO COMPARTIDO EN SUPABASE (ADMIN ⇄ RESIDENTES)
+const CANAL_ASAMBLEA_ROOM = 'asamblea_urbix_general';
+
 export default function ModuloReunionesConSubmodulos({
   unidadResidenteActual = 'Torre 2 - 301',
   esConsejero = true,
-  rolUsuario = 'residente', // Puede ser 'admin' o 'residente'
+  rolUsuario = 'residente',
   onShowToast
 }: ModuloReunionesConSubmodulosProps) {
   const [submoduloActivo, setSubmoduloActivo] = useState<'video' | 'convocatorias' | 'quorum' | 'votaciones' | 'acta'>('video');
 
-  // Estados WebRTC y sala
+  // Estados WebRTC y sala en vivo
   const [enVivo, setEnVivo] = useState(false);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
@@ -54,11 +54,12 @@ export default function ModuloReunionesConSubmodulos({
   const [manoLevantada, setManoLevantada] = useState(false);
   const [segundosTranscurridos, setSegundosTranscurridos] = useState(0);
 
-  // Control de invitación formal de asamblea o consejo
-  const [salaInstaladaPorAdmin, setSalaInstaladaPorAdmin] = useState(false);
+  // Tipo de órgano a convocar por el Administrador ('asamblea' | 'consejo')
   const [tipoConvocatoriaAdmin, setTipoConvocatoriaAdmin] = useState<'asamblea' | 'consejo'>('asamblea');
+
+  // Invitación entrante que ve el residente
   const [invitacionEntrante, setInvitacionEntrante] = useState<{
-    tipo: 'asamblea' | 'consejo';
+    tipo?: 'asamblea' | 'consejo';
     titulo: string;
     hora: string;
     orador: string;
@@ -74,7 +75,7 @@ export default function ModuloReunionesConSubmodulos({
 
   const [mensajeChat, setMensajeChat] = useState('');
   const [chatLog, setChatLog] = useState([
-    { id: 1, autor: 'Administración Central', texto: 'Sala virtual habilitada conforme a la Ley 675 de 2001.', hora: '06:00 PM' }
+    { id: 1, autor: 'Administración Central', texto: 'Sala virtual instalada conforme a la Ley 675 de 2001.', hora: '06:00 PM' }
   ]);
 
   // Estados de Convocatorias
@@ -99,10 +100,9 @@ export default function ModuloReunionesConSubmodulos({
     }
   ]);
 
-  // Quórum y mociones
   const [quorumRegistrado, setQuorumRegistrado] = useState(78.4);
   const [asistentesConectados, setAsistentesConectados] = useState(rolUsuario === 'admin' ? 1 : 0);
-  const [unidadesPresentes, setUnidadesPresentes] = useState([
+  const [unidadesPresentes] = useState([
     { id: 'u-1', unidad: 'Torre 1 - 101', titular: 'Mateo Zuluaga', coeficiente: 0.82, poder: false, hora: '05:45 PM' },
     { id: 'u-2', unidad: 'Torre 1 - 102', titular: 'Carolina Herrera', coeficiente: 0.82, poder: false, hora: '05:50 PM' },
     { id: 'u-3', unidad: 'Torre 1 - 201', titular: 'Andrés Gómez (Apoderado)', coeficiente: 0.95, poder: true, hora: '05:52 PM' },
@@ -123,7 +123,6 @@ export default function ModuloReunionesConSubmodulos({
 
   // Estados de Acta IA
   const [generandoActa, setGenerandoActa] = useState(false);
-  const [actaGenerada, setActaGenerada] = useState(false);
   const [comisionVerificadora, setComisionVerificadora] = useState({
     persona1: 'Dr. Mauricio Restrepo (Apto 301)',
     persona2: 'Mateo Zuluaga (Apto 101)'
@@ -136,27 +135,26 @@ export default function ModuloReunionesConSubmodulos({
     ]
   };
 
-  // 1. Canal Supabase en tiempo real: Invitaciones, WebRTC y Quórum
+  // 1. CONEXIÓN EN TIEMPO REAL CON SUPABASE BROADCAST
   useEffect(() => {
     if (!isSupabaseConfigured) return;
 
-    const canal = supabase.channel('sala_asamblea_general_webrtc', {
+    const canal = supabase.channel(CANAL_ASAMBLEA_ROOM, {
       config: { broadcast: { self: false } }
     });
 
     canal
-      // El Administrador convoca / abre la sala formal
+      // El Administrador hace sonar la convocatoria en todos los apartamentos
       .on('broadcast', { event: 'asamblea_convocatoria_abierta' }, ({ payload }) => {
-        setSalaInstaladaPorAdmin(true);
         setInvitacionEntrante({
           tipo: payload.tipo === 'consejo' ? 'consejo' : 'asamblea',
-          titulo: payload.titulo || 'Asamblea General de Copropietarios 2026',
+          titulo: payload.titulo || 'Asamblea General Ordinaria de Copropietarios 2026',
           hora: payload.hora || 'Ahora',
           orador: payload.orador || 'Administración Central'
         });
         onShowToast?.(`🔔 Convocatoria en vivo: ${payload.titulo || 'Asamblea Iniciada'}`);
       })
-      // Oferta WebRTC del Admin
+      // Oferta WebRTC enviada por el Administrador
       .on('broadcast', { event: 'asamblea_oferta' }, async ({ payload }) => {
         if (rolUsuario === 'admin') return;
         try {
@@ -195,7 +193,7 @@ export default function ModuloReunionesConSubmodulos({
           try {
             await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
           } catch (e) {
-            console.warn('Error fijando respuesta SDP remota:', e);
+            console.warn('Error fijando respuesta remota SDP:', e);
           }
         }
       })
@@ -221,7 +219,7 @@ export default function ModuloReunionesConSubmodulos({
     };
   }, [rolUsuario]);
 
-  // 2. Iniciar sesión y emitir convocatoria (Administrador) o Aceptar invitación (Residente)
+  // 2. INICIAR SALA (ADMIN) O ACEPTAR INVITACIÓN (RESIDENTE)
   const conectarASala = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -257,14 +255,13 @@ export default function ModuloReunionesConSubmodulos({
         }
       };
 
-      // Si quien conecta es Administrador -> Notifica convocatoria e inicia oferta
       if (rolUsuario === 'admin') {
-        setSalaInstaladaPorAdmin(true);
         const tituloConvocatoria =
           tipoConvocatoriaAdmin === 'consejo'
             ? 'Sesión Ordinaria del Consejo de Administración'
             : 'Asamblea General Ordinaria de Copropietarios 2026';
 
+        // El Administrador envía la convocatoria a todos los apartamentos
         if (canalRtcRef.current) {
           canalRtcRef.current.send({
             type: 'broadcast',
@@ -288,11 +285,10 @@ export default function ModuloReunionesConSubmodulos({
             payload: { sdp: oferta }
           });
         }
-        onShowToast?.(`📢 Convocatoria (${tipoConvocatoriaAdmin === 'consejo' ? 'Consejo de Administración' : 'Asamblea General'}) transmitida en vivo.`);
+        onShowToast?.('📢 Convocatoria transmitida en vivo a todos los apartamentos.');
       } else {
-        // El residente aceptó la invitación formal
         setInvitacionEntrante(null);
-        onShowToast?.(`✅ Acreditación exitosa de ${unidadResidenteActual} en la sesión.`);
+        onShowToast?.(`✅ Acreditación exitosa de ${unidadResidenteActual} en la asamblea.`);
       }
 
       setEnVivo(true);
@@ -300,8 +296,8 @@ export default function ModuloReunionesConSubmodulos({
       setMicOn(true);
       setAsistentesConectados(prev => prev + 1);
     } catch (err: any) {
-      console.error('Error al solicitar cámara/micrófono:', err);
-      onShowToast?.('⚠️ Por favor permite el acceso a la cámara y micrófono.');
+      console.error('Error al abrir dispositivos multimedia:', err);
+      onShowToast?.('⚠️ Por favor concede permisos de cámara y micrófono.');
     }
   };
 
@@ -322,7 +318,6 @@ export default function ModuloReunionesConSubmodulos({
     if (videoRemotoRef.current) videoRemotoRef.current.srcObject = null;
     setEnVivo(false);
     setCompartiendoPantalla(false);
-    onShowToast?.('Sesión de asamblea finalizada.');
   };
 
   const toggleMic = () => {
@@ -369,7 +364,7 @@ export default function ModuloReunionesConSubmodulos({
         };
 
         setCompartiendoPantalla(true);
-        onShowToast?.('🖥️ Proyectando pantalla a la asamblea.');
+        onShowToast?.('🖥️ Proyectando pantalla a los copropietarios.');
       } catch (e) {
         console.warn('Pantalla cancelada:', e);
       }
@@ -431,12 +426,10 @@ export default function ModuloReunionesConSubmodulos({
     setGenerandoActa(true);
     setTimeout(() => {
       setGenerandoActa(false);
-      setActaGenerada(true);
       onShowToast?.('✨ Acta legal generada automáticamente por IA bajo Ley 675.');
     }, 1200);
   };
 
-  // Cronómetro
   useEffect(() => {
     let t: any;
     if (enVivo) {
@@ -455,21 +448,33 @@ export default function ModuloReunionesConSubmodulos({
   // 1. Es una Asamblea General (entran todos)
   // O 2. Es reunión de Consejo y el usuario tiene acreditación de consejero
   const tieneAccesoAReunion =
+    !invitacionEntrante?.tipo ||
     invitacionEntrante?.tipo === 'asamblea' ||
     (invitacionEntrante?.tipo === 'consejo' && esConsejero);
+
+  // PESTAÑAS ADAPTADAS: Al residente NO se le da gestión de convocatorias ni generador de actas
+  const pestanasVisibles = rolUsuario === 'admin'
+    ? [
+        { id: 'video', label: '1. Videoconferencia', icon: Video, color: 'text-rose-400' },
+        { id: 'convocatorias', label: '2. Programar Convocatorias', icon: Calendar, color: 'text-cyan-400' },
+        { id: 'quorum', label: '3. Auditoría de Quórum', icon: Users, color: 'text-emerald-400' },
+        { id: 'votaciones', label: '4. Mesa de Votaciones', icon: CheckSquare, color: 'text-amber-400' },
+        { id: 'acta', label: '5. Generador de Actas IA', icon: FileText, color: 'text-blue-400' },
+      ]
+    : [
+        { id: 'video', label: '1. Sala en Vivo', icon: Video, color: 'text-rose-400' },
+        { id: 'convocatorias', label: '2. Citaciones Formales', icon: Calendar, color: 'text-cyan-400' },
+        { id: 'quorum', label: '3. Mi Coeficiente & Quórum', icon: Users, color: 'text-emerald-400' },
+        { id: 'votaciones', label: '4. Tarjetón de Voto', icon: CheckSquare, color: 'text-amber-400' },
+        { id: 'acta', label: '5. Consultar Actas Aprobadas', icon: FileText, color: 'text-blue-400' },
+      ];
 
   return (
     <div className="bg-[#05080e] border border-cyan-500/30 rounded-3xl p-4 sm:p-6 space-y-6 shadow-2xl font-sans text-slate-100">
       
-      {/* BARRA DE SUBMÓDULOS */}
+      {/* BARRA DE SUBMÓDULOS FILTRADA POR ROL */}
       <nav className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-800/80">
-        {[
-          { id: 'video', label: '1. Videoconferencia', icon: Video, color: 'text-rose-400' },
-          { id: 'convocatorias', label: '2. Convocatorias', icon: Calendar, color: 'text-cyan-400' },
-          { id: 'quorum', label: '3. Quórum Coeficientes', icon: Users, color: 'text-emerald-400' },
-          { id: 'votaciones', label: '4. Votación de Mociones', icon: CheckSquare, color: 'text-amber-400' },
-          { id: 'acta', label: '5. Acta Oficial & IA', icon: FileText, color: 'text-blue-400' },
-        ].map((tab) => {
+        {pestanasVisibles.map((tab) => {
           const Icon = tab.icon;
           const isActive = submoduloActivo === tab.id;
           return (
@@ -498,7 +503,6 @@ export default function ModuloReunionesConSubmodulos({
           <div className="lg:col-span-2 space-y-4">
             <div className="relative aspect-video bg-slate-950 rounded-3xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col justify-between p-4">
               
-              {/* Badges superiores */}
               <div className="flex items-center justify-between z-10">
                 <span className="flex items-center gap-2 bg-rose-500/20 text-rose-400 border border-rose-500/40 px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase">
                   <span className={`w-2 h-2 rounded-full ${enVivo ? 'bg-rose-500 animate-ping' : 'bg-slate-600'}`} />
@@ -509,7 +513,7 @@ export default function ModuloReunionesConSubmodulos({
                 </span>
               </div>
 
-              {/* Contenido Central: Video en Vivo o Estado de Espera / Invitación */}
+              {/* Video en vivo o Invitación/Espera */}
               <div className="relative flex-1 flex items-center justify-center overflow-hidden my-2 rounded-2xl bg-[#07090e]/80 border border-slate-800/80">
                 {enVivo ? (
                   <>
@@ -530,7 +534,7 @@ export default function ModuloReunionesConSubmodulos({
                     )}
                   </>
                 ) : invitacionEntrante && rolUsuario === 'residente' && tieneAccesoAReunion ? (
-                  // TARJETA DE INVITACIÓN ENTRANTE EXCLUSIVA PARA EL RESIDENTE AUTORIZADO
+                  // TARJETA DE LLAMADA / INVITACIÓN EN VIVO AL RESIDENTE
                   <div className="text-center space-y-4 py-8 px-6 max-w-md bg-cyan-950/20 border border-cyan-500/40 rounded-3xl p-6 shadow-[0_0_30px_rgba(34,211,238,0.2)] animate-fadeIn">
                     <div className="w-16 h-16 mx-auto rounded-2xl bg-cyan-500/20 border border-cyan-400/50 flex items-center justify-center text-cyan-300">
                       <BellRing className="w-8 h-8 animate-bounce text-cyan-400" />
@@ -546,7 +550,7 @@ export default function ModuloReunionesConSubmodulos({
                         Iniciada por: <strong className="text-cyan-300">{invitacionEntrante.orador}</strong> • Hora: {invitacionEntrante.hora}
                       </p>
                       <p className="text-[11px] text-emerald-400 font-mono mt-0.5">
-                        Inmueble Acreditado: <strong>{unidadResidenteActual}</strong> {esConsejero && invitacionEntrante.tipo === 'consejo' ? '• Consejero Titular' : ''}
+                        Inmueble Acreditado: <strong>{unidadResidenteActual}</strong>
                       </p>
                     </div>
 
@@ -555,7 +559,7 @@ export default function ModuloReunionesConSubmodulos({
                       onClick={conectarASala}
                       className="w-full bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black py-3 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,211,238,0.35)] flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <Play className="w-4 h-4 fill-current" /> Aceptar e Ingresar a la {invitacionEntrante.tipo === 'consejo' ? 'Sesión de Consejo' : 'Asamblea'}
+                      <Play className="w-4 h-4 fill-current" /> Aceptar e Ingresar a la Asamblea
                     </button>
                   </div>
                 ) : invitacionEntrante && !tieneAccesoAReunion ? (
@@ -568,7 +572,7 @@ export default function ModuloReunionesConSubmodulos({
                     </p>
                   </div>
                 ) : (
-                  // ESTADO EN ESPERA (SIN TEXTO FIJO DE DR. MAURICIO)
+                  // PANTALLA EN ESPERA LIMPIA
                   <div className="text-center space-y-3 py-8 px-4">
                     <div className="w-16 h-16 mx-auto rounded-3xl bg-[#090d14] border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_25px_rgba(34,211,238,0.15)]">
                       {rolUsuario === 'admin' ? <Radio className="w-8 h-8 animate-pulse" /> : <Lock className="w-8 h-8 text-slate-500" />}
@@ -580,7 +584,7 @@ export default function ModuloReunionesConSubmodulos({
                       </h3>
                       <p className="text-xs text-slate-400 font-mono mt-1 max-w-sm mx-auto">
                         {rolUsuario === 'admin' 
-                          ? 'Selecciona el órgano y presiona el botón para abrir la transmisión y emitir la llamada oficial a los miembros convocados.' 
+                          ? 'Presiona el botón para abrir la transmisión y emitir la llamada oficial a los miembros convocados.' 
                           : 'La sesión virtual está protegida bajo la Ley 675. Te notificaremos en pantalla cuando la Administración inicie la asamblea.'}
                       </p>
                     </div>
@@ -617,7 +621,7 @@ export default function ModuloReunionesConSubmodulos({
                           onClick={conectarASala}
                           className="bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black px-6 py-2.5 rounded-xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,211,238,0.35)] flex items-center gap-2 mx-auto cursor-pointer"
                         >
-                          <Play className="w-4 h-4 fill-current" /> Abrir Sala y Convocar {tipoConvocatoriaAdmin === 'consejo' ? 'Consejo' : 'Asamblea'}
+                          <Play className="w-4 h-4 fill-current" /> Abrir Sala y Convocar Asamblea
                         </button>
                       </div>
                     )}
@@ -625,7 +629,7 @@ export default function ModuloReunionesConSubmodulos({
                 )}
               </div>
 
-              {/* Barra inferior de controles multimedia */}
+              {/* Controles de audio y video */}
               <div className="bg-[#0b0f17]/90 backdrop-blur-md p-3 rounded-2xl border border-slate-800 flex items-center justify-between gap-2 z-10 flex-wrap">
                 <div className="flex items-center gap-2">
                   <button
@@ -652,17 +656,19 @@ export default function ModuloReunionesConSubmodulos({
                     <span className="hidden sm:inline">{camOn ? 'Cámara On' : 'Cámara Off'}</span>
                   </button>
 
-                  <button
-                    disabled={!enVivo}
-                    type="button"
-                    onClick={toggleCompartirPantalla}
-                    className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer min-h-[40px] disabled:opacity-40 ${
-                      compartiendoPantalla ? 'bg-cyan-500/30 border-cyan-400 text-cyan-200' : 'bg-slate-900 border-slate-800 text-slate-400'
-                    }`}
-                  >
-                    <MonitorUp className="w-4 h-4" />
-                    <span className="hidden sm:inline">{compartiendoPantalla ? 'Proyectando' : 'Proyectar'}</span>
-                  </button>
+                  {rolUsuario === 'admin' && (
+                    <button
+                      disabled={!enVivo}
+                      type="button"
+                      onClick={toggleCompartirPantalla}
+                      className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer min-h-[40px] disabled:opacity-40 ${
+                        compartiendoPantalla ? 'bg-cyan-500/30 border-cyan-400 text-cyan-200' : 'bg-slate-900 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      <MonitorUp className="w-4 h-4" />
+                      <span className="hidden sm:inline">{compartiendoPantalla ? 'Proyectando' : 'Proyectar'}</span>
+                    </button>
+                  )}
 
                   <button
                     disabled={!enVivo}
@@ -760,36 +766,38 @@ export default function ModuloReunionesConSubmodulos({
         </div>
       )}
 
-      {/* 2. SUBMÓDULO: PROGRAMAR CONVOCATORIA (ÓRGANOS LEY 675) */}
+      {/* SUBMÓDULO 2: CONVOCATORIAS */}
       {submoduloActivo === 'convocatorias' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-            <div className="xl:col-span-6">
-              <SubmoduloConvocatoriasLey675
-                onShowToast={onShowToast}
-                onConvocatoriaCreada={(nueva) => {
-                  setConvocatorias((prev: any) => [
-                    {
-                      id: nueva.id,
-                      tipo: nueva.tipo,
-                      titulo: nueva.titulo,
-                      fecha: nueva.fecha,
-                      modalidad: nueva.modalidad,
-                      lugarOSala: nueva.lugarOSala,
-                      estado: nueva.estado,
-                      anticipacion: nueva.anticipacion,
-                      quorum: '0%'
-                    },
-                    ...prev
-                  ]);
-                }}
-              />
-            </div>
+            {rolUsuario === 'admin' && (
+              <div className="xl:col-span-6">
+                <SubmoduloConvocatoriasLey675
+                  onShowToast={onShowToast}
+                  onConvocatoriaCreada={(nueva) => {
+                    setConvocatorias((prev: any) => [
+                      {
+                        id: nueva.id,
+                        tipo: nueva.tipo,
+                        titulo: nueva.titulo,
+                        fecha: nueva.fecha,
+                        modalidad: nueva.modalidad,
+                        lugarOSala: nueva.lugarOSala,
+                        estado: nueva.estado,
+                        anticipacion: nueva.anticipacion,
+                        quorum: '0%'
+                      },
+                      ...prev
+                    ]);
+                  }}
+                />
+              </div>
+            )}
 
-            <div className="xl:col-span-6 space-y-4">
+            <div className={`${rolUsuario === 'admin' ? 'xl:col-span-6' : 'xl:col-span-12'} space-y-4`}>
               <div className="flex items-center justify-between pb-1">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-cyan-400" /> Historial y Convocatorias Vigentes
+                  <Clock className="w-4 h-4 text-cyan-400" /> {rolUsuario === 'admin' ? 'Historial y Convocatorias Vigentes' : 'Citaciones Formales Vigentes'}
                 </h3>
                 <span className="text-xs text-cyan-400 font-mono bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded">
                   {convocatorias.length} registradas
@@ -864,7 +872,7 @@ export default function ModuloReunionesConSubmodulos({
         </div>
       )}
 
-      {/* 3. SUBMÓDULO: QUÓRUM POR COEFICIENTES (LEY 675) */}
+      {/* SUBMÓDULO 3: QUÓRUM */}
       {submoduloActivo === 'quorum' && (
         <div className="space-y-6">
           <div className="bg-[#0b0f17] border border-cyan-500/30 p-6 rounded-3xl space-y-4 shadow-xl">
@@ -896,30 +904,12 @@ export default function ModuloReunionesConSubmodulos({
                 <span>100%</span>
               </div>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-              <div className="p-3 bg-[#07090e] border border-slate-800 rounded-2xl text-xs">
-                <span className="text-slate-400 block text-[10px] font-mono uppercase">Decisiones Ordinarias</span>
-                <span className="text-emerald-400 font-bold">Habilitado &checkmark;</span>
-                <p className="text-[11px] text-slate-500 mt-0.5">Mitad más uno de votos presentes</p>
-              </div>
-              <div className="p-3 bg-[#07090e] border border-slate-800 rounded-2xl text-xs">
-                <span className="text-slate-400 block text-[10px] font-mono uppercase">Mayoría Calificada (Art. 46)</span>
-                <span className="text-cyan-400 font-bold">Habilitado ({quorumRegistrado}% &gt; 70%) &checkmark;</span>
-                <p className="text-[11px] text-slate-500 mt-0.5">Reformas reglamentos, desafectaciones</p>
-              </div>
-              <div className="p-3 bg-[#07090e] border border-slate-800 rounded-2xl text-xs">
-                <span className="text-slate-400 block text-[10px] font-mono uppercase">Control de Poderes</span>
-                <span className="text-purple-400 font-bold">1 Poder validado</span>
-                <p className="text-[11px] text-slate-500 mt-0.5">Máximo permitido por reglamento: 2</p>
-              </div>
-            </div>
           </div>
 
           <div className="bg-[#0b0f17] border border-slate-800/80 p-5 rounded-3xl space-y-4">
             <div className="flex items-center justify-between">
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <Users className="w-4 h-4 text-cyan-400" /> Registro de Asistencia por Coeficientes
+              <h4 className="text-sm font-bold text-white font-mono flex items-center gap-2">
+                <Users className="w-4 h-4 text-cyan-400" /> Registro Oficial de Quórum por Coeficiente
               </h4>
               <button
                 type="button"
@@ -970,7 +960,7 @@ export default function ModuloReunionesConSubmodulos({
         </div>
       )}
 
-      {/* 4. SUBMÓDULO: VOTACIÓN DE MOCIONES */}
+      {/* SUBMÓDULO 4: VOTACIONES */}
       {submoduloActivo === 'votaciones' && (
         <div className="space-y-6">
           <div className="bg-[#0b0f17] border border-amber-500/30 p-6 rounded-3xl space-y-6 shadow-xl">
@@ -979,134 +969,92 @@ export default function ModuloReunionesConSubmodulos({
                 <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">
                   MOCIÓN EN CURSO • LEY 675
                 </span>
-                <h3 className="text-base sm:text-lg font-black text-white mt-1.5">
-                  {mociónActual.titulo}
-                </h3>
-                <p className="text-xs text-slate-400 font-medium mt-0.5">{mociónActual.tipoMayoria}</p>
+                <h4 className="text-base sm:text-lg font-black text-white mt-1.5 font-mono">
+                  Tarjetón Digital de Votación Nominal
+                </h4>
+                <p className="text-xs text-slate-300 font-medium mt-0.5">{mociónActual.titulo}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">{mociónActual.tipoMayoria}</p>
               </div>
               <div className="text-right">
-                <span className="text-[11px] text-slate-400 font-mono block">Tu peso de voto:</span>
+                <span className="text-[11px] text-slate-400 font-mono block">Peso de voto ({unidadResidenteActual}):</span>
                 <span className="text-sm font-black text-cyan-400 font-mono">1.05% Coeficiente</span>
               </div>
             </div>
 
-            <div>
-              <p className="text-xs font-bold text-slate-300 mb-3 uppercase tracking-wider">
-                {mociónActual.haVotado ? '✅ Tu voto ya fue computado en el escrutinio oficial:' : 'Emite tu voto vinculante:'}
-              </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <button
+                type="button"
+                disabled={mociónActual.haVotado}
+                onClick={() => handleVotar('favor')}
+                className={`p-4 rounded-2xl border text-center transition flex flex-col items-center gap-2 cursor-pointer ${
+                  mociónActual.miVoto === 'favor'
+                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-[0_0_20px_rgba(16,185,129,0.3)]'
+                    : 'bg-[#07090e] border-slate-800 hover:border-emerald-500/50 text-slate-200'
+                }`}
+              >
+                <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                <span className="font-bold text-sm">A Favor</span>
+                <span className="text-[10px] font-mono text-emerald-400">{mociónActual.coefFavor}% acumulado</span>
+              </button>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <button
-                  type="button"
-                  disabled={mociónActual.haVotado}
-                  onClick={() => handleVotar('favor')}
-                  className={`p-4 rounded-2xl border text-center transition flex flex-col items-center gap-2 cursor-pointer ${
-                    mociónActual.miVoto === 'favor'
-                      ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-[0_0_20px_rgba(16,185,129,0.3)]'
-                      : 'bg-[#07090e] border-slate-800 hover:border-emerald-500/50 text-slate-200'
-                  }`}
-                >
-                  <CheckCircle2 className="w-6 h-6 text-emerald-400" />
-                  <span className="font-bold text-sm">A Favor</span>
-                  <span className="text-[10px] font-mono text-emerald-400">Aprueba la moción</span>
-                </button>
+              <button
+                type="button"
+                disabled={mociónActual.haVotado}
+                onClick={() => handleVotar('contra')}
+                className={`p-4 rounded-2xl border text-center transition flex flex-col items-center gap-2 cursor-pointer ${
+                  mociónActual.miVoto === 'contra'
+                    ? 'bg-rose-500/20 border-rose-500 text-rose-300 shadow-[0_0_20px_rgba(244,63,94,0.3)]'
+                    : 'bg-[#07090e] border-slate-800 hover:border-rose-500/50 text-slate-200'
+                }`}
+              >
+                <XCircle className="w-6 h-6 text-rose-400" />
+                <span className="font-bold text-sm">En Contra</span>
+                <span className="text-[10px] font-mono text-rose-400">{mociónActual.coefContra}% acumulado</span>
+              </button>
 
-                <button
-                  type="button"
-                  disabled={mociónActual.haVotado}
-                  onClick={() => handleVotar('contra')}
-                  className={`p-4 rounded-2xl border text-center transition flex flex-col items-center gap-2 cursor-pointer ${
-                    mociónActual.miVoto === 'contra'
-                      ? 'bg-rose-500/20 border-rose-500 text-rose-300 shadow-[0_0_20px_rgba(244,63,94,0.3)]'
-                      : 'bg-[#07090e] border-slate-800 hover:border-rose-500/50 text-slate-200'
-                  }`}
-                >
-                  <XCircle className="w-6 h-6 text-rose-400" />
-                  <span className="font-bold text-sm">En Contra</span>
-                  <span className="text-[10px] font-mono text-rose-400">Rechaza la moción</span>
-                </button>
-
-                <button
-                  type="button"
-                  disabled={mociónActual.haVotado}
-                  onClick={() => handleVotar('blanco')}
-                  className={`p-4 rounded-2xl border text-center transition flex flex-col items-center gap-2 cursor-pointer ${
-                    mociónActual.miVoto === 'blanco'
-                      ? 'bg-slate-700/40 border-slate-400 text-slate-200'
-                      : 'bg-[#07090e] border-slate-800 hover:border-slate-600 text-slate-300'
-                  }`}
-                >
-                  <ShieldCheck className="w-6 h-6 text-slate-400" />
-                  <span className="font-bold text-sm">En Blanco</span>
-                  <span className="text-[10px] font-mono text-slate-400">Abstención voluntaria</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="bg-[#07090e] p-5 rounded-2xl border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-white uppercase font-mono tracking-wider">Escrutinio por Coeficientes Ponderados</span>
-                <span className="text-emerald-400 font-bold font-mono">Estado: Aprobándose ({(mociónActual.coefFavor / 92.4 * 100).toFixed(1)}% de los presentes)</span>
-              </div>
-
-              <div className="space-y-2">
-                <div>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-emerald-400 font-bold">A Favor</span>
-                    <span className="font-mono text-white font-bold">{mociónActual.coefFavor}%</span>
-                  </div>
-                  <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden">
-                    <div className="bg-emerald-400 h-full rounded-full transition-all" style={{ width: `${mociónActual.coefFavor}%` }} />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-rose-400 font-bold">En Contra</span>
-                    <span className="font-mono text-white font-bold">{mociónActual.coefContra}%</span>
-                  </div>
-                  <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden">
-                    <div className="bg-rose-400 h-full rounded-full transition-all" style={{ width: `${mociónActual.coefContra}%` }} />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-slate-400 font-bold">En Blanco / Abstención</span>
-                    <span className="font-mono text-white font-bold">{mociónActual.coefBlanco}%</span>
-                  </div>
-                  <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden">
-                    <div className="bg-slate-500 h-full rounded-full transition-all" style={{ width: `${mociónActual.coefBlanco}%` }} />
-                  </div>
-                </div>
-              </div>
+              <button
+                type="button"
+                disabled={mociónActual.haVotado}
+                onClick={() => handleVotar('blanco')}
+                className={`p-4 rounded-2xl border text-center transition flex flex-col items-center gap-2 cursor-pointer ${
+                  mociónActual.miVoto === 'blanco'
+                    ? 'bg-slate-700/40 border-slate-400 text-slate-200'
+                    : 'bg-[#07090e] border-slate-800 hover:border-slate-600 text-slate-300'
+                }`}
+              >
+                <ShieldCheck className="w-6 h-6 text-slate-400" />
+                <span className="font-bold text-sm">En Blanco</span>
+                <span className="text-[10px] font-mono text-slate-400">{mociónActual.coefBlanco}% acumulado</span>
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 5. SUBMÓDULO: ACTA OFICIAL & IA (LEY 675) */}
+      {/* SUBMÓDULO 5: ACTA */}
       {submoduloActivo === 'acta' && (
         <div className="space-y-6">
           <div className="bg-[#0b0f17] border border-blue-500/30 p-6 rounded-3xl space-y-6 shadow-xl">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <span className="text-xs font-mono uppercase tracking-wider text-blue-400 font-bold">
-                  Documento Jurídico Vinculante (Art. 47 Ley 675)
+                  Transcripción legal conforme al Art. 47 de la Ley 675
                 </span>
-                <h3 className="text-lg font-black text-white mt-0.5">
-                  Acta Oficial de Asamblea &amp; Resumen con IA
-                </h3>
+                <h4 className="text-lg font-black text-white mt-0.5 font-mono">
+                  {rolUsuario === 'admin' ? 'Generación y Foliado del Acta de Asamblea' : 'Consultar Actas Aprobadas'}
+                </h4>
               </div>
-              <button
-                type="button"
-                onClick={handleGenerarActaIA}
-                disabled={generandoActa}
-                className="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-400 text-white font-bold text-xs rounded-xl shadow-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
-              >
-                <Sparkles className="w-4 h-4 text-amber-300" />
-                {generandoActa ? 'Generando Acta con IA...' : 'Redactar Acta con IA Urbix'}
-              </button>
+              {rolUsuario === 'admin' && (
+                <button
+                  type="button"
+                  onClick={handleGenerarActaIA}
+                  disabled={generandoActa}
+                  className="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-400 text-white font-bold text-xs rounded-xl shadow-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-300" />
+                  {generandoActa ? 'Generando Acta con IA...' : 'Redactar Acta con IA Urbix'}
+                </button>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#07090e] p-4 rounded-2xl border border-slate-800">
@@ -1114,18 +1062,20 @@ export default function ModuloReunionesConSubmodulos({
                 <span className="text-[10px] font-mono uppercase text-slate-400 block font-bold">Comisión Verificadora del Acta 1</span>
                 <input
                   type="text"
+                  readOnly={rolUsuario !== 'admin'}
                   value={comisionVerificadora.persona1}
                   onChange={(e) => setComisionVerificadora({ ...comisionVerificadora, persona1: e.target.value })}
-                  className="w-full bg-[#0b0f17] border border-slate-800 text-white text-xs p-2 rounded-xl mt-1 focus:border-blue-400 outline-none"
+                  className="w-full bg-[#0b0f17] border border-slate-800 text-white text-xs p-2 rounded-xl mt-1 focus:border-blue-400 outline-none read-only:opacity-80"
                 />
               </div>
               <div>
                 <span className="text-[10px] font-mono uppercase text-slate-400 block font-bold">Comisión Verificadora del Acta 2</span>
                 <input
                   type="text"
+                  readOnly={rolUsuario !== 'admin'}
                   value={comisionVerificadora.persona2}
                   onChange={(e) => setComisionVerificadora({ ...comisionVerificadora, persona2: e.target.value })}
-                  className="w-full bg-[#0b0f17] border border-slate-800 text-white text-xs p-2 rounded-xl mt-1 focus:border-blue-400 outline-none"
+                  className="w-full bg-[#0b0f17] border border-slate-800 text-white text-xs p-2 rounded-xl mt-1 focus:border-blue-400 outline-none read-only:opacity-80"
                 />
               </div>
             </div>
@@ -1134,32 +1084,22 @@ export default function ModuloReunionesConSubmodulos({
               <div className="text-center pb-3 border-b border-slate-800 text-slate-300">
                 <p className="font-bold text-white text-sm">ACTA N° 024 - ASAMBLEA GENERAL ORDINARIA</p>
                 <p className="text-[11px] text-slate-400">P.H. RESERVA DEL TESORO • NIT 900.412.889-1</p>
-                <p className="text-[10px] text-slate-500">Convocatoria: 15 de marzo de 2026 • Modalidad Mixta/Virtual</p>
               </div>
-
               <div className="space-y-2 text-slate-300 leading-relaxed text-[11px]">
                 <p>
-                  <strong className="text-cyan-300">1. VERIFICACIÓN DEL QUÓRUM:</strong> Siendo las 06:00 PM, el Administrador constató la presencia de propietarios y apoderados que representan el <strong className="text-white">{quorumRegistrado}%</strong> del coeficiente total de la copropiedad, existiendo quórum deliberatorio y decisorio en los términos del Artículo 45 de la Ley 675 de 2001.
+                  <strong className="text-cyan-300">1. VERIFICACIÓN DEL QUÓRUM:</strong> Quórum acreditado del <strong className="text-white">{quorumRegistrado}%</strong> conforme al Art. 45 de la Ley 675 de 2001.
                 </p>
                 <p>
-                  <strong className="text-cyan-300">2. ELECCIÓN DE PRESIDENTE Y SECRETARIO:</strong> Se designó por unanimidad como Presidente de la reunión al Dr. Mauricio Restrepo y como Secretario al Administrador Carlos Mario Pineda.
-                </p>
-                <p>
-                  <strong className="text-cyan-300">3. APROBACIÓN DEL PRESUPUESTO 2026:</strong> Sometida a consideración la moción de aprobación del presupuesto ordinario con incremento del 8.5%, se obtuvo el <strong className="text-emerald-400">{mociónActual.coefFavor}% a favor</strong>, {mociónActual.coefContra}% en contra y {mociónActual.coefBlanco}% en blanco. APROBADO por mayoría estatutaria.
+                  <strong className="text-cyan-300">2. MOCIONES VOTADAS:</strong> {mociónActual.titulo} — <strong className="text-emerald-400">{mociónActual.coefFavor}% a favor</strong>, {mociónActual.coefContra}% en contra y {mociónActual.coefBlanco}% en blanco.
                 </p>
               </div>
-
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-800 text-[11px]">
-                <div className="text-slate-400">
-                  <span className="block font-bold text-slate-300">Plazo Legal de Publicación:</span>
-                  <span>20 días hábiles siguientes a la reunión (Art. 47)</span>
-                </div>
+              <div className="flex justify-end pt-3 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => onShowToast?.('📄 Descargando Acta N° 024 foliada y firmada digitalmente en PDF...')}
-                  className="px-4 py-2 bg-[#0b0f17] hover:bg-slate-800 border border-blue-500/40 text-blue-300 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer"
+                  onClick={() => onShowToast?.('📄 Descargando Acta Oficial N° 024 firmada digitalmente (PDF)...')}
+                  className="px-4 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-300 font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
                 >
-                  <Download className="w-3.5 h-3.5" /> Descargar Acta Foliada (PDF)
+                  <Download className="w-4 h-4" /> Descargar PDF Oficial Foliado
                 </button>
               </div>
             </div>
