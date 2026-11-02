@@ -24,7 +24,9 @@ import {
   ChevronRight,
   MonitorUp,
   PhoneOff,
-  Play
+  Play,
+  Lock,
+  BellRing
 } from 'lucide-react';
 import SubmoduloConvocatoriasLey675 from './SubmoduloConvocatoriasLey675';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
@@ -39,18 +41,28 @@ export interface ModuloReunionesConSubmodulosProps {
 export default function ModuloReunionesConSubmodulos({
   unidadResidenteActual = 'Torre 2 - 301',
   esConsejero = true,
-  rolUsuario = 'admin',
+  rolUsuario = 'residente', // Puede ser 'admin' o 'residente'
   onShowToast
 }: ModuloReunionesConSubmodulosProps) {
   const [submoduloActivo, setSubmoduloActivo] = useState<'video' | 'convocatorias' | 'quorum' | 'votaciones' | 'acta'>('video');
 
-  // Estados WebRTC multimedia en vivo
+  // Estados WebRTC y sala
   const [enVivo, setEnVivo] = useState(false);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [compartiendoPantalla, setCompartiendoPantalla] = useState(false);
   const [manoLevantada, setManoLevantada] = useState(false);
   const [segundosTranscurridos, setSegundosTranscurridos] = useState(0);
+
+  // Control de invitación formal de asamblea o consejo
+  const [salaInstaladaPorAdmin, setSalaInstaladaPorAdmin] = useState(false);
+  const [tipoConvocatoriaAdmin, setTipoConvocatoriaAdmin] = useState<'asamblea' | 'consejo'>('asamblea');
+  const [invitacionEntrante, setInvitacionEntrante] = useState<{
+    tipo: 'asamblea' | 'consejo';
+    titulo: string;
+    hora: string;
+    orador: string;
+  } | null>(null);
 
   // Referencias DOM y WebRTC P2P
   const videoLocalRef = useRef<HTMLVideoElement | null>(null);
@@ -62,8 +74,7 @@ export default function ModuloReunionesConSubmodulos({
 
   const [mensajeChat, setMensajeChat] = useState('');
   const [chatLog, setChatLog] = useState([
-    { id: 1, autor: 'Dr. Mauricio Restrepo (Presidente Consejo)', texto: 'Bienvenidos a la Asamblea General Virtual 2026. Quórum inicial confirmado bajo Ley 675.', hora: '06:00 PM' },
-    { id: 2, autor: 'Carlos Mario Pineda (Administrador)', texto: 'Contamos con el 92.4% de los coeficientes acreditados en sala.', hora: '06:02 PM' }
+    { id: 1, autor: 'Administración Central', texto: 'Sala virtual habilitada conforme a la Ley 675 de 2001.', hora: '06:00 PM' }
   ]);
 
   // Estados de Convocatorias
@@ -75,7 +86,7 @@ export default function ModuloReunionesConSubmodulos({
       fecha: '2026-03-15 09:00 AM',
       estado: 'En Curso',
       anticipacion: '15 días hábiles cumplidos',
-      quorum: '92.4%'
+      quorum: '78.4%'
     },
     {
       id: 'conv-2',
@@ -89,7 +100,8 @@ export default function ModuloReunionesConSubmodulos({
   ]);
 
   // Quórum y mociones
-  const [quorumRegistrado, setQuorumRegistrado] = useState(92.4);
+  const [quorumRegistrado, setQuorumRegistrado] = useState(78.4);
+  const [asistentesConectados, setAsistentesConectados] = useState(rolUsuario === 'admin' ? 1 : 0);
   const [unidadesPresentes, setUnidadesPresentes] = useState([
     { id: 'u-1', unidad: 'Torre 1 - 101', titular: 'Mateo Zuluaga', coeficiente: 0.82, poder: false, hora: '05:45 PM' },
     { id: 'u-2', unidad: 'Torre 1 - 102', titular: 'Carolina Herrera', coeficiente: 0.82, poder: false, hora: '05:50 PM' },
@@ -117,7 +129,6 @@ export default function ModuloReunionesConSubmodulos({
     persona2: 'Mateo Zuluaga (Apto 101)'
   });
 
-  // Servidores STUN públicos de Google para atravesar routers residenciales (NAT)
   const iceServersConfig: RTCConfiguration = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
@@ -125,7 +136,7 @@ export default function ModuloReunionesConSubmodulos({
     ]
   };
 
-  // 1. Conexión de señalización WebRTC en vivo con Supabase Broadcast
+  // 1. Canal Supabase en tiempo real: Invitaciones, WebRTC y Quórum
   useEffect(() => {
     if (!isSupabaseConfigured) return;
 
@@ -134,13 +145,24 @@ export default function ModuloReunionesConSubmodulos({
     });
 
     canal
+      // El Administrador convoca / abre la sala formal
+      .on('broadcast', { event: 'asamblea_convocatoria_abierta' }, ({ payload }) => {
+        setSalaInstaladaPorAdmin(true);
+        setInvitacionEntrante({
+          tipo: payload.tipo === 'consejo' ? 'consejo' : 'asamblea',
+          titulo: payload.titulo || 'Asamblea General de Copropietarios 2026',
+          hora: payload.hora || 'Ahora',
+          orador: payload.orador || 'Administración Central'
+        });
+        onShowToast?.(`🔔 Convocatoria en vivo: ${payload.titulo || 'Asamblea Iniciada'}`);
+      })
+      // Oferta WebRTC del Admin
       .on('broadcast', { event: 'asamblea_oferta' }, async ({ payload }) => {
-        if (rolUsuario === 'admin') return; // El admin envía la oferta, el residente responde
+        if (rolUsuario === 'admin') return;
         try {
           const pc = new RTCPeerConnection(iceServersConfig);
           peerRef.current = pc;
 
-          // Si el residente ya tenía el micrófono activo, lo vincula
           if (streamLocalRef.current) {
             streamLocalRef.current.getTracks().forEach(t => pc.addTrack(t, streamLocalRef.current!));
           }
@@ -165,7 +187,7 @@ export default function ModuloReunionesConSubmodulos({
           canal.send({ type: 'broadcast', event: 'asamblea_respuesta', payload: { sdp: respuesta } });
           setEnVivo(true);
         } catch (err) {
-          console.warn('Error atendiendo oferta de asamblea:', err);
+          console.warn('Error atendiendo oferta WebRTC:', err);
         }
       })
       .on('broadcast', { event: 'asamblea_respuesta' }, async ({ payload }) => {
@@ -173,7 +195,7 @@ export default function ModuloReunionesConSubmodulos({
           try {
             await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
           } catch (e) {
-            console.warn('Error fijando respuesta remota:', e);
+            console.warn('Error fijando respuesta SDP remota:', e);
           }
         }
       })
@@ -182,7 +204,7 @@ export default function ModuloReunionesConSubmodulos({
           try {
             await peerRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
           } catch (e) {
-            console.warn('Error con candidato ICE:', e);
+            console.warn('Error agregando candidato ICE:', e);
           }
         }
       })
@@ -199,8 +221,8 @@ export default function ModuloReunionesConSubmodulos({
     };
   }, [rolUsuario]);
 
-  // 2. Iniciar transmisión real con cámara y micrófono
-  const iniciarVideollamada = async () => {
+  // 2. Iniciar sesión y emitir convocatoria (Administrador) o Aceptar invitación (Residente)
+  const conectarASala = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -235,8 +257,27 @@ export default function ModuloReunionesConSubmodulos({
         }
       };
 
-      // Si es admin, lanza la oferta a todos los residentes
+      // Si quien conecta es Administrador -> Notifica convocatoria e inicia oferta
       if (rolUsuario === 'admin') {
+        setSalaInstaladaPorAdmin(true);
+        const tituloConvocatoria =
+          tipoConvocatoriaAdmin === 'consejo'
+            ? 'Sesión Ordinaria del Consejo de Administración'
+            : 'Asamblea General Ordinaria de Copropietarios 2026';
+
+        if (canalRtcRef.current) {
+          canalRtcRef.current.send({
+            type: 'broadcast',
+            event: 'asamblea_convocatoria_abierta',
+            payload: {
+              tipo: tipoConvocatoriaAdmin,
+              titulo: tituloConvocatoria,
+              hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              orador: 'Administración Central'
+            }
+          });
+        }
+
         const oferta = await pc.createOffer();
         await pc.setLocalDescription(oferta);
 
@@ -247,15 +288,20 @@ export default function ModuloReunionesConSubmodulos({
             payload: { sdp: oferta }
           });
         }
+        onShowToast?.(`📢 Convocatoria (${tipoConvocatoriaAdmin === 'consejo' ? 'Consejo de Administración' : 'Asamblea General'}) transmitida en vivo.`);
+      } else {
+        // El residente aceptó la invitación formal
+        setInvitacionEntrante(null);
+        onShowToast?.(`✅ Acreditación exitosa de ${unidadResidenteActual} en la sesión.`);
       }
 
       setEnVivo(true);
       setCamOn(true);
       setMicOn(true);
-      onShowToast?.('🎥 Sala conectada en vivo por WebRTC.');
+      setAsistentesConectados(prev => prev + 1);
     } catch (err: any) {
-      console.error('Error al abrir dispositivos multimedia:', err);
-      onShowToast?.('⚠️ Permiso denegado para cámara o micrófono en el navegador.');
+      console.error('Error al solicitar cámara/micrófono:', err);
+      onShowToast?.('⚠️ Por favor permite el acceso a la cámara y micrófono.');
     }
   };
 
@@ -276,6 +322,7 @@ export default function ModuloReunionesConSubmodulos({
     if (videoRemotoRef.current) videoRemotoRef.current.srcObject = null;
     setEnVivo(false);
     setCompartiendoPantalla(false);
+    onShowToast?.('Sesión de asamblea finalizada.');
   };
 
   const toggleMic = () => {
@@ -322,7 +369,7 @@ export default function ModuloReunionesConSubmodulos({
         };
 
         setCompartiendoPantalla(true);
-        onShowToast?.('🖥️ Proyectando pantalla a los copropietarios.');
+        onShowToast?.('🖥️ Proyectando pantalla a la asamblea.');
       } catch (e) {
         console.warn('Pantalla cancelada:', e);
       }
@@ -338,7 +385,6 @@ export default function ModuloReunionesConSubmodulos({
         sender?.replaceTrack(originalTrack);
       }
       setCompartiendoPantalla(false);
-      onShowToast?.('📹 Retornando a la cámara.');
     }
   };
 
@@ -405,36 +451,16 @@ export default function ModuloReunionesConSubmodulos({
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
+  // Solo mostrar la invitación si:
+  // 1. Es una Asamblea General (entran todos)
+  // O 2. Es reunión de Consejo y el usuario tiene acreditación de consejero
+  const tieneAccesoAReunion =
+    invitacionEntrante?.tipo === 'asamblea' ||
+    (invitacionEntrante?.tipo === 'consejo' && esConsejero);
+
   return (
     <div className="bg-[#05080e] border border-cyan-500/30 rounded-3xl p-4 sm:p-6 space-y-6 shadow-2xl font-sans text-slate-100">
       
-      {/* CABECERA PRINCIPAL DEL MÓDULO */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-cyan-500 to-teal-400 flex items-center justify-center font-black text-slate-950 text-xl shadow-[0_0_25px_rgba(34,211,238,0.4)] shrink-0">
-            <Radio className="w-6 h-6 animate-pulse" />
-          </div>
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base sm:text-lg font-black text-white tracking-tight">
-                Módulo Integral de Reuniones &amp; Asambleas
-              </h2>
-              <span className="text-[10px] font-black uppercase tracking-widest bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 px-2.5 py-0.5 rounded-full shadow-[0_0_10px_rgba(34,211,238,0.2)]">
-                LEY 675 DE 2001
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 font-medium">
-              Conexión activa: <span className="text-cyan-400 font-bold">{unidadResidenteActual}</span> • Coeficiente legal: <span className="text-emerald-400 font-bold font-mono">1.05%</span>
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 bg-[#0b0f17] border border-slate-800 px-3 py-1.5 rounded-xl">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-          <span className="text-xs font-mono font-bold text-emerald-400">Quórum en Sala: {quorumRegistrado}%</span>
-        </div>
-      </div>
-
       {/* BARRA DE SUBMÓDULOS */}
       <nav className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-800/80">
         {[
@@ -472,18 +498,18 @@ export default function ModuloReunionesConSubmodulos({
           <div className="lg:col-span-2 space-y-4">
             <div className="relative aspect-video bg-slate-950 rounded-3xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col justify-between p-4">
               
-              {/* Badge superior */}
+              {/* Badges superiores */}
               <div className="flex items-center justify-between z-10">
                 <span className="flex items-center gap-2 bg-rose-500/20 text-rose-400 border border-rose-500/40 px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase">
                   <span className={`w-2 h-2 rounded-full ${enVivo ? 'bg-rose-500 animate-ping' : 'bg-slate-600'}`} />
-                  {enVivo ? 'TRANSMISIÓN EN VIVO' : 'SALA EN ESPERA'}
+                  {enVivo ? 'TRANSMISIÓN OFICIAL LEY 675' : 'SALA EN ESPERA'}
                 </span>
                 <span className="bg-slate-900/80 backdrop-blur-md text-slate-300 text-xs px-3 py-1 rounded-xl border border-slate-700 font-mono">
-                  🔴 {enVivo ? `${formatearTiempo(segundosTranscurridos)} • 142 Conectados` : '0 Conectados'}
+                  🔴 {enVivo ? `${formatearTiempo(segundosTranscurridos)} • ${asistentesConectados} Conectado(s)` : '0 Conectados'}
                 </span>
               </div>
 
-              {/* Contenido Central: Video HTML5 WebRTC */}
+              {/* Contenido Central: Video en Vivo o Estado de Espera / Invitación */}
               <div className="relative flex-1 flex items-center justify-center overflow-hidden my-2 rounded-2xl bg-[#07090e]/80 border border-slate-800/80">
                 {enVivo ? (
                   <>
@@ -499,36 +525,107 @@ export default function ModuloReunionesConSubmodulos({
                     {!camOn && (
                       <div className="text-center py-10 space-y-2">
                         <VideoOff className="w-10 h-10 text-slate-600 mx-auto" />
-                        <p className="text-xs text-slate-400 font-mono">Cámara desactivada</p>
+                        <p className="text-xs text-slate-400 font-mono">Cámara desactivada por el usuario</p>
                       </div>
                     )}
                   </>
-                ) : (
-                  <div className="text-center space-y-3 py-8">
-                    <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-tr from-cyan-600 to-teal-400 p-0.5 shadow-[0_0_30px_rgba(34,211,238,0.3)]">
-                      <div className="w-full h-full bg-[#07090e] rounded-[22px] flex items-center justify-center font-black text-2xl text-cyan-400">
-                        MR
-                      </div>
+                ) : invitacionEntrante && rolUsuario === 'residente' && tieneAccesoAReunion ? (
+                  // TARJETA DE INVITACIÓN ENTRANTE EXCLUSIVA PARA EL RESIDENTE AUTORIZADO
+                  <div className="text-center space-y-4 py-8 px-6 max-w-md bg-cyan-950/20 border border-cyan-500/40 rounded-3xl p-6 shadow-[0_0_30px_rgba(34,211,238,0.2)] animate-fadeIn">
+                    <div className="w-16 h-16 mx-auto rounded-2xl bg-cyan-500/20 border border-cyan-400/50 flex items-center justify-center text-cyan-300">
+                      <BellRing className="w-8 h-8 animate-bounce text-cyan-400" />
                     </div>
                     <div>
-                      <h3 className="text-base font-bold text-white flex items-center justify-center gap-2">
-                        Dr. Mauricio Restrepo <Award className="w-4 h-4 text-amber-400" />
+                      <span className="text-[10px] font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 px-2.5 py-0.5 rounded-full uppercase">
+                        {invitacionEntrante.tipo === 'consejo' ? 'Sesión de Consejo Activa' : 'Convocatoria en Vivo Activa'}
+                      </span>
+                      <h3 className="text-base font-black text-white mt-2">
+                        {invitacionEntrante.titulo}
                       </h3>
-                      <p className="text-xs text-cyan-300 font-medium">Presidente del Consejo de Administración • Orador Activo</p>
+                      <p className="text-xs text-slate-400 font-mono mt-1">
+                        Iniciada por: <strong className="text-cyan-300">{invitacionEntrante.orador}</strong> • Hora: {invitacionEntrante.hora}
+                      </p>
+                      <p className="text-[11px] text-emerald-400 font-mono mt-0.5">
+                        Inmueble Acreditado: <strong>{unidadResidenteActual}</strong> {esConsejero && invitacionEntrante.tipo === 'consejo' ? '• Consejero Titular' : ''}
+                      </p>
                     </div>
 
                     <button
                       type="button"
-                      onClick={iniciarVideollamada}
-                      className="bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black px-6 py-2.5 rounded-xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,211,238,0.35)] flex items-center gap-2 mx-auto cursor-pointer"
+                      onClick={conectarASala}
+                      className="w-full bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black py-3 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,211,238,0.35)] flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <Play className="w-4 h-4 fill-current" /> Conectar a la Asamblea WebRTC
+                      <Play className="w-4 h-4 fill-current" /> Aceptar e Ingresar a la {invitacionEntrante.tipo === 'consejo' ? 'Sesión de Consejo' : 'Asamblea'}
                     </button>
+                  </div>
+                ) : invitacionEntrante && !tieneAccesoAReunion ? (
+                  // SALA PRIVADA / ACCESO RESERVADO AL CONSEJO DE ADMINISTRACIÓN
+                  <div className="text-center py-8 px-6 max-w-md bg-amber-950/15 border border-amber-500/30 rounded-3xl">
+                    <Lock className="w-8 h-8 text-amber-400 mx-auto" />
+                    <h4 className="text-sm font-bold text-white mt-2">Sesión Privada del Consejo</h4>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Esta sesión está restringida a los miembros elegidos del Consejo de Administración.
+                    </p>
+                  </div>
+                ) : (
+                  // ESTADO EN ESPERA (SIN TEXTO FIJO DE DR. MAURICIO)
+                  <div className="text-center space-y-3 py-8 px-4">
+                    <div className="w-16 h-16 mx-auto rounded-3xl bg-[#090d14] border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_25px_rgba(34,211,238,0.15)]">
+                      {rolUsuario === 'admin' ? <Radio className="w-8 h-8 animate-pulse" /> : <Lock className="w-8 h-8 text-slate-500" />}
+                    </div>
+
+                    <div>
+                      <h3 className="text-base font-bold text-white">
+                        {rolUsuario === 'admin' ? 'Sala Lista para Convocatoria' : 'En Espera de Inicio de Asamblea'}
+                      </h3>
+                      <p className="text-xs text-slate-400 font-mono mt-1 max-w-sm mx-auto">
+                        {rolUsuario === 'admin' 
+                          ? 'Selecciona el órgano y presiona el botón para abrir la transmisión y emitir la llamada oficial a los miembros convocados.' 
+                          : 'La sesión virtual está protegida bajo la Ley 675. Te notificaremos en pantalla cuando la Administración inicie la asamblea.'}
+                      </p>
+                    </div>
+
+                    {rolUsuario === 'admin' && (
+                      <div className="space-y-3 pt-1">
+                        <div className="inline-flex items-center gap-1.5 bg-[#090d14] p-1 rounded-xl border border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => setTipoConvocatoriaAdmin('asamblea')}
+                            className={`px-3 py-1.5 rounded-lg text-[11px] font-mono font-bold transition cursor-pointer ${
+                              tipoConvocatoriaAdmin === 'asamblea'
+                                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            Asamblea General (Todos)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTipoConvocatoriaAdmin('consejo')}
+                            className={`px-3 py-1.5 rounded-lg text-[11px] font-mono font-bold transition cursor-pointer ${
+                              tipoConvocatoriaAdmin === 'consejo'
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            Consejo de Administración
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={conectarASala}
+                          className="bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black px-6 py-2.5 rounded-xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,211,238,0.35)] flex items-center gap-2 mx-auto cursor-pointer"
+                        >
+                          <Play className="w-4 h-4 fill-current" /> Abrir Sala y Convocar {tipoConvocatoriaAdmin === 'consejo' ? 'Consejo' : 'Asamblea'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
 
-              {/* Barra de Controles de Participante */}
+              {/* Barra inferior de controles multimedia */}
               <div className="bg-[#0b0f17]/90 backdrop-blur-md p-3 rounded-2xl border border-slate-800 flex items-center justify-between gap-2 z-10 flex-wrap">
                 <div className="flex items-center gap-2">
                   <button
@@ -540,7 +637,7 @@ export default function ModuloReunionesConSubmodulos({
                     }`}
                   >
                     {micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4 text-rose-400" />}
-                    <span>{micOn ? 'Mic Activo' : 'Mic Mute'}</span>
+                    <span className="hidden sm:inline">{micOn ? 'Mic Activo' : 'Mic Mute'}</span>
                   </button>
 
                   <button
@@ -552,7 +649,7 @@ export default function ModuloReunionesConSubmodulos({
                     }`}
                   >
                     {camOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4 text-rose-400" />}
-                    <span>{camOn ? 'Cámara On' : 'Cámara Off'}</span>
+                    <span className="hidden sm:inline">{camOn ? 'Cámara On' : 'Cámara Off'}</span>
                   </button>
 
                   <button
@@ -564,21 +661,22 @@ export default function ModuloReunionesConSubmodulos({
                     }`}
                   >
                     <MonitorUp className="w-4 h-4" />
-                    <span>{compartiendoPantalla ? 'Proyectando' : 'Proyectar'}</span>
+                    <span className="hidden sm:inline">{compartiendoPantalla ? 'Proyectando' : 'Proyectar'}</span>
                   </button>
 
                   <button
+                    disabled={!enVivo}
                     type="button"
                     onClick={() => {
                       setManoLevantada(!manoLevantada);
                       onShowToast?.(!manoLevantada ? '✋ Has pedido la palabra al presidente.' : '✋ Mano bajada.');
                     }}
-                    className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer min-h-[40px] ${
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer min-h-[40px] disabled:opacity-40 ${
                       manoLevantada ? 'bg-amber-500/20 border-amber-500/50 text-amber-300' : 'bg-slate-900 border-slate-800 text-slate-400'
                     }`}
                   >
                     <Hand className="w-4 h-4" />
-                    <span>{manoLevantada ? 'Mano Levantada' : 'Pedir Palabra'}</span>
+                    <span className="hidden sm:inline">{manoLevantada ? 'Mano Levantada' : 'Pedir Palabra'}</span>
                   </button>
                 </div>
 
@@ -592,7 +690,7 @@ export default function ModuloReunionesConSubmodulos({
                       type="button"
                       onClick={detenerTransmision}
                       className="p-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl transition cursor-pointer"
-                      title="Desconectar llamada"
+                      title="Desconectar de la asamblea"
                     >
                       <PhoneOff className="w-4 h-4" />
                     </button>
@@ -807,7 +905,7 @@ export default function ModuloReunionesConSubmodulos({
               </div>
               <div className="p-3 bg-[#07090e] border border-slate-800 rounded-2xl text-xs">
                 <span className="text-slate-400 block text-[10px] font-mono uppercase">Mayoría Calificada (Art. 46)</span>
-                <span className="text-cyan-400 font-bold">Habilitado (92.4% &gt; 70%) &checkmark;</span>
+                <span className="text-cyan-400 font-bold">Habilitado ({quorumRegistrado}% &gt; 70%) &checkmark;</span>
                 <p className="text-[11px] text-slate-500 mt-0.5">Reformas reglamentos, desafectaciones</p>
               </div>
               <div className="p-3 bg-[#07090e] border border-slate-800 rounded-2xl text-xs">
@@ -1041,7 +1139,7 @@ export default function ModuloReunionesConSubmodulos({
 
               <div className="space-y-2 text-slate-300 leading-relaxed text-[11px]">
                 <p>
-                  <strong className="text-cyan-300">1. VERIFICACIÓN DEL QUÓRUM:</strong> Siendo las 06:00 PM, el Administrador constató la presencia de propietarios y apoderados que representan el <strong className="text-white">92.4%</strong> del coeficiente total de la copropiedad, existiendo quórum deliberatorio y decisorio en los términos del Artículo 45 de la Ley 675 de 2001.
+                  <strong className="text-cyan-300">1. VERIFICACIÓN DEL QUÓRUM:</strong> Siendo las 06:00 PM, el Administrador constató la presencia de propietarios y apoderados que representan el <strong className="text-white">{quorumRegistrado}%</strong> del coeficiente total de la copropiedad, existiendo quórum deliberatorio y decisorio en los términos del Artículo 45 de la Ley 675 de 2001.
                 </p>
                 <p>
                   <strong className="text-cyan-300">2. ELECCIÓN DE PRESIDENTE Y SECRETARIO:</strong> Se designó por unanimidad como Presidente de la reunión al Dr. Mauricio Restrepo y como Secretario al Administrador Carlos Mario Pineda.
