@@ -363,6 +363,37 @@ export default function ModuloReunionesConSubmodulos({
       }
     };
 
+    pc.onicecandidateerror = (evt: Event) => {
+      const iceErr = evt as RTCPeerConnectionIceErrorEvent;
+      if (iceErr.errorCode && iceErr.errorCode !== 701) {
+        console.warn(`[Asamblea WebRTC] ICE Candidate Error (${iceErr.errorCode}): ${iceErr.errorText || ''} en ${iceErr.url || 'STUN'}`);
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      const iceState = pc.iceConnectionState;
+      if (iceState === 'connected' || iceState === 'completed') {
+        setRemotoConectado(true);
+      } else if (iceState === 'failed' || iceState === 'disconnected') {
+        // Reconexión automática ICE Restart en navegadores móviles (cambio Wi-Fi / 4G / 5G)
+        if (typeof pc.restartIce === 'function') {
+          pc.restartIce();
+        }
+        if (esIniciadorOferta && pc.signalingState === 'stable') {
+          pc.createOffer({ iceRestart: true, offerToReceiveAudio: true, offerToReceiveVideo: true })
+            .then(async (oferta) => {
+              await pc.setLocalDescription(oferta);
+              emitirEventoSenalizacion('asamblea_oferta', {
+                sdp: pc.localDescription,
+                orador: rolUsuario === 'admin' ? 'Administración Principal' : unidadActiva,
+                esReinicioIce: true
+              });
+            })
+            .catch(() => {});
+        }
+      }
+    };
+
     if (esIniciadorOferta) {
       pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
         .then(async (oferta) => {

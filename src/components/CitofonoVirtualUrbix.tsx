@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Phone, PhoneCall, PhoneOff, Mic, Camera, Send, Clock, AlertCircle, Users } from 'lucide-react';
+import { Phone, PhoneCall, PhoneOff, Mic, Send, Clock, RefreshCw, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { useCitofonoEngine } from '../useCitofonoEngine';
 import { NotaRapidaResidente } from './NotaRapidaResidente';
 
@@ -17,51 +17,26 @@ export default function CitofonoVirtualUrbix({
     estado,
     tiempoFormateado,
     llamadaActiva,
-    colaLlamadas,
     estaSilenciado,
+    errorNotificacion,
+    diagnosticoIce,
     alternarSilencio,
     iniciarLlamada,
     contestarLlamada,
-    colgarLlamada
+    colgarLlamada,
+    forzarReinicioIce
   } = useCitofonoEngine({
     miRol: rolEngine,
     miUnidad: unidadResidenteActual
   });
 
-  const [audioActivo, setAudioActivo] = useState(true);
-  const [mensajeTexto, setMensajeTexto] = useState('');
-  
-  // Estado de la garita: 'disponible' | 'ocupado'
-  const [estadoGarita, setEstadoGarita] = useState<'disponible' | 'ocupado'>('disponible');
-
-  const [historialLlamadas, setHistorialLlamadas] = useState([
+  const [historialLlamadas] = useState([
     { id: 1, tipo: 'Llamada de Voz', destino: 'Portería Principal', hora: '08:30 AM', estado: 'Atendido (Guarda Carlos)' },
     { id: 2, tipo: 'Reporte con Foto', destino: 'Portería Principal', hora: 'Ayer 04:15 PM', estado: 'Resuelto' }
   ]);
 
-  const intentarLlamada = () => {
-    iniciarLlamada();
-    onShowToast?.('📞 Conectando citófono virtual WebRTC con la Garita Principal...');
-  };
-
-  const terminarLlamada = () => {
-    colgarLlamada();
-    onShowToast?.('📴 Llamada de citófono finalizada.');
-  };
-
-  const enviarMensajeRapido = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!mensajeTexto.trim()) return;
-    setHistorialLlamadas(prev => [
-      { id: Date.now(), tipo: 'Nota Prioritaria', destino: 'Portería Principal', hora: 'Hace un momento', estado: 'Enviado a Bandeja de Garita' },
-      ...prev
-    ]);
-    setMensajeTexto('');
-    onShowToast?.('📨 Nota prioritaria enviada a la garita correctamente.');
-  };
-
   return (
-    <div className="bg-[#07090e] border border-cyan-500/30 rounded-3xl p-6 shadow-2xl font-sans text-slate-100 space-y-6">
+    <div className="bg-[#07090e] border border-cyan-500/30 rounded-3xl p-4 sm:p-6 shadow-2xl font-sans text-slate-100 space-y-6">
       
       {/* CABECERA DEL CITÓFONO */}
       <div className="bg-[#0b0f17] border border-cyan-500/20 p-5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -77,24 +52,61 @@ export default function CitofonoVirtualUrbix({
           </div>
         </div>
 
-        {/* INDICADOR DE ESTADO DE LÍNEA */}
-        <div className="flex items-center gap-3 font-mono text-xs">
+        {/* INDICADOR DE ESTADO DE LÍNEA E ICE MÓVIL */}
+        <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
           <span className={`px-3 py-1 rounded-full text-xs font-mono font-bold flex items-center gap-2 border ${
-            estado === 'disponible' 
-              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
+            estado === 'disponible'
+              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
               : estado === 'conectado'
-              ? 'bg-cyan-500/10 text-cyan-300 border-cyan-400 animate-pulse'
-              : 'bg-amber-500/10 text-amber-300 border-amber-400 animate-ping'
+              ? 'bg-cyan-500/10 text-cyan-300 border-cyan-400'
+              : estado === 'reconectando'
+              ? 'bg-amber-500/15 text-amber-300 border-amber-400 animate-pulse'
+              : 'bg-amber-500/10 text-amber-300 border-amber-400'
           }`}>
             <span className={`w-2 h-2 rounded-full ${
-              estado === 'disponible' ? 'bg-emerald-400' : estado === 'conectado' ? 'bg-cyan-400' : 'bg-amber-400'
+              estado === 'disponible' ? 'bg-emerald-400' : estado === 'conectado' ? 'bg-cyan-400 animate-ping' : 'bg-amber-400 animate-ping'
             }`} />
             {estado === 'disponible' && 'Línea Disponible'}
             {estado === 'llamando' && 'Timbrando en Garita...'}
-            {estado === 'conectado' && `Conectado con Garita (${tiempoFormateado})`}
+            {estado === 'entrante' && 'Llamada Entrante...'}
+            {estado === 'conectado' && `Conectado (${tiempoFormateado})`}
+            {estado === 'reconectando' && `Reconectando Señal Móvil (${diagnosticoIce.intentosReconexion}/3)`}
           </span>
+
+          {estado !== 'disponible' && (
+            <span className={`px-2.5 py-1 rounded-xl text-[10px] font-mono border flex items-center gap-1 ${
+              diagnosticoIce.salud === 'optima'
+                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                : diagnosticoIce.salud === 'inestable' || diagnosticoIce.salud === 'reconectando'
+                ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                : diagnosticoIce.salud === 'fallo'
+                ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+                : 'bg-slate-900 text-slate-400 border-slate-800'
+            }`}>
+              <ShieldCheck className="w-3.5 h-3.5" />
+              ICE: {diagnosticoIce.iceConnectionState.toUpperCase()}
+            </span>
+          )}
         </div>
       </div>
+
+      {errorNotificacion && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3.5 flex items-center justify-between gap-3 text-xs text-amber-200 font-mono">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>{errorNotificacion}</span>
+          </div>
+          {estado !== 'disponible' && (
+            <button
+              type="button"
+              onClick={forzarReinicioIce}
+              className="px-3 py-1 bg-amber-500 text-slate-950 font-bold rounded-xl text-[11px] flex items-center gap-1 cursor-pointer shrink-0"
+            >
+              <RefreshCw className="w-3 h-3" /> Reiniciar Enlace ICE
+            </button>
+          )}
+        </div>
+      )}
 
       {/* CUERPO PRINCIPAL */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -102,14 +114,19 @@ export default function CitofonoVirtualUrbix({
         {/* Panel de Intercomunicación y Cola */}
         <div className="lg:col-span-2 bg-[#0b0f17] border border-slate-800 rounded-3xl p-6 flex flex-col items-center justify-center text-center space-y-6 shadow-inner relative min-h-[320px]">
           
-          <div className="absolute top-4 left-4 text-xs font-mono text-slate-400">
-            Unidad Activa: <strong className="text-cyan-400">{unidadResidenteActual}</strong>
+          <div className="absolute top-4 left-4 right-4 flex items-center justify-between text-xs font-mono text-slate-400">
+            <span>Unidad Activa: <strong className="text-cyan-400">{unidadResidenteActual}</strong></span>
+            {diagnosticoIce.ultimoErrorCandidato && (
+              <span className="text-[10px] text-amber-400/90" title={diagnosticoIce.ultimoErrorCandidato.errorText}>
+                STUN Fallback Activo ({diagnosticoIce.ultimoErrorCandidato.errorCode})
+              </span>
+            )}
           </div>
 
           {/* ESTADO 1: ENTRANTE (ALGUIEN LLAMA) */}
           {estado === 'entrante' ? (
-            <div className="space-y-5 animate-bounce">
-              <div className="w-24 h-24 bg-cyan-500/20 border border-cyan-500/40 rounded-full mx-auto flex items-center justify-center text-cyan-400 shadow-[0_0_40px_rgba(34,211,238,0.4)]">
+            <div className="space-y-5">
+              <div className="w-24 h-24 bg-cyan-500/20 border border-cyan-500/40 rounded-full mx-auto flex items-center justify-center text-cyan-400 shadow-[0_0_40px_rgba(34,211,238,0.4)] animate-bounce">
                 <PhoneCall className="w-10 h-10 animate-pulse" />
               </div>
               <div>
@@ -120,12 +137,14 @@ export default function CitofonoVirtualUrbix({
               </div>
               <div className="flex items-center justify-center gap-3">
                 <button
+                  type="button"
                   onClick={contestarLlamada}
                   className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-6 py-3 rounded-2xl text-xs transition cursor-pointer shadow-lg shadow-emerald-500/20 flex items-center gap-2"
                 >
                   <Phone className="w-4 h-4" /> Contestar
                 </button>
                 <button
+                  type="button"
                   onClick={colgarLlamada}
                   className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-6 py-3 rounded-2xl text-xs transition cursor-pointer"
                 >
@@ -135,42 +154,68 @@ export default function CitofonoVirtualUrbix({
             </div>
           ) : estado === 'llamando' ? (
             /* ESTADO 2: LLAMANDO / MARCANDO */
-            <div className="space-y-5 animate-pulse">
-              <div className="w-24 h-24 bg-amber-500/20 border border-amber-500/40 rounded-full mx-auto flex items-center justify-center text-amber-400 shadow-[0_0_30px_rgba(245,158,11,0.3)]">
+            <div className="space-y-5">
+              <div className="w-24 h-24 bg-amber-500/20 border border-amber-500/40 rounded-full mx-auto flex items-center justify-center text-amber-400 shadow-[0_0_30px_rgba(245,158,11,0.3)] animate-pulse">
                 <PhoneCall className="w-10 h-10 animate-spin" />
               </div>
               <div>
-                <h4 className="text-lg font-black text-white">Marcando y Estableciendo Enlace WebRTC...</h4>
-                <p className="text-xs text-amber-300 font-mono mt-1">Llamando a {llamadaActiva?.unidad || 'Garita'}...</p>
+                <h4 className="text-lg font-black text-white">Marcando y Negociando Candidatos ICE...</h4>
+                <p className="text-xs text-amber-300 font-mono mt-1">
+                  Llamando a {llamadaActiva?.unidad || 'Garita'} • Estado ICE: {diagnosticoIce.iceConnectionState}
+                </p>
               </div>
               <button
+                type="button"
                 onClick={colgarLlamada}
                 className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-6 py-2.5 rounded-xl text-xs transition cursor-pointer"
               >
                 Cancelar Llamada
               </button>
             </div>
-          ) : estado === 'conectado' ? (
-            /* ESTADO 3: CONECTADO Y EN CURSO */
+          ) : estado === 'conectado' || estado === 'reconectando' ? (
+            /* ESTADO 3: CONECTADO O RECONECTANDO EN RED MÓVIL */
             <div className="space-y-6">
-              <div className="w-24 h-24 bg-emerald-500/20 border border-emerald-500/40 rounded-full mx-auto flex items-center justify-center text-emerald-400 shadow-[0_0_35px_rgba(16,185,129,0.4)]">
+              <div className={`w-24 h-24 rounded-full mx-auto flex items-center justify-center ${
+                estado === 'reconectando'
+                  ? 'bg-amber-500/20 border border-amber-500/40 text-amber-400 animate-pulse'
+                  : 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 shadow-[0_0_35px_rgba(16,185,129,0.4)]'
+              }`}>
                 <PhoneCall className="w-10 h-10" />
               </div>
               <div>
-                <h4 className="text-lg font-black text-white">Comunicación en Curso • WebRTC Activo</h4>
-                <p className="text-xs text-emerald-400 font-mono mt-1">Tiempo de llamada: <strong className="text-white text-sm">{tiempoFormateado}</strong></p>
-                <p className="text-[11px] text-slate-400 mt-0.5">Hablando con: {llamadaActiva?.nombre || 'Interlocutor'} ({llamadaActiva?.unidad || ''})</p>
+                <h4 className="text-lg font-black text-white">
+                  {estado === 'reconectando'
+                    ? 'Estabilizando Red Móvil (ICE Restart)...'
+                    : 'Comunicación en Curso • WebRTC Activo'}
+                </h4>
+                <p className="text-xs text-emerald-400 font-mono mt-1">
+                  Tiempo de llamada: <strong className="text-white text-sm">{tiempoFormateado}</strong>
+                </p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Hablando con: {llamadaActiva?.nombre || 'Interlocutor'} ({llamadaActiva?.unidad || ''})
+                </p>
               </div>
               
-              <div className="flex items-center justify-center gap-3">
+              <div className="flex flex-wrap items-center justify-center gap-3">
                 <button
                   type="button"
                   onClick={alternarSilencio}
-                  className={`p-3 rounded-2xl text-xs font-bold font-mono transition cursor-pointer flex items-center gap-1.5 ${!estaSilenciado ? 'bg-slate-800 text-white' : 'bg-amber-500 text-slate-950 font-black'}`}
+                  className={`p-3 rounded-2xl text-xs font-bold font-mono transition cursor-pointer flex items-center gap-1.5 ${
+                    !estaSilenciado ? 'bg-slate-800 text-white' : 'bg-amber-500 text-slate-950 font-black'
+                  }`}
                 >
                   <Mic className="w-4 h-4" /> {!estaSilenciado ? 'Micrófono Abierto' : 'Silenciado'}
                 </button>
                 <button
+                  type="button"
+                  onClick={forzarReinicioIce}
+                  className="p-3 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 rounded-2xl text-xs font-mono font-bold transition cursor-pointer flex items-center gap-1.5"
+                  title="Re-sincronizar audio si cambiaste de Wi-Fi a Datos Móviles"
+                >
+                  <RefreshCw className="w-4 h-4" /> Reconectar Audio ICE
+                </button>
+                <button
+                  type="button"
                   onClick={colgarLlamada}
                   className="bg-rose-600 hover:bg-rose-500 text-white font-black px-6 py-3 rounded-2xl text-xs transition cursor-pointer inline-flex items-center gap-2 shadow-lg shadow-rose-500/20"
                 >
@@ -179,49 +224,29 @@ export default function CitofonoVirtualUrbix({
               </div>
             </div>
           ) : (
-            /* ESTADO 4: DISPONIBLE / LLAMANDO / CONECTADO (BOTONES DINÁMICOS) */
+            /* ESTADO 4: DISPONIBLE */
             <div className="space-y-4 max-w-sm mx-auto w-full">
-              <div className={`w-24 h-24 rounded-full mx-auto flex items-center justify-center transition shadow-[0_0_30px_rgba(0,242,254,0.2)] ${
-                estado === 'disponible'
-                  ? 'bg-cyan-500/15 border border-cyan-500/40 text-cyan-400'
-                  : (estado as string) === 'conectado'
-                  ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 shadow-[0_0_35px_rgba(16,185,129,0.3)]'
-                  : 'bg-amber-500/15 border border-amber-500/40 text-amber-400'
-              }`}>
-                {estado === 'disponible' && <Phone className="w-10 h-10 animate-bounce" />}
-                {(estado as string) === 'llamando' && <PhoneCall className="w-10 h-10 animate-spin" />}
-                {(estado as string) === 'conectado' && <PhoneCall className="w-10 h-10 animate-pulse" />}
+              <div className="w-24 h-24 rounded-full mx-auto flex items-center justify-center transition shadow-[0_0_30px_rgba(0,242,254,0.2)] bg-cyan-500/15 border border-cyan-500/40 text-cyan-400">
+                <Phone className="w-10 h-10 animate-bounce" />
               </div>
               <div>
-                <h4 className="text-lg font-black text-white">
-                  {estado === 'disponible' && 'Citófono Disponible'}
-                  {(estado as string) === 'llamando' && 'Llamando a Garita Principal...'}
-                  {(estado as string) === 'conectado' && `En Conversación (${tiempoFormateado})`}
-                </h4>
+                <h4 className="text-lg font-black text-white">Citófono Disponible</h4>
                 <p className="text-xs text-slate-400 mt-1">
-                  {estado === 'disponible' && 'Presiona para establecer comunicación bidireccional por voz con el guarda de turno.'}
-                  {(estado as string) === 'llamando' && 'Esperando respuesta de la garita o portería...'}
-                  {(estado as string) === 'conectado' && 'Canal WebRTC seguro activo. Audio bidireccional en curso.'}
+                  Presiona para establecer comunicación bidireccional por voz con el guarda de turno (compatible con iOS/Android).
                 </p>
               </div>
 
-              {estado === 'disponible' ? (
-                <button
-                  onClick={() => iniciarLlamada()}
-                  className="w-full bg-[#00f2fe] hover:bg-cyan-300 text-slate-950 font-black py-3.5 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(0,242,254,0.35)] flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Phone className="w-4 h-4" />
-                  Iniciar Llamada a Garita
-                </button>
-              ) : (
-                <button
-                  onClick={colgarLlamada}
-                  className="w-full bg-rose-600 hover:bg-rose-500 text-white font-black py-3.5 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(244,63,94,0.35)] flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <PhoneOff className="w-4 h-4" />
-                  {(estado as string) === 'llamando' ? 'Cancelar Llamada' : `Colgar (${tiempoFormateado})`}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  iniciarLlamada();
+                  onShowToast?.('📞 Conectando citófono virtual WebRTC con la Garita Principal...');
+                }}
+                className="w-full bg-[#00f2fe] hover:bg-cyan-300 text-slate-950 font-black py-3.5 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(0,242,254,0.35)] flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Phone className="w-4 h-4" />
+                Iniciar Llamada a Garita
+              </button>
             </div>
           )}
 

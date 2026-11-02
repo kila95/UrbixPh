@@ -36,10 +36,12 @@ export default function CitofonoVirtualEnterprise({
     llamadaActiva,
     colaLlamadas,
     estaSilenciado,
+    diagnosticoIce,
     alternarSilencio,
     iniciarLlamada,
     contestarLlamada,
-    colgarLlamada
+    colgarLlamada,
+    forzarReinicioIce
   } = useCitofonoEngine({
     miRol: esVigilante ? 'vigilante' : 'residente',
     miUnidad: unidadResidenteActual,
@@ -306,8 +308,8 @@ export default function CitofonoVirtualEnterprise({
                 </div>
               )}
 
-              {/* 3. ESTADO CONECTADO (AUDIO ACTIVO EN VIVO) */}
-              {estado === 'conectado' && (
+              {/* 3. ESTADO CONECTADO O RECONECTANDO (AUDIO ACTIVO EN VIVO) */}
+              {(estado === 'conectado' || estado === 'reconectando') && (
                 <div className="space-y-4 py-4">
                   <div className="w-20 h-20 mx-auto rounded-full bg-emerald-950/60 border-2 border-emerald-400 flex items-center justify-center text-emerald-300 shadow-[0_0_25px_rgba(16,185,129,0.4)]">
                     <Phone className="w-9 h-9 text-emerald-400" />
@@ -315,13 +317,13 @@ export default function CitofonoVirtualEnterprise({
 
                   <div>
                     <span className="text-[11px] font-mono uppercase bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 px-3 py-0.5 rounded-full font-bold">
-                      ● COMUNICACIÓN ACTIVA ({tiempoFormateado})
+                      ● {estado === 'reconectando' ? 'RECONECTANDO ICE MÓVIL' : `COMUNICACIÓN ACTIVA (${tiempoFormateado})`}
                     </span>
                     <h3 className="text-lg font-black text-white font-mono mt-2">
                       {llamadaActiva?.unidad || unidadConectada} {llamadaActiva?.nombre ? `(${llamadaActiva.nombre})` : ''}
                     </h3>
                     <p className="text-xs text-cyan-400 font-mono mt-1">
-                      Audio WebRTC bidireccional transmitiendo
+                      ICE: {diagnosticoIce.iceConnectionState.toUpperCase()} • Audio WebRTC bidireccional transmitiendo
                     </p>
                   </div>
 
@@ -335,6 +337,13 @@ export default function CitofonoVirtualEnterprise({
                     >
                       {!estaSilenciado ? <Mic className="w-4 h-4 text-emerald-400" /> : <MicOff className="w-4 h-4" />}
                       {!estaSilenciado ? 'Micrófono Abierto' : 'Micrófono Silenciado'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={forzarReinicioIce}
+                      className="p-3 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 rounded-2xl text-xs font-mono font-bold transition cursor-pointer"
+                    >
+                      Reiniciar ICE
                     </button>
                     <button
                       type="button"
@@ -372,21 +381,33 @@ export default function CitofonoVirtualEnterprise({
                     <PhoneCall className="w-4 h-4" /> Contestar
                   </button>
                 </div>
-              ) : estado === 'conectado' ? (
+              ) : estado === 'conectado' || estado === 'reconectando' ? (
                 <div className="space-y-4">
                   <div className="w-20 h-20 mx-auto rounded-full bg-emerald-950/60 border-2 border-emerald-400 flex items-center justify-center text-emerald-300">
                     <Phone className="w-9 h-9 text-emerald-400" />
                   </div>
                   <h4 className="text-lg font-black text-white font-mono">
-                    En Llamada con Portería ({tiempoFormateado})
+                    {estado === 'reconectando' ? 'Reconectando Red Móvil...' : `En Llamada con Portería (${tiempoFormateado})`}
                   </h4>
-                  <button
-                    type="button"
-                    onClick={colgarLlamadaAccion}
-                    className="bg-rose-600 hover:bg-rose-500 text-white font-black py-3 px-6 rounded-2xl text-xs font-mono uppercase tracking-wider transition cursor-pointer"
-                  >
-                    Colgar
-                  </button>
+                  <p className="text-xs text-cyan-400 font-mono">
+                    ICE: {diagnosticoIce.iceConnectionState.toUpperCase()}
+                  </p>
+                  <div className="flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={forzarReinicioIce}
+                      className="bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 font-bold py-3 px-4 rounded-2xl text-xs font-mono transition cursor-pointer"
+                    >
+                      Reiniciar ICE
+                    </button>
+                    <button
+                      type="button"
+                      onClick={colgarLlamadaAccion}
+                      className="bg-rose-600 hover:bg-rose-500 text-white font-black py-3 px-6 rounded-2xl text-xs font-mono uppercase tracking-wider transition cursor-pointer"
+                    >
+                      Colgar
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-4">
