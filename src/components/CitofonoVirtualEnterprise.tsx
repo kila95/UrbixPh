@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Phone,
   PhoneCall,
@@ -14,6 +14,7 @@ import {
   BellRing,
   MessageSquare
 } from 'lucide-react';
+import { useCitofonoEngine } from '../useCitofonoEngine';
 
 export interface CitofonoVirtualEnterpriseProps {
   unidadResidenteActual?: string;
@@ -28,9 +29,20 @@ export default function CitofonoVirtualEnterprise({
 }: CitofonoVirtualEnterpriseProps) {
   const esVigilante = rolUsuario === 'vigilante';
 
-  const [enLlamada, setEnLlamada] = useState(false);
-  const [enColaEspera, setEnColaEspera] = useState(false);
-  const [posicionCola, setPosicionCola] = useState(0);
+  const {
+    estado,
+    tiempoFormateado,
+    llamadaActiva,
+    colaLlamadas,
+    iniciarLlamada,
+    contestarLlamada,
+    colgarLlamada
+  } = useCitofonoEngine({
+    miRol: esVigilante ? 'vigilante' : 'residente',
+    miUnidad: unidadResidenteActual,
+    miNombre: 'Esteban Ochoa Mesa'
+  });
+
   const [audioActivo, setAudioActivo] = useState(true);
   const [mensajeTexto, setMensajeTexto] = useState('');
   const [unidadConectada, setUnidadConectada] = useState(unidadResidenteActual);
@@ -99,36 +111,16 @@ export default function CitofonoVirtualEnterprise({
     }
   ]);
 
-  // Simulación del movimiento de la cola cuando el residente espera turno
-  useEffect(() => {
-    let timer: any;
-    if (enColaEspera && posicionCola > 0) {
-      timer = setTimeout(() => {
-        const siguiente = posicionCola - 1;
-        setPosicionCola(siguiente);
-        if (siguiente === 0) {
-          setEnColaEspera(false);
-          setEnLlamada(true);
-          onShowToast?.('🟢 ¡Es tu turno! Llamada conectada con la Garita Principal.');
-        }
-      }, 4000);
-    }
-    return () => clearTimeout(timer);
-  }, [enColaEspera, posicionCola, onShowToast]);
+  const enLlamada = estado === 'conectado';
+  const enLlamando = estado === 'llamando';
+  const enEntrante = estado === 'entrante' || (esVigilante && llamadaActiva);
+  const enColaEspera = colaLlamadas.length > 0;
+  const posicionCola = colaLlamadas.length;
 
   const intentarLlamada = (unidadObjetivo?: string) => {
     const target = unidadObjetivo || unidadResidenteActual;
     setUnidadConectada(target);
-
-    if (!esVigilante && estadoGarita === 'ocupado') {
-      setEnColaEspera(true);
-      setPosicionCola(2);
-      onShowToast?.('⚠️ Vigilante en otra llamada. Has sido agregado a la cola de espera (Posición #2).');
-      return;
-    }
-
-    setEnLlamada(true);
-    setEstadoGarita('ocupado');
+    iniciarLlamada(target);
     onShowToast?.(
       esVigilante
         ? `📞 Llamando al citófono virtual de ${target}...`
@@ -138,31 +130,17 @@ export default function CitofonoVirtualEnterprise({
 
   const atenderLlamadaDeCola = (item: { id: string; unidad: string; residente: string }) => {
     setUnidadConectada(`${item.unidad} (${item.residente})`);
-    setEnLlamada(true);
-    setEstadoGarita('ocupado');
-    setColaLlamadasGarita(prev => prev.filter(c => c.id !== item.id));
-    setHistorialLlamadas(prev => [
-      {
-        id: Date.now(),
-        tipo: 'Llamada Entrante Atendida',
-        destino: `${item.unidad} (${item.residente})`,
-        hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        estado: 'Conectado en Garita'
-      },
-      ...prev
-    ]);
+    contestarLlamada();
     onShowToast?.(`🟢 Llamada conectada con ${item.unidad} (${item.residente}).`);
   };
 
   const cancelarCola = () => {
-    setEnColaEspera(false);
-    setPosicionCola(0);
+    colgarLlamada();
     onShowToast?.('❌ Saliste de la cola de espera de la garita.');
   };
 
-  const colgarLlamada = () => {
-    setEnLlamada(false);
-    setEstadoGarita('disponible');
+  const colgarLlamadaAccion = () => {
+    colgarLlamada();
     setHistorialLlamadas(prev => [
       {
         id: Date.now(),
@@ -436,10 +414,14 @@ export default function CitofonoVirtualEnterprise({
                     </div>
                     <button
                       type="button"
-                      onClick={() => atenderLlamadaDeCola(llamada)}
-                      className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-4 py-2 rounded-xl text-xs transition cursor-pointer shrink-0 flex items-center justify-center gap-1.5 shadow-lg w-full"
+                      onClick={() => {
+                        atenderLlamadaDeCola(llamada);
+                        contestarLlamada();
+                      }}
+                      className="w-full bg-[#00f2fe] text-slate-950 font-black py-2 rounded-xl text-xs font-mono transition hover:brightness-110 flex items-center justify-center gap-1.5 cursor-pointer"
                     >
-                      <PhoneCall className="w-3.5 h-3.5" /> Contestar Ahora
+                      <PhoneCall className="w-3.5 h-3.5" />
+                      Contestar Ahora
                     </button>
                   </div>
                 ))}
@@ -504,10 +486,11 @@ export default function CitofonoVirtualEnterprise({
                 </div>
                 <button
                   type="button"
-                  onClick={() => intentarLlamada(item.unidad)}
-                  className="bg-cyan-500/15 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 font-bold px-3 py-1.5 rounded-xl text-xs transition cursor-pointer flex items-center gap-1 shrink-0"
+                  onClick={() => estado === 'conectado' ? colgarLlamada() : intentarLlamada(item.unidad)}
+                  className="px-3.5 py-1.5 rounded-xl border border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10 text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer"
                 >
-                  <Phone className="w-3.5 h-3.5" /> Llamar
+                  <Phone className="w-3.5 h-3.5 text-cyan-400" />
+                  {estado === 'conectado' && llamadaActiva?.unidad === item.unidad ? 'Colgar' : 'Llamar'}
                 </button>
               </div>
             ))}
