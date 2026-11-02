@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Phone, PhoneCall, PhoneOff, Mic, Camera, Send, Clock, AlertCircle, Users } from 'lucide-react';
 import { useCitofonoEngine } from '../useCitofonoEngine';
+import { NotaRapidaResidente } from './NotaRapidaResidente';
 
 export default function CitofonoVirtualUrbix({
   unidadResidenteActual = 'Torre 2 - 301',
@@ -226,32 +227,12 @@ export default function CitofonoVirtualUrbix({
 
         </div>
 
-        {/* Panel Lateral: Nota Prioritaria */}
-        <div className="bg-[#0b0f17] border border-slate-800 rounded-3xl p-5 flex flex-col justify-between space-y-4">
-          <div>
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono flex items-center gap-2 border-b border-slate-800 pb-3">
-              <Camera className="w-4 h-4 text-cyan-400" /> Nota Rápida a Garita
-            </h4>
-            <p className="text-[11px] text-slate-400 mt-2">¿Prefieres no esperar en la cola? Deja un mensaje directo para que el guarda lo lea de inmediato.</p>
-          </div>
-
-          <form onSubmit={enviarMensajeRapido} className="space-y-3">
-            <textarea
-              rows={3}
-              placeholder="Escribe tu requerimiento..."
-              value={mensajeTexto}
-              onChange={(e) => setMensajeTexto(e.target.value)}
-              className="w-full p-3 text-xs bg-[#07090e] border border-slate-700 text-white rounded-2xl outline-none focus:border-cyan-400 resize-none"
-              required
-            />
-            <button
-              type="submit"
-              className="w-full bg-gradient-to-r from-cyan-500 to-teal-400 hover:opacity-90 text-slate-950 font-black py-3 rounded-2xl text-xs transition cursor-pointer shadow-md flex items-center justify-center gap-2"
-            >
-              <Send className="w-3.5 h-3.5" /> Enviar Nota Rápida
-            </button>
-          </form>
-
+        {/* Panel Lateral: Nota Prioritaria Directa */}
+        <div className="flex flex-col justify-start">
+          <NotaRapidaResidente
+            unitNumber={unidadResidenteActual}
+            onShowToast={onShowToast}
+          />
         </div>
 
       </div>

@@ -15,6 +15,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { useCitofonoEngine } from '../useCitofonoEngine';
+import { PanelNotasVigilante } from './PanelNotasVigilante';
 
 export interface CitofonoVirtualEnterpriseProps {
   unidadResidenteActual?: string;
@@ -522,63 +523,9 @@ export default function CitofonoVirtualEnterprise({
           </div>
         </div>
 
-        {/* Panel Lateral: Nota Prioritaria / Envío de Mensaje por Vigilante */}
+        {/* Panel Lateral: Notas Prioritarias Conectadas en Tiempo Real */}
         {esVigilante && (
-          <div className="bg-[#0b0f17] border border-slate-800 rounded-3xl p-5 flex flex-col justify-between space-y-4">
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono flex items-center gap-2 border-b border-slate-800 pb-3">
-                <MessageSquare className="w-4 h-4 text-cyan-400" /> Notas Prioritarias de Residentes
-              </h4>
-
-              <div className="space-y-2.5 max-h-[180px] overflow-y-auto pr-1">
-                {notasPrioritarias.map((n) => (
-                  <div
-                    key={n.id}
-                    className={`p-3 rounded-2xl border text-xs space-y-1.5 ${
-                      n.atendida
-                        ? 'bg-[#07090e]/60 border-slate-800/80 text-slate-400'
-                        : 'bg-[#07090e] border-cyan-500/30 text-slate-100'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-cyan-400 font-mono">{n.unidad}</span>
-                      <span className="text-[10px] text-slate-500 font-mono">{n.hora}</span>
-                    </div>
-                    <p className="text-[11px] leading-relaxed">{n.mensaje}</p>
-                    <button
-                      type="button"
-                      onClick={() => marcarNotaAtendida(n.id)}
-                      className={`text-[10px] font-mono font-bold px-2.5 py-1 rounded-lg border cursor-pointer transition inline-flex items-center gap-1 ${
-                        n.atendida
-                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-white'
-                      }`}
-                    >
-                      <CheckCircle2 className="w-3 h-3" />
-                      {n.atendida ? 'Atendida ✓' : 'Marcar Atendida'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <form onSubmit={enviarMensajeRapido} className="space-y-3 pt-2 border-t border-slate-800/80">
-              <textarea
-                rows={2}
-                placeholder={`Enviar aviso rápido a ${unidadConectada}...`}
-                value={mensajeTexto}
-                onChange={(e) => setMensajeTexto(e.target.value)}
-                className="w-full p-3 text-xs bg-[#07090e] border border-slate-700 text-white rounded-2xl outline-none focus:border-cyan-400 resize-none"
-                required
-              />
-              <button
-                type="submit"
-                className="w-full bg-gradient-to-r from-cyan-500 to-teal-400 hover:opacity-90 text-slate-950 font-black py-3 rounded-2xl text-xs transition cursor-pointer shadow-md flex items-center justify-center gap-2"
-              >
-                <Send className="w-3.5 h-3.5" /> Enviar Aviso al Apartamento
-              </button>
-            </form>
-          </div>
+          <PanelNotasVigilante />
         )}
       </div>
 
