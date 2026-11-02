@@ -13,8 +13,8 @@ export type EstadoCitofono = 'disponible' | 'llamando' | 'entrante' | 'conectado
 interface UseCitofonoProps {
   tenantId?: string;
   miRol: 'residente' | 'vigilante';
-  miUnidad?: string; // Ej: "Torre 2 - 301"
-  miNombre?: string; // Ej: "Esteban Ochoa Mesa"
+  miUnidad?: string;
+  miNombre?: string;
 }
 
 export function useCitofonoEngine({
@@ -40,7 +40,7 @@ export function useCitofonoEngine({
   const canalRef = useRef<any>(null);
   const pendingOfferRef = useRef<any>(null);
 
-  // 1. Asegurar el elemento de audio remoto
+  // Inicializar reproductor de audio una sola vez
   useEffect(() => {
     if (!remoteAudioRef.current && typeof window !== 'undefined') {
       const audio = new Audio();
@@ -48,16 +48,13 @@ export function useCitofonoEngine({
       (audio as any).playsInline = true;
       remoteAudioRef.current = audio;
     }
-  }, []);
 
-  useEffect(() => {
     const canal = supabase.channel(`citofonia_${tenantId}`, {
       config: { broadcast: { self: false } }
     });
 
-    // 1. Recibir solicitud con la oferta SDP incluida directamente
+    // 1. Solicitud entrante
     canal.on('broadcast', { event: 'solicitar_llamada' }, ({ payload }) => {
-      console.log('Solicitud entrante recibida:', payload);
       if (miRol === 'vigilante' && payload.destino === 'Garita') {
         pendingOfferRef.current = payload.offer;
         setLlamadaActiva({
@@ -82,7 +79,6 @@ export function useCitofonoEngine({
 
     // 2. Respuesta al contestar
     canal.on('broadcast', { event: 'webrtc_answer' }, async ({ payload }) => {
-      console.log('Respuesta recibida:', payload);
       const esMiLlamada = (miRol === 'residente' && payload.destino === miUnidad) ||
                           (miRol === 'vigilante' && payload.destino === 'Garita');
       if (esMiLlamada && pcRef.current) {
@@ -90,7 +86,7 @@ export function useCitofonoEngine({
           await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
           setEstado('conectado');
         } catch (e) {
-          console.error('Error al fijar remote description:', e);
+          console.error('Error setRemoteDescription:', e);
         }
       }
     });
@@ -103,7 +99,7 @@ export function useCitofonoEngine({
         try {
           await pcRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
         } catch (e) {
-          console.warn('Aviso candidato ICE:', e);
+          console.warn('Candidato ICE:', e);
         }
       }
     });
@@ -137,44 +133,11 @@ export function useCitofonoEngine({
     return () => clearInterval(t);
   }, [estado]);
 
-  // 2. FUNCIÓN DE CAPTURA SEGURA (Tanto en iniciarLlamada como en contestarLlamada)
-  const configurarStreamLocal = async (pc: RTCPeerConnection) => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      },
-      video: false
-    });
-
-    localStreamRef.current = stream;
-
-    // FORZAR QUE EL MICRÓFONO LOCAL ESTÉ ACTIVO (NO MUDO)
-    stream.getAudioTracks().forEach((track) => {
-      track.enabled = true; // <-- CRÍTICO: Garantiza que no arranque silenciado
-      pc.addTrack(track, stream);
-    });
-
-    // ESCUCHAR Y FORZAR REPRODUCCIÓN DEL AUDIO QUE LLEGA DEL OTRO LADO
-    pc.ontrack = (event) => {
-      console.log('🔊 Pista de audio remota recibida con éxito:', event.streams);
-      if (remoteAudioRef.current && event.streams && event.streams[0]) {
-        remoteAudioRef.current.srcObject = event.streams[0];
-        remoteAudioRef.current.volume = 1.0;
-        remoteAudioRef.current.play().catch((err) => {
-          console.warn('El navegador requirió interacción para reproducir audio:', err);
-        });
-      }
-    };
-
-    return stream;
-  };
-
-  // Iniciar llamada
+  // INICIAR LLAMADA (Orden estricto original)
   const iniciarLlamada = async (destinoApto?: string) => {
     const destinoFinal = miRol === 'residente' ? 'Garita' : (destinoApto || 'Torre 2 - 301');
     setEstado('llamando');
+    setEstaSilenciado(false);
     setLlamadaActiva({
       unidad: destinoFinal,
       nombre: miRol === 'residente' ? 'Portería / Garita' : `Residente (${destinoFinal})`,
@@ -182,11 +145,27 @@ export function useCitofonoEngine({
     });
 
     try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      localStreamRef.current = stream;
+
       const pc = new RTCPeerConnection(ICE_CONFIG);
       pcRef.current = pc;
 
-      await configurarStreamLocal(pc);
+      // 1. Agregar pistas ANTES de crear la oferta
+      stream.getTracks().forEach(t => {
+        t.enabled = true;
+        pc.addTrack(t, stream);
+      });
 
+      // 2. Escuchar audio remoto y forzar reproducción
+      pc.ontrack = (event) => {
+        if (remoteAudioRef.current && event.streams[0]) {
+          remoteAudioRef.current.srcObject = event.streams[0];
+          remoteAudioRef.current.play().catch(console.error);
+        }
+      };
+
+      // 3. Negociar ICE
       pc.onicecandidate = (event) => {
         if (event.candidate && canalRef.current) {
           canalRef.current.send({
@@ -197,6 +176,7 @@ export function useCitofonoEngine({
         }
       };
 
+      // 4. Crear oferta y emitir
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
@@ -207,32 +187,47 @@ export function useCitofonoEngine({
           unidad: miUnidad,
           nombre: miNombre,
           destino: destinoFinal,
-          motivo: 'Autorización ingreso domicilio farmacia',
+          motivo: 'Llamada directa desde citófono',
           offer: offer
         }
       });
     } catch (err: any) {
       console.error('Error al iniciar llamada:', err);
-      alert(`No se pudo acceder al micrófono: ${err.message || 'Permiso denegado'}`);
+      alert(`Error al acceder al micrófono: ${err.message || 'Permiso denegado'}`);
       cerrarConexion(false);
     }
   };
 
-  // Contestar llamada
+  // CONTESTAR LLAMADA (Orden estricto original)
   const contestarLlamada = async () => {
     const offerToUse = pendingOfferRef.current || llamadaActiva?.offer;
     const destinoRespuesta = miRol === 'vigilante' ? (llamadaActiva?.unidad || 'Torre 2 - 301') : 'Garita';
 
     if (!offerToUse) {
-      alert('Error: La oferta de audio no llegó a tiempo. Vuelve a intentar marcar.');
+      alert('Aviso: Esperando oferta de llamada. Vuelve a intentar marcar.');
       return;
     }
 
     try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      localStreamRef.current = stream;
+
       const pc = new RTCPeerConnection(ICE_CONFIG);
       pcRef.current = pc;
 
-      await configurarStreamLocal(pc);
+      // 1. Agregar pistas locales ANTES del answer
+      stream.getTracks().forEach(t => {
+        t.enabled = true;
+        pc.addTrack(t, stream);
+      });
+
+      // 2. Escuchar audio entrante
+      pc.ontrack = (event) => {
+        if (remoteAudioRef.current && event.streams[0]) {
+          remoteAudioRef.current.srcObject = event.streams[0];
+          remoteAudioRef.current.play().catch(console.error);
+        }
+      };
 
       pc.onicecandidate = (event) => {
         if (event.candidate && canalRef.current) {
@@ -244,6 +239,7 @@ export function useCitofonoEngine({
         }
       };
 
+      // 3. Establecer oferta remota y crear respuesta
       await pc.setRemoteDescription(new RTCSessionDescription(offerToUse));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -255,20 +251,21 @@ export function useCitofonoEngine({
       });
 
       setEstado('conectado');
+      setEstaSilenciado(false);
     } catch (err: any) {
       console.error('Error al contestar citófono:', err);
-      alert(`Error al contestar: ${err.message || 'Verifica permisos del micrófono'}`);
+      alert(`Error al conectar audio: ${err.message || 'Verifica permisos'}`);
       cerrarConexion(true);
     }
   };
 
+  // FUNCIÓN MUTE SEGURA (Directa al track activo)
   const alternarSilencio = () => {
     if (localStreamRef.current) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
         setEstaSilenciado(!audioTrack.enabled);
-        console.log('Estado del micrófono local:', audioTrack.enabled ? 'ACTIVO' : 'SILENCIADO');
       }
     }
   };
