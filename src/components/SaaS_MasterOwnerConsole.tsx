@@ -7,6 +7,9 @@ import SaaSCotizadorYSuspensionMaster from './SaaSCotizadorYSuspensionMaster';
 import CrearAdministradorModal from './CrearAdministradorModal';
 import ModalRegistroAdministradorEmpresa from './ModalRegistroAdministradorEmpresa';
 import ModalInscribirCopropiedadConIA from './ModalInscribirCopropiedadConIA';
+import { MatrizGlobalTenantsSoporte } from './MatrizGlobalTenantsSoporte';
+import SoporteTecnicoImpersonacion from './SoporteTecnicoImpersonacion';
+import TarjetasKpiInteractivas from './TarjetasKpiInteractivas';
 
 interface SaaS_MasterOwnerConsoleProps {
   onImpersonateAdmin?: (copropiedadName: string) => void;
@@ -414,6 +417,11 @@ export default function SaaS_MasterOwnerConsole({
         </div>
       </div>
 
+      {/* 4 Métricas Clave en la Cabecera Interactivas */}
+      <div className="mb-6">
+        <TarjetasKpiInteractivas />
+      </div>
+
       {/* 3 Interactive SaaS Cards as Requested */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         
@@ -468,6 +476,28 @@ export default function SaaS_MasterOwnerConsole({
           <span className="text-[11px] font-mono text-slate-400 mt-3 block">Centro de Control y Transmisión DIAN</span>
         </div>
 
+      </div>
+
+      {/* Matriz Global de Tenants y Diagnóstico de Soporte */}
+      <div className="mb-8">
+        <MatrizGlobalTenantsSoporte 
+          onImpersonateTenant={(tName) => {
+            const matched = tenants.find(t => t.name.toLowerCase().includes(tName.toLowerCase()));
+            if (matched) {
+              handleExecuteImpersonate(matched);
+            } else {
+              onImpersonateAdmin(tName);
+            }
+          }}
+          onSelectTenantSupport={(tenantId) => {
+            const matched = tenants.find(t => t.id === tenantId || t.name.toLowerCase().includes(tenantId.toLowerCase()));
+            if (matched) {
+              onSelectTenantId(matched.id);
+            }
+            setActiveTab('support_impersonate');
+            onShowToast(`🛠️ Cambiando a pestaña de Soporte Técnico e Impersonación para el tenant.`);
+          }}
+        />
       </div>
 
       {/* Dynamic Interactive Navigation Sub-Tabs Bar */}
@@ -1129,14 +1159,23 @@ export default function SaaS_MasterOwnerConsole({
         </div>
       )}
 
-      {/* TAB 4: SOPORTE TÉCNICO & IMPERSONACIÓN (AUDIT LOGS) */}
+      {/* TAB 4: SOPORTE TÉCNICO & IMPERSONACIÓN (AUDIT LOGS & SIMULADOR) */}
       {activeTab === 'support_impersonate' && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl font-mono">
-          <div className="border-b border-slate-800 pb-4">
+          <SoporteTecnicoImpersonacion onImpersonar={(tId, rol, unidad) => {
+            const matched = tenants.find(t => t.id === tId || t.name.toLowerCase().includes(tId.toLowerCase()));
+            if (matched) {
+              handleExecuteImpersonate(matched);
+            } else {
+              onImpersonateAdmin(`Tenant ${tId} (${rol.toUpperCase()} - ${unidad || 'General'})`);
+            }
+          }} />
+
+          <div className="border-b border-slate-800 pb-4 pt-4">
             <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-500/30 px-2.5 py-1 rounded">
               [ TECHNICAL SUPPORT &amp; VIEW AS TENANT ]
             </span>
-            <h2 className="text-lg font-bold text-white mt-2">Centro de Soporte Técnico e Impersonación Segura</h2>
+            <h2 className="text-lg font-bold text-white mt-2">Directorio de Soporte Técnico e Impersonación Segura</h2>
             <p className="text-xs text-slate-400">Accede como administrador a cualquier copropiedad cliente para soporte en vivo con registro de auditoría SHA-256.</p>
           </div>
 

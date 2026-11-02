@@ -5,6 +5,7 @@ import {
   Plus, Search, ArrowUpRight, AlertTriangle, CheckCircle2, 
   Power, HardDrive, Key, FileText, Phone, Mail, Clock, LogOut, X, Sparkles
 } from 'lucide-react';
+import TarjetasKpiInteractivas from './TarjetasKpiInteractivas';
 
 export interface SuperAdminMasterHubCompany {
   id: string;
@@ -300,6 +301,11 @@ export default function SuperAdminMasterHub({
          ==================================================================== */}
       <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
         
+        {/* 4 Métricas Clave en la Cabecera Interactivas */}
+        <div className="mb-6">
+          <TarjetasKpiInteractivas />
+        </div>
+
         {/* TARJETAS DE INDICADORES MACRO */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-1">
