@@ -1,8 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { CORE_MANIFEST, verifyCoreIntegrity } from '../core/coreFreezeGuard';
 import { DEFAULT_THEME_CONFIG, UIThemeConfig, ThemePalette, FontFamilyOption } from '../config/themeConfig';
-import AssetManagementDashboard from './AssetManagementDashboard';
-import CarteraYLiquidacionPH from './CarteraYLiquidacionPH';
 import SaaSCotizadorYSuspensionMaster from './SaaSCotizadorYSuspensionMaster';
 import CrearAdministradorModal from './CrearAdministradorModal';
 import ModalRegistroAdministradorEmpresa from './ModalRegistroAdministradorEmpresa';
@@ -146,11 +144,12 @@ export default function SaaS_MasterOwnerConsole({
   onAppendAuditLog = () => {},
   onCerrarSesion
 }: SaaS_MasterOwnerConsoleProps) {
-  const [activeTab, setActiveTab] = useState<'tenants' | 'pricing_tiers' | 'feature_flags' | 'support_impersonate' | 'gateway' | 'billing' | 'infrastructure' | 'design_guard' | 'billing_dunning' | 'alerts_broadcast' | 'assets_alm' | 'cartera_liquidacion'>('tenants');
+  // ÚNICOS 7 SUBMÓDULOS DEL DUEÑO DEL SOFTWARE
+  const [activeTab, setActiveTab] = useState<'tenants' | 'pricing_tiers' | 'feature_flags' | 'support_impersonate' | 'gateway' | 'billing_dunning' | 'infrastructure'>('tenants');
   const [gatewayProvider, setGatewayProvider] = useState<'Wompi Bancolombia' | 'Stripe Global' | 'PayU Latam' | 'PSE Corporativo'>('Wompi Bancolombia');
   const [autoBillingEnabled, setAutoBillingEnabled] = useState<boolean>(true);
 
-  // Estados locales para Sliders interactivos del simulador ARR
+  // Sliders interactivos del simulador ARR
   const [simEsencial, setSimEsencial] = useState<number>(5);
   const [simProfesional, setSimProfesional] = useState<number>(12);
   const [simEnterprise, setSimEnterprise] = useState<number>(4);
@@ -161,7 +160,6 @@ export default function SaaS_MasterOwnerConsole({
     { id: 'imp_02', timestamp: '2026-10-29 09:30:10', tenantName: 'Edificio Torre El Poblado', nit: '811.025.993-8', masterUser: 'estebanochoamesa@gmail.com', action: 'IMPERSONATE_ADMIN_SESSION' }
   ]);
 
-  // Estado para el modal detallado de métricas (Click-to-explore)
   const [activeModalCard, setActiveModalCard] = useState<'mrr_rec' | 'coprop_suscritas' | 'dian_facturacion' | null>(null);
   const [modalCrearAdminTenantId, setModalCrearAdminTenantId] = useState<string | null>(null);
   const [modalEmpresaAdminTenantId, setModalEmpresaAdminTenantId] = useState<string | null>(null);
@@ -169,17 +167,7 @@ export default function SaaS_MasterOwnerConsole({
   const setTenants = onUpdateTenants;
   const setActiveTenant = (nuevoTenant: ClientTenantNode) => onSelectTenantId(nuevoTenant.id);
 
-  // Estados locales para Blindaje y Diseño absorbidos
-  const [selectedPalette, setSelectedPalette] = useState<ThemePalette>(themeConfig.themeName);
-  const [selectedFont, setSelectedFont] = useState<FontFamilyOption>(themeConfig.fontFamily);
-  const [brandTitle, setBrandTitle] = useState<string>(themeConfig.brandName);
-  const [logoInput, setLogoInput] = useState<string>(themeConfig.logoUrl);
-  const [copiedModuleSnippet, setCopiedModuleSnippet] = useState<string | null>(null);
-  const [broadcastHistory, setBroadcastHistory] = useState<any[]>([]);
-
-  const integrityCheck = verifyCoreIntegrity();
-
-  // Control dinámico de la barra de desplazamiento horizontal de sub-pestañas
+  // Control de scroll horizontal de sub-pestañas
   const tabsScrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState<boolean>(false);
   const [canScrollRight, setCanScrollRight] = useState<boolean>(true);
@@ -222,20 +210,6 @@ export default function SaaS_MasterOwnerConsole({
       checkScrollState();
     }
   };
-
-  // Cálculos financieros globales (MRR / ARR)
-  const totalMrr = tenants.reduce((sum, t) => sum + (t.status.includes('Suspendida') ? 0 : t.monthlyFee), 0);
-  const totalArr = totalMrr * 12;
-  const activeCount = tenants.filter(t => t.status.includes('Activa')).length;
-  const graceCount = tenants.filter(t => t.status.includes('En Gracia')).length;
-  const suspendedCount = tenants.filter(t => t.status.includes('Suspendida')).length;
-  const churnRate = ((suspendedCount / tenants.length) * 100).toFixed(1);
-  const cloudCostMonthly = 185000; // Supabase Pro + Vercel Enterprise + Redis Edge
-
-  // Conteo por Planes reales
-  const countEsencial = tenants.filter(t => t.plan === 'Plan Esencial').length;
-  const countProfesional = tenants.filter(t => t.plan === 'Plan Profesional').length;
-  const countEnterprise = tenants.filter(t => t.plan === 'Plan Enterprise').length;
 
   const handleToggleSuspendTenant = (id: string) => {
     onUpdateTenants(prev => prev.map(t => {
@@ -317,65 +291,10 @@ export default function SaaS_MasterOwnerConsole({
     onImpersonateAdmin(tenant.name);
   };
 
-  const handleApplyVisualChanges = () => {
-    let primary = '#34d399';
-    let accent = '#22d3ee';
-    if (selectedPalette === 'cobalt_dark') { primary = '#60a5fa'; accent = '#38bdf8'; }
-    if (selectedPalette === 'amethyst_purple') { primary = '#c084fc'; accent = '#e879f9'; }
-    if (selectedPalette === 'amber_gold') { primary = '#fbbf24'; accent = '#fde047'; }
-    if (selectedPalette === 'high_contrast') { primary = '#ffffff'; accent = '#fef08a'; }
-
-    const updated: UIThemeConfig = {
-      ...themeConfig,
-      themeName: selectedPalette,
-      fontFamily: selectedFont,
-      primaryColor: primary,
-      accentColor: accent,
-      brandName: brandTitle,
-      logoUrl: logoInput
-    };
-
-    onUpdateTheme(updated);
-    onShowToast('🎨 Personalización visual y diseño aplicados con éxito. El código base permanece protegido.');
-  };
-
-  const AVAILABLE_MODULES_TO_COPY = [
-    {
-      id: 'mod_equipos',
-      name: 'Bitácora de Equipos Críticos (Art. 15 Ley 675)',
-      description: 'Estado de ascensores, motobombas, plantas y RCI con lecturas de campo.',
-      snippet: `<EquiposCriticosWidget items={equiposCriticosShared} modoLectura={true} role="porteria" />`
-    },
-    {
-      id: 'mod_caja_menor',
-      name: 'Resumen de Caja Menor y Reembolsos',
-      description: 'Vista de movimientos y desembolsos aprobados por la administración.',
-      snippet: `<CajaMenorWidget movimientos={cajaMenorShared} saldoDisponible={saldoCajaMenor} />`
-    },
-    {
-      id: 'mod_mudanzas',
-      name: 'Control de Mudanzas y Zonas Comunes',
-      description: 'Permisos activos de trasteos, depósitos de garantía y estado de inspección.',
-      snippet: `<MudanzasSupervisionWidget mudanzas={reformasMudanzasShared} supervisorView={true} />`
-    },
-    {
-      id: 'mod_sanciones',
-      name: 'Actas de Hallazgo de Convivencia',
-      description: 'Seguimiento al debido proceso y citaciones a descargos de propietarios.',
-      snippet: `<SancionesConvivenciaWidget sanciones={sancionesShared} />`
-    },
-    {
-      id: 'mod_bodega',
-      name: 'Stock e Inventario de Insumos',
-      description: 'Existencias de aseo, repuestos y luminarias con alerta de stock crítico.',
-      snippet: `<InventarioBodegaWidget items={inventarioBodegaShared} onSolicitar={handleSolicitarBodega} />`
-    }
-  ];
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
       
-      {/* Master Owner Header */}
+      {/* Cabecera Principal Master */}
       <div className="bg-slate-900 border border-purple-500/30 rounded-2xl p-6 mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 transform translate-x-8 -translate-y-8 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl pointer-events-none"></div>
         
@@ -422,15 +341,12 @@ export default function SaaS_MasterOwnerConsole({
         <TarjetasKpiInteractivas />
       </div>
 
-      {/* 3 Interactive SaaS Cards as Requested */}
+      {/* 3 Tarjetas Resumen */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        
-        {/* Tarjeta 1: MRR Recurrente Activo */}
         <div
           onClick={() => setActiveModalCard('mrr_rec')}
           className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 rounded-2xl p-6 shadow-xl cursor-pointer transition-all duration-300 hover:scale-[1.02] group relative overflow-hidden"
         >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none"></div>
           <div className="flex justify-between items-start mb-2">
             <span className="text-[11px] font-mono text-emerald-400 font-bold bg-emerald-950/80 px-2.5 py-1 rounded border border-emerald-500/30">
               TARJETA 1
@@ -442,12 +358,10 @@ export default function SaaS_MasterOwnerConsole({
           <span className="text-[11px] font-mono text-slate-400 mt-3 block">Ingresos Recurrentes Activos (SaaS B2B)</span>
         </div>
 
-        {/* Tarjeta 2: Copropiedades Suscritas */}
         <div
           onClick={() => setActiveModalCard('coprop_suscritas')}
           className="bg-slate-900 border border-slate-800 hover:border-cyan-500/50 rounded-2xl p-6 shadow-xl cursor-pointer transition-all duration-300 hover:scale-[1.02] group relative overflow-hidden"
         >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/5 rounded-full blur-2xl pointer-events-none"></div>
           <div className="flex justify-between items-start mb-2">
             <span className="text-[11px] font-mono text-cyan-400 font-bold bg-cyan-950/80 px-2.5 py-1 rounded border border-cyan-500/30">
               TARJETA 2
@@ -459,12 +373,10 @@ export default function SaaS_MasterOwnerConsole({
           <span className="text-[11px] font-mono text-slate-400 mt-3 block">Copropiedades Activas Conectadas</span>
         </div>
 
-        {/* Tarjeta 3: Facturación Electrónica DIAN */}
         <div
           onClick={() => setActiveModalCard('dian_facturacion')}
           className="bg-slate-900 border border-slate-800 hover:border-purple-500/50 rounded-2xl p-6 shadow-xl cursor-pointer transition-all duration-300 hover:scale-[1.02] group relative overflow-hidden"
         >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full blur-2xl pointer-events-none"></div>
           <div className="flex justify-between items-start mb-2">
             <span className="text-[11px] font-mono text-purple-400 font-bold bg-purple-950/80 px-2.5 py-1 rounded border border-purple-500/30">
               TARJETA 3
@@ -475,10 +387,9 @@ export default function SaaS_MasterOwnerConsole({
           <div className="text-xs font-mono text-cyan-400 mt-1 font-bold">Estándar UBL 2.1 • CUFE Activo</div>
           <span className="text-[11px] font-mono text-slate-400 mt-3 block">Centro de Control y Transmisión DIAN</span>
         </div>
-
       </div>
 
-      {/* Matriz Global de Tenants y Diagnóstico de Soporte */}
+      {/* Matriz Global de Tenants y Diagnóstico */}
       <div className="mb-8">
         <MatrizGlobalTenantsSoporte 
           onImpersonateTenant={(tName) => {
@@ -500,9 +411,8 @@ export default function SaaS_MasterOwnerConsole({
         />
       </div>
 
-      {/* Dynamic Interactive Navigation Sub-Tabs Bar */}
+      {/* BARRA DE LAS 7 SUB-PESTAÑAS OFICIALES */}
       <div className="relative mb-6">
-        {/* Navigation Micro-Bar: Controls & Scroll Percentage */}
         <div className="flex items-center justify-between mb-2 px-1 text-[11px] font-mono">
           <div className="flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
@@ -510,73 +420,38 @@ export default function SaaS_MasterOwnerConsole({
               MÓDULOS DEL ECOSISTEMA SAAS
             </span>
             <span className="text-[10px] bg-slate-900 border border-slate-800 text-purple-300 px-2 py-0.5 rounded">
-              12 Módulos
+              7 Módulos Clave
             </span>
           </div>
 
-          {/* Dynamic Scroll Chevrons & Position */}
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-slate-500 hidden sm:inline-block">
-              {Math.round(scrollPercentage)}% explorado
-            </span>
             <div className="flex items-center bg-slate-950/90 border border-slate-800 rounded-lg p-0.5 shadow-sm">
               <button
                 type="button"
                 onClick={handleTabsScrollLeft}
                 disabled={!canScrollLeft}
-                title="Desplazar a la izquierda"
-                className={`p-1.5 rounded transition-all duration-200 ${
-                  canScrollLeft
-                    ? 'text-cyan-400 hover:text-white hover:bg-slate-800 cursor-pointer active:scale-95'
-                    : 'text-slate-600 cursor-not-allowed opacity-30'
-                }`}
+                className="p-1.5 rounded text-cyan-400 hover:text-white hover:bg-slate-800 cursor-pointer disabled:opacity-30"
               >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
-                </svg>
+                ◀
               </button>
-              <div className="w-[1px] h-3.5 bg-slate-800 mx-0.5"></div>
               <button
                 type="button"
                 onClick={handleTabsScrollRight}
                 disabled={!canScrollRight}
-                title="Desplazar a la derecha"
-                className={`p-1.5 rounded transition-all duration-200 ${
-                  canScrollRight
-                    ? 'text-cyan-400 hover:text-white hover:bg-slate-800 cursor-pointer active:scale-95'
-                    : 'text-slate-600 cursor-not-allowed opacity-30'
-                }`}
+                className="p-1.5 rounded text-cyan-400 hover:text-white hover:bg-slate-800 cursor-pointer disabled:opacity-30"
               >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
-                </svg>
+                ▶
               </button>
             </div>
           </div>
         </div>
 
-        {/* Scrollable Container with Dynamic Edge Fades and Sleek Scrollbar */}
         <div className="relative group">
-          {/* Dynamic Left Gradient Fade */}
-          <div
-            className={`absolute left-0 top-0 bottom-2 w-8 bg-gradient-to-r from-[#141416] to-transparent z-10 pointer-events-none transition-opacity duration-300 ${
-              canScrollLeft ? 'opacity-100' : 'opacity-0'
-            }`}
-          />
-
-          {/* Dynamic Right Gradient Fade */}
-          <div
-            className={`absolute right-0 top-0 bottom-2 w-10 bg-gradient-to-l from-[#141416] to-transparent z-10 pointer-events-none transition-opacity duration-300 ${
-              canScrollRight ? 'opacity-100' : 'opacity-0'
-            }`}
-          />
-
-          {/* Navigation Sub-Tabs Strip */}
           <div
             ref={tabsScrollRef}
             onScroll={checkScrollState}
             onWheel={handleTabsWheel}
-            className="flex border-b border-slate-800 gap-2 font-mono text-xs overflow-x-auto pb-1.5 urbix-tabs-scrollbar select-none"
+            className="flex border-b border-slate-800 gap-2 font-mono text-xs overflow-x-auto pb-1.5 select-none"
           >
             {[
               { id: 'tenants', label: '🏢 Matriz Global de Copropiedades (Tenants)' },
@@ -585,12 +460,7 @@ export default function SaaS_MasterOwnerConsole({
               { id: 'support_impersonate', label: '🛠️ Soporte Técnico & Impersonación' },
               { id: 'gateway', label: '💳 Pasarela de Pagos SaaS (Wompi / Stripe)' },
               { id: 'billing_dunning', label: '💰 Gestión de Cobros & Dunning' },
-              { id: 'alerts_broadcast', label: '📢 Centro de Alertas & Broadcast' },
-              { id: 'billing', label: '📄 Facturación Electrónica DIAN UBL 2.1' },
-              { id: 'infrastructure', label: '⚡ Infraestructura & Servidores Cloud' },
-              { id: 'assets_alm', label: '🛠️ Activos & Mantenimiento (ALM)' },
-              { id: 'cartera_liquidacion', label: '📊 Cartera & Liquidación PH' },
-              { id: 'design_guard', label: '🛡️ Blindaje, Diseño & Copia de Módulos' }
+              { id: 'infrastructure', label: '⚡ Infraestructura & Servidores Cloud' }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -609,13 +479,12 @@ export default function SaaS_MasterOwnerConsole({
             ))}
           </div>
 
-          {/* Dynamic Scroll Progress Glow Bar */}
           <div className="w-full bg-slate-950/90 h-[2px] overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-cyan-400 via-purple-500 to-emerald-400 transition-all duration-100 rounded-full"
               style={{
-                width: '25%',
-                transform: `translateX(${(scrollPercentage / 100) * 300}%)`,
+                width: '35%',
+                transform: `translateX(${(scrollPercentage / 100) * 180}%)`,
                 boxShadow: '0 0 8px rgba(34, 211, 238, 0.6)'
               }}
             />
@@ -623,8 +492,7 @@ export default function SaaS_MasterOwnerConsole({
         </div>
       </div>
 
-
-      {/* TAB 1: TENANTS MANAGEMENT */}
+      {/* SUBMÓDULO 1: TENANTS */}
       {activeTab === 'tenants' && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl">
           <div className="flex justify-between items-center flex-wrap gap-4">
@@ -796,7 +664,7 @@ export default function SaaS_MasterOwnerConsole({
         </div>
       )}
 
-      {/* TAB 2: PRICING TIERS & MRR MONETIZATION */}
+      {/* SUBMÓDULO 2: PRICING & TIERS */}
       {activeTab === 'pricing_tiers' && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl font-mono">
           <SaaSCotizadorYSuspensionMaster
@@ -815,8 +683,6 @@ export default function SaaS_MasterOwnerConsole({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            
-            {/* Plan Esencial */}
             <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between relative overflow-hidden">
               <div className="absolute top-0 right-0 bg-cyan-500/10 text-cyan-400 text-[10px] px-3 py-1 rounded-bl-xl font-bold">
                 Hasta 30 Unidades
@@ -853,7 +719,6 @@ export default function SaaS_MasterOwnerConsole({
               </div>
             </div>
 
-            {/* Plan Profesional */}
             <div className="bg-slate-950 border border-purple-500/40 rounded-2xl p-6 flex flex-col justify-between relative overflow-hidden shadow-xl shadow-purple-950/20">
               <div className="absolute top-0 right-0 bg-purple-500/20 text-purple-300 text-[10px] px-3 py-1 rounded-bl-xl font-bold">
                 Hasta 100 Unidades (Más Popular)
@@ -890,7 +755,6 @@ export default function SaaS_MasterOwnerConsole({
               </div>
             </div>
 
-            {/* Plan Enterprise */}
             <div className="bg-slate-950 border border-emerald-500/40 rounded-2xl p-6 flex flex-col justify-between relative overflow-hidden">
               <div className="absolute top-0 right-0 bg-emerald-500/20 text-emerald-300 text-[10px] px-3 py-1 rounded-bl-xl font-bold">
                 100+ Unidades / Mixtos
@@ -925,14 +789,13 @@ export default function SaaS_MasterOwnerConsole({
                 <span className="text-emerald-400 font-bold">${(simEnterprise * 1200000).toLocaleString()} COP/mes</span>
               </div>
             </div>
-
           </div>
 
           <div className="p-6 bg-slate-950 border border-emerald-500/30 rounded-2xl space-y-3 shadow-xl">
             <div className="flex justify-between items-center flex-wrap gap-4">
               <div>
                 <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded">
-                  [ RESULTADO DEL SIMULADOR DINÁMICO ]
+                  [ RESULTADO DEL SIMULADOR DINÁMMICO ]
                 </span>
                 <h3 className="text-base font-bold text-white mt-1">MRR y ARR Simulado en Tiempo Real</h3>
               </div>
@@ -949,7 +812,7 @@ export default function SaaS_MasterOwnerConsole({
         </div>
       )}
 
-      {/* TAB 3: FEATURE FLAGS */}
+      {/* SUBMÓDULO 3: FEATURE FLAGS */}
       {activeTab === 'feature_flags' && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl">
           <div className="border-b border-slate-800 pb-4 flex justify-between items-center flex-wrap gap-4">
@@ -1086,7 +949,131 @@ export default function SaaS_MasterOwnerConsole({
         </div>
       )}
 
-      {/* TAB: BILLING & DUNNING */}
+      {/* SUBMÓDULO 4: SOPORTE & IMPERSONACIÓN */}
+      {activeTab === 'support_impersonate' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl font-mono">
+          <SoporteTecnicoImpersonacion onImpersonar={(tId, rol, unidad) => {
+            const matched = tenants.find(t => t.id === tId || t.name.toLowerCase().includes(tId.toLowerCase()));
+            if (matched) {
+              handleExecuteImpersonate(matched);
+            } else {
+              onImpersonateAdmin(`Tenant ${tId} (${rol.toUpperCase()} - ${unidad || 'General'})`);
+            }
+          }} />
+
+          <div className="border-b border-slate-800 pb-4 pt-4">
+            <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-500/30 px-2.5 py-1 rounded">
+              [ TECHNICAL SUPPORT &amp; VIEW AS TENANT ]
+            </span>
+            <h2 className="text-lg font-bold text-white mt-2">Directorio de Soporte Técnico e Impersonación Segura</h2>
+            <p className="text-xs text-slate-400">Accede como administrador a cualquier copropiedad cliente para soporte en vivo con registro de auditoría SHA-256.</p>
+          </div>
+
+          <div className="overflow-x-auto mb-8">
+            <table className="w-full border-collapse text-left text-xs font-mono">
+              <thead>
+                <tr className="bg-slate-950 text-slate-400 border-b border-slate-800">
+                  <th className="p-3.5">Copropiedad / NIT</th>
+                  <th className="p-3.5">Administrador A Cargo</th>
+                  <th className="p-3.5">Plan / Estado</th>
+                  <th className="p-3.5 text-right">Acción de Asistencia en Vivo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {tenants.map(t => (
+                  <tr key={t.id} className="hover:bg-slate-950/40 transition-colors">
+                    <td className="p-3.5">
+                      <div className="font-bold text-white text-sm">{t.name}</div>
+                      <div className="text-[10px] text-slate-500">NIT: {t.nit} • {t.city}</div>
+                    </td>
+                    <td className="p-3.5">
+                      <div className="text-slate-200">{t.adminName}</div>
+                      <div className="text-[10px] text-cyan-400">{t.adminEmail}</div>
+                    </td>
+                    <td className="p-3.5">
+                      <div className="text-purple-400 font-bold">{t.plan}</div>
+                      <div className="text-[10px] text-emerald-400">{t.status}</div>
+                    </td>
+                    <td className="p-3.5 text-right">
+                      <button
+                        onClick={() => handleExecuteImpersonate(t)}
+                        className="bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold px-3.5 py-2 rounded-xl text-xs transition-colors shadow-lg cursor-pointer"
+                      >
+                        🔍 Impersonar / Acceder como Admin
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="p-5 bg-slate-950 border border-slate-800 rounded-xl space-y-3">
+            <span className="text-xs text-amber-400 font-bold block">🔒 Bitácora Forense de Sesiones de Impersonación (Audit Trail):</span>
+            <div className="space-y-2 max-h-60 overflow-y-auto text-[11px]">
+              {impersonationLogs.map(log => (
+                <div key={log.id} className="p-3 bg-slate-900 border border-slate-800 rounded-lg flex justify-between items-center flex-wrap gap-2">
+                  <div>
+                    <span className="text-cyan-400 font-bold">[{log.action}]</span> Visualizó a <strong className="text-white">{log.tenantName}</strong> (NIT: {log.nit})
+                  </div>
+                  <div className="text-slate-400 text-[10px]">
+                    Root: {log.masterUser} • {log.timestamp}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUBMÓDULO 5: PASARELA DE PAGOS */}
+      {activeTab === 'gateway' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl max-w-3xl mx-auto font-mono">
+          <div>
+            <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-500/30 px-2.5 py-1 rounded">
+              [ AUTOMATED SUBSCRIPTION BILLING ]
+            </span>
+            <h2 className="text-lg font-bold text-white mt-2">Configuración de Pasarela de Pagos Global (SaaS B2B)</h2>
+            <p className="text-xs text-slate-400">Cobro automático mensual recurrente de licencias a los administradores de los edificios.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-3">
+              <label className="text-xs text-slate-400 block">PASARELA ACTIVA:</label>
+              <select
+                value={gatewayProvider}
+                onChange={(e) => {
+                  setGatewayProvider(e.target.value as any);
+                  onShowToast(`💳 Pasarela cambiada a ${e.target.value}`);
+                }}
+                className="w-full bg-slate-900 border border-slate-700 text-white p-2.5 rounded-lg text-xs"
+              >
+                <option value="Wompi Bancolombia">Wompi (Bancolombia - Colombia)</option>
+                <option value="Stripe Global">Stripe (Global USD / COP)</option>
+                <option value="PayU Latam">PayU Latam (PSE / Tarjetas)</option>
+                <option value="PSE Corporativo">PSE Cuenta Maestra Corporativa</option>
+              </select>
+            </div>
+
+            <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-3 flex flex-col justify-between">
+              <div>
+                <span className="text-xs text-slate-400 block mb-1">DÉBITO AUTOMÁTICO RECURRENTE (CRON):</span>
+                <span className="text-xs text-emerald-400 font-bold">Activo • Ejecución el día 1 de cada mes</span>
+              </div>
+              <button
+                onClick={() => setAutoBillingEnabled(!autoBillingEnabled)}
+                className={`w-full py-2 rounded-lg text-xs font-bold cursor-pointer ${
+                  autoBillingEnabled ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                {autoBillingEnabled ? '✓ Cobro Automático Habilitado' : '✕ Cobro Automático Deshabilitado'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUBMÓDULO 6: GESTIÓN DE COBROS & DUNNING */}
       {activeTab === 'billing_dunning' && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl font-mono">
           <SaaSCotizadorYSuspensionMaster
@@ -1140,7 +1127,7 @@ export default function SaaS_MasterOwnerConsole({
                       <select
                         value={t.financialStatus}
                         onChange={(e) => handleUpdateTenantFinancialStatus(t.id, e.target.value as any)}
-                        className={`font-bold p-1 rounded ${t.financialStatus === 'En Mora' ? 'bg-red-950 text-red-400' : t.financialStatus === 'Próximo a Vencer' ? 'bg-amber-950 text-amber-400' : 'bg-emerald-950 text-emerald-400'}`}
+                        className={`font-bold p-1 rounded cursor-pointer ${t.financialStatus === 'En Mora' ? 'bg-red-950 text-red-400' : t.financialStatus === 'Próximo a Vencer' ? 'bg-amber-950 text-amber-400' : 'bg-emerald-950 text-emerald-400'}`}
                       >
                         <option value="Al Día">Al Día</option>
                         <option value="Próximo a Vencer">Próximo a Vencer</option>
@@ -1148,8 +1135,8 @@ export default function SaaS_MasterOwnerConsole({
                       </select>
                     </td>
                     <td className="p-3 text-right space-x-2">
-                       <button onClick={() => onShowToast(`💳 Simulando pago para ${t.name}...`)} className="bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded">Simular Pago</button>
-                       <button onClick={() => onShowToast(`📢 Aviso de cobro enviado a ${t.adminEmail}`)} className="bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded">Forzar Aviso</button>
+                       <button onClick={() => onShowToast(`💳 Simulando pago para ${t.name}...`)} className="bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded cursor-pointer">Simular Pago</button>
+                       <button onClick={() => onShowToast(`📢 Aviso de cobro enviado a ${t.adminEmail}`)} className="bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded cursor-pointer">Forzar Aviso</button>
                     </td>
                   </tr>
                 ))}
@@ -1159,163 +1146,7 @@ export default function SaaS_MasterOwnerConsole({
         </div>
       )}
 
-      {/* TAB 4: SOPORTE TÉCNICO & IMPERSONACIÓN (AUDIT LOGS & SIMULADOR) */}
-      {activeTab === 'support_impersonate' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl font-mono">
-          <SoporteTecnicoImpersonacion onImpersonar={(tId, rol, unidad) => {
-            const matched = tenants.find(t => t.id === tId || t.name.toLowerCase().includes(tId.toLowerCase()));
-            if (matched) {
-              handleExecuteImpersonate(matched);
-            } else {
-              onImpersonateAdmin(`Tenant ${tId} (${rol.toUpperCase()} - ${unidad || 'General'})`);
-            }
-          }} />
-
-          <div className="border-b border-slate-800 pb-4 pt-4">
-            <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-500/30 px-2.5 py-1 rounded">
-              [ TECHNICAL SUPPORT &amp; VIEW AS TENANT ]
-            </span>
-            <h2 className="text-lg font-bold text-white mt-2">Directorio de Soporte Técnico e Impersonación Segura</h2>
-            <p className="text-xs text-slate-400">Accede como administrador a cualquier copropiedad cliente para soporte en vivo con registro de auditoría SHA-256.</p>
-          </div>
-
-          <div className="overflow-x-auto mb-8">
-            <table className="w-full border-collapse text-left text-xs font-mono">
-              <thead>
-                <tr className="bg-slate-950 text-slate-400 border-b border-slate-800">
-                  <th className="p-3.5">Copropiedad / NIT</th>
-                  <th className="p-3.5">Administrador A Cargo</th>
-                  <th className="p-3.5">Plan / Estado</th>
-                  <th className="p-3.5 text-right">Acción de Asistencia en Vivo</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {tenants.map(t => (
-                  <tr key={t.id} className="hover:bg-slate-950/40 transition-colors">
-                    <td className="p-3.5">
-                      <div className="font-bold text-white text-sm">{t.name}</div>
-                      <div className="text-[10px] text-slate-500">NIT: {t.nit} • {t.city}</div>
-                    </td>
-                    <td className="p-3.5">
-                      <div className="text-slate-200">{t.adminName}</div>
-                      <div className="text-[10px] text-cyan-400">{t.adminEmail}</div>
-                    </td>
-                    <td className="p-3.5">
-                      <div className="text-purple-400 font-bold">{t.plan}</div>
-                      <div className="text-[10px] text-emerald-400">{t.status}</div>
-                    </td>
-                    <td className="p-3.5 text-right">
-                      <button
-                        onClick={() => handleExecuteImpersonate(t)}
-                        className="bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold px-3.5 py-2 rounded-xl text-xs transition-colors shadow-lg"
-                      >
-                        🔍 Impersonar / Acceder como Admin
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Audit Logs Table */}
-          <div className="p-5 bg-slate-950 border border-slate-800 rounded-xl space-y-3">
-            <span className="text-xs text-amber-400 font-bold block">🔒 Bitácora Forense de Sesiones de Impersonación (Audit Trail):</span>
-            <div className="space-y-2 max-h-60 overflow-y-auto text-[11px]">
-              {impersonationLogs.map(log => (
-                <div key={log.id} className="p-3 bg-slate-900 border border-slate-800 rounded-lg flex justify-between items-center flex-wrap gap-2">
-                  <div>
-                    <span className="text-cyan-400 font-bold">[{log.action}]</span> Visualizó a <strong className="text-white">{log.tenantName}</strong> (NIT: {log.nit})
-                  </div>
-                  <div className="text-slate-400 text-[10px]">
-                    Root: {log.masterUser} • {log.timestamp}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 5: GATEWAY */}
-      {activeTab === 'gateway' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl max-w-3xl mx-auto font-mono">
-          <div>
-            <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-500/30 px-2.5 py-1 rounded">
-              [ AUTOMATED SUBSCRIPTION BILLING ]
-            </span>
-            <h2 className="text-lg font-bold text-white mt-2">Configuración de Pasarela de Pagos Global (SaaS B2B)</h2>
-            <p className="text-xs text-slate-400">Cobro automático mensual recurrente de licencias a los administradores de los edificios.</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-3">
-              <label className="text-xs text-slate-400 block">PASARELA ACTIVA:</label>
-              <select
-                value={gatewayProvider}
-                onChange={(e) => {
-                  setGatewayProvider(e.target.value as any);
-                  onShowToast(`💳 Pasarela cambiada a ${e.target.value}`);
-                }}
-                className="w-full bg-slate-900 border border-slate-700 text-white p-2.5 rounded-lg text-xs"
-              >
-                <option value="Wompi Bancolombia">Wompi (Bancolombia - Colombia)</option>
-                <option value="Stripe Global">Stripe (Global USD / COP)</option>
-                <option value="PayU Latam">PayU Latam (PSE / Tarjetas)</option>
-                <option value="PSE Corporativo">PSE Cuenta Maestra Corporativa</option>
-              </select>
-            </div>
-
-            <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-3 flex flex-col justify-between">
-              <div>
-                <span className="text-xs text-slate-400 block mb-1">DÉBITO AUTOMÁTICO RECURRENTE (CRON):</span>
-                <span className="text-xs text-emerald-400 font-bold">Activo • Ejecución el día 1 de cada mes</span>
-              </div>
-              <button
-                onClick={() => setAutoBillingEnabled(!autoBillingEnabled)}
-                className={`w-full py-2 rounded-lg text-xs font-bold ${
-                  autoBillingEnabled ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
-                }`}
-              >
-                {autoBillingEnabled ? '✓ Cobro Automático Habilitado' : '✕ Cobro Automático Deshabilitado'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 6: BILLING / DIAN */}
-      {activeTab === 'billing' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl font-mono">
-          <div>
-            <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded">
-              [ DIAN UBL 2.1 ELECTRONIC INVOICING ]
-            </span>
-            <h2 className="text-lg font-bold text-white mt-2">Emisión Masiva de Facturas Electrónicas a Clientes B2B</h2>
-            <p className="text-xs text-slate-400">Validación de CUFE y transmisión ante la DIAN por los servicios de software prestados a cada copropiedad.</p>
-          </div>
-
-          <div className="space-y-3">
-            {tenants.map(t => (
-              <div key={t.id} className="p-4 bg-slate-950 border border-slate-800 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-xs">
-                <div>
-                  <div className="font-bold text-white text-sm">{t.name} (NIT: {t.nit})</div>
-                  <div className="text-slate-400 mt-1">Plan: <span className="text-emerald-400 font-bold">{t.plan}</span> • Canon: ${t.monthlyFee.toLocaleString()} COP</div>
-                  <div className="text-cyan-400 text-[11px] mt-0.5">{t.cufeDian}</div>
-                </div>
-                <button
-                  onClick={() => onShowToast(`⚡ Factura electrónica DIAN UBL 2.1 generada y transmitida con éxito para ${t.name}`)}
-                  className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2 rounded-lg transition-colors whitespace-nowrap"
-                >
-                  📄 Transmitir Factura DIAN (.XML / PDF)
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* TAB 7: INFRASTRUCTURE */}
+      {/* SUBMÓDULO 7: INFRAESTRUCTURA & SERVIDORES CLOUD */}
       {activeTab === 'infrastructure' && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl max-w-3xl mx-auto font-mono">
           <div>
@@ -1344,273 +1175,17 @@ export default function SaaS_MasterOwnerConsole({
               <span className="text-emerald-400 font-bold">⚡ Canal postgres_changes Habilitado</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-slate-400">Backups Automáticos & Auditoría:</span>
+              <span className="text-slate-400">Backups Automáticos &amp; Auditoría:</span>
               <span className="text-cyan-400 font-bold">✓ Cifrados AES-256 + SHA-256</span>
             </div>
           </div>
         </div>
       )}
 
-
-      {/* TAB 8: BLINDAJE, DISEÑO & COPIA DE MÓDULOS */}
-      {activeTab === 'design_guard' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl">
-          <div className="border-b border-slate-800 pb-4">
-            <span className="text-[10px] font-mono bg-emerald-950 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded">
-              [ CORE IMMUTABILITY &amp; WHITE-LABEL DESIGN ]
-            </span>
-            <h2 className="text-lg font-bold text-white mt-2">Blindaje de Código Base, Diseño Visual y Copia de Módulos</h2>
-            <p className="text-xs text-slate-400">Consola exclusiva del SaaS Master Owner para gobierno de código, personalización de marca y distribución de componentes.</p>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            {/* 1. BLINDAJE CORE */}
-            <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-4">
-              <div className="flex items-center space-x-2">
-                <span className="text-emerald-400 text-lg">🛡️</span>
-                <h3 className="text-sm font-bold text-white">Motor de Inmutabilidad</h3>
-              </div>
-              <p className="text-xs text-slate-400">
-                El motor <code className="text-emerald-400 font-mono">coreFreezeGuard.ts</code> protege las bases de datos y la arquitectura raíz frente a modificaciones no autorizadas.
-              </p>
-              <div className="p-3 bg-slate-900 rounded-lg border border-slate-800 text-xs font-mono space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Estado Core:</span>
-                  <span className="text-emerald-400 font-bold">{integrityCheck.statusMessage}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Modo:</span>
-                  <span className="text-cyan-400 font-bold">{CORE_MANIFEST.mode}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Versión:</span>
-                  <span className="text-purple-400 font-bold">{CORE_MANIFEST.version}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* 2. PERSONALIZACIÓN VISUAL Y MARCA BLANCA */}
-            <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-4">
-              <div className="flex items-center space-x-2">
-                <span className="text-cyan-400 text-lg">🎨</span>
-                <h3 className="text-sm font-bold text-white">Personalización Visual &amp; Marca</h3>
-              </div>
-
-              <div className="space-y-3 text-xs font-mono">
-                <div>
-                  <label className="text-slate-400 block mb-1">NOMBRE DE MARCA:</label>
-                  <input
-                    type="text"
-                    value={brandTitle}
-                    onChange={(e) => setBrandTitle(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 text-white p-2 rounded text-xs"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-slate-400 block mb-1">PALETA DE COLORES:</label>
-                  <select
-                    value={selectedPalette}
-                    onChange={(e) => setSelectedPalette(e.target.value as any)}
-                    className="w-full bg-slate-900 border border-slate-800 text-emerald-400 p-2 rounded text-xs font-bold"
-                  >
-                    <option value="emerald_dark">Esmeralda Dark (Predeterminado Urbix)</option>
-                    <option value="cobalt_dark">Cobalt Pro Blue</option>
-                    <option value="amethyst_purple">Amethyst Purple Enterprise</option>
-                    <option value="amber_gold">Amber Gold Luxury</option>
-                    <option value="high_contrast">Monochrome High Contrast</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-slate-400 block mb-1">TIPOGRAFÍA:</label>
-                  <select
-                    value={selectedFont}
-                    onChange={(e) => setSelectedFont(e.target.value as any)}
-                    className="w-full bg-slate-900 border border-slate-800 text-white p-2 rounded text-xs"
-                  >
-                    <option value="sans">Inter Sans-Serif Modern</option>
-                    <option value="mono">JetBrains Mono (Ingeniería)</option>
-                    <option value="serif">Merriweather Serif (Institucional)</option>
-                  </select>
-                </div>
-
-                <button
-                  onClick={handleApplyVisualChanges}
-                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2 rounded transition-colors mt-2"
-                >
-                  ✓ Aplicar Cambios Visuales
-                </button>
-              </div>
-            </div>
-
-            {/* 3. COPIA DE MÓDULOS */}
-            <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-4">
-              <div className="flex items-center space-x-2">
-                <span className="text-amber-400 text-lg">🧩</span>
-                <h3 className="text-sm font-bold text-white">Copia de Módulos Reutilizables</h3>
-              </div>
-              <p className="text-xs text-slate-400">
-                Copia fragmentos de código listos para reutilizar en nuevos roles o vistas de la plataforma.
-              </p>
-
-              <div className="space-y-2 max-h-56 overflow-y-auto">
-                {AVAILABLE_MODULES_TO_COPY.map(mod => (
-                  <div key={mod.id} className="p-2.5 bg-slate-900 rounded border border-slate-800 text-xs">
-                    <div className="font-bold text-white text-[11px] mb-1">{mod.name}</div>
-                    <div className="text-[10px] text-slate-400 mb-2">{mod.description}</div>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(mod.snippet);
-                        setCopiedModuleSnippet(mod.id);
-                        onShowToast(`📋 Fragmento de "${mod.name}" copiado al portapapeles.`);
-                        setTimeout(() => setCopiedModuleSnippet(null), 3000);
-                      }}
-                      className="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 px-2.5 py-1 rounded text-[10px] font-mono font-bold transition-colors"
-                    >
-                      {copiedModuleSnippet === mod.id ? '✓ ¡Copiado!' : '📋 Copiar Snippet JSX'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-          </div>
-        </div>
-      )}
-
-      {/* TAB: ALERTS & BROADCAST */}
-      {activeTab === 'alerts_broadcast' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl font-mono">
-          <div className="border-b border-slate-800 pb-4">
-            <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-500/30 px-2.5 py-1 rounded">
-              [ 4. CENTRO DE ALERTAS & BROADCAST GLOBAL ]
-            </span>
-            <h2 className="text-lg font-bold text-white mt-2">Difusión Masiva a Copropiedades</h2>
-            <p className="text-xs text-slate-400">Envía alertas críticas, comunicados administrativos o notificaciones de software a tus clientes.</p>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-slate-950 p-6 rounded-xl border border-slate-800">
-               <h3 className="text-sm font-bold text-white mb-4">Redactar Anuncio</h3>
-               <form onSubmit={(e) => {
-                 e.preventDefault();
-                 const formData = new FormData(e.currentTarget);
-                 const newAlert = {
-                   id: `alert_${Date.now()}`,
-                   title: formData.get('title') as string,
-                   category: formData.get('category') as string,
-                   body: formData.get('body') as string,
-                   date: new Date().toLocaleString()
-                 };
-                 onAddGlobalAlert(newAlert);
-                 setBroadcastHistory(prev => [newAlert, ...prev]);
-                 onShowToast(`📢 Comunicado "${newAlert.title}" enviado vía In-App y simulador WhatsApp.`);
-               }} className="space-y-4">
-                  <input name="title" placeholder="Título del comunicado" className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-sm" required />
-                  <select name="category" className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-sm">
-                    <option>Mantenimiento Programado</option>
-                    <option>Actualización de Software</option>
-                    <option>Aviso Administrativo</option>
-                    <option>Alerta de Seguridad</option>
-                  </select>
-                  <textarea name="body" placeholder="Cuerpo del mensaje..." className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-sm h-24" required />
-                  <button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold p-2 rounded text-sm">Enviar Broadcast 🚀</button>
-               </form>
-            </div>
-            
-            <div className="bg-slate-950 p-6 rounded-xl border border-slate-800 overflow-y-auto max-h-[400px]">
-               <h3 className="text-sm font-bold text-white mb-4">Historial de Broadcast</h3>
-               {broadcastHistory.length === 0 ? <p className="text-xs text-slate-500">Sin historial de anuncios.</p> :
-                 broadcastHistory.map(b => (
-                   <div key={b.id} className="p-3 bg-slate-900 mb-3 rounded border border-slate-800 text-[11px]">
-                     <div className="font-bold text-cyan-400">{b.title}</div>
-                     <div className="text-slate-400">{b.category} • {b.date}</div>
-                     <div className="text-slate-200 mt-1">{b.body}</div>
-                   </div>
-                 ))
-               }
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'alerts_broadcast' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl font-mono">
-          <div className="border-b border-slate-800 pb-4">
-            <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-500/30 px-2.5 py-1 rounded">
-              [ 4. CENTRO DE ALERTAS & BROADCAST GLOBAL ]
-            </span>
-            <h2 className="text-lg font-bold text-white mt-2">Difusión Masiva a Copropiedades</h2>
-            <p className="text-xs text-slate-400">Envía alertas críticas, comunicados administrativos o notificaciones de software a tus clientes.</p>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-slate-950 p-6 rounded-xl border border-slate-800">
-               <h3 className="text-sm font-bold text-white mb-4">Redactar Anuncio</h3>
-               <form onSubmit={(e) => {
-                 e.preventDefault();
-                 const formData = new FormData(e.currentTarget);
-                 const newAlert = {
-                   id: `alert_${Date.now()}`,
-                   title: formData.get('title') as string,
-                   category: formData.get('category') as string,
-                   body: formData.get('body') as string,
-                   date: new Date().toLocaleString()
-                 };
-                 onAddGlobalAlert(newAlert);
-                 setBroadcastHistory(prev => [newAlert, ...prev]);
-                 onShowToast(`📢 Comunicado "${newAlert.title}" enviado vía In-App y simulador WhatsApp.`);
-               }} className="space-y-4">
-                  <input name="title" placeholder="Título del comunicado" className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-sm" required />
-                  <select name="category" className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-sm">
-                    <option>Mantenimiento Programado</option>
-                    <option>Actualización de Software</option>
-                    <option>Aviso Administrativo</option>
-                    <option>Alerta de Seguridad</option>
-                  </select>
-                  <textarea name="body" placeholder="Cuerpo del mensaje..." className="w-full bg-slate-900 border border-slate-700 p-2 rounded text-sm h-24" required />
-                  <button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold p-2 rounded text-sm">Enviar Broadcast 🚀</button>
-               </form>
-            </div>
-            
-            <div className="bg-slate-950 p-6 rounded-xl border border-slate-800 overflow-y-auto max-h-[400px]">
-               <h3 className="text-sm font-bold text-white mb-4">Historial de Broadcast</h3>
-               {broadcastHistory.length === 0 ? <p className="text-xs text-slate-500">Sin historial de anuncios.</p> :
-                 broadcastHistory.map(b => (
-                   <div key={b.id} className="p-3 bg-slate-900 mb-3 rounded border border-slate-800 text-[11px]">
-                     <div className="font-bold text-cyan-400">{b.title}</div>
-                     <div className="text-slate-400">{b.category} • {b.date}</div>
-                     <div className="text-slate-200 mt-1">{b.body}</div>
-                   </div>
-                 ))
-               }
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB: ASSETS & MAINTENANCE */}
-      {activeTab === 'assets_alm' && (
-        <div className="p-6">
-          <AssetManagementDashboard appendAuditLog={onAppendAuditLog} />
-        </div>
-      )}
-
-      {/* TAB: CARTERA Y LIQUIDACION */}
-      {activeTab === 'cartera_liquidacion' && (
-        <div className="p-6">
-          <CarteraYLiquidacionPH />
-        </div>
-      )}
-
-      {/* CLICK-TO-EXPLORE METRIC DETAIL MODALS FOR THE 3 CARDS */}
+      {/* MODAL DE EXPLORACIÓN DE MÉTRICAS */}
       {activeModalCard && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-slate-900 border border-purple-500/40 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl font-mono text-xs">
-            
-            {/* MODAL 1: MRR RECURRENTE ACTIVO */}
             {activeModalCard === 'mrr_rec' && (
               <>
                 <div className="p-5 bg-slate-950 border-b border-slate-800 flex justify-between items-center">
@@ -1641,26 +1216,10 @@ export default function SaaS_MasterOwnerConsole({
                       <span className="text-cyan-400 font-bold">$180.000 COP/mes</span>
                     </div>
                   </div>
-
-                  <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
-                    <span className="text-[11px] text-purple-400 font-bold block">📊 PROYECCIÓN MATEMÁTICA DEL ARR POR TRIMESTRES:</span>
-                    <ul className="space-y-1 text-xs text-slate-300 list-disc list-inside">
-                      <li>Trimestre Q1: $4.140.000 COP (Cierre de incorporación Medellín)</li>
-                      <li>Trimestre Q2: $4.140.000 COP (Renovación automática licencias)</li>
-                      <li>Trimestre Q3: $4.140.000 COP (Expansión Antioquia)</li>
-                      <li>Trimestre Q4: $4.140.000 COP (ARR Total Acumulado: $16.560.000 COP)</li>
-                    </ul>
-                  </div>
-
-                  <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
-                    <span className="text-[11px] text-cyan-400 font-bold block">📈 HISTORIAL DE CRECIMIENTO MRR:</span>
-                    <p className="text-xs text-slate-300">Mes anterior: $1.200.000 COP • Mes actual: $1.380.000 COP (+15% de expansión por nuevos módulos habilitados).</p>
-                  </div>
                 </div>
               </>
             )}
 
-            {/* MODAL 2: COPROPIEDADES SUSCRITAS */}
             {activeModalCard === 'coprop_suscritas' && (
               <>
                 <div className="p-5 bg-slate-950 border-b border-slate-800 flex justify-between items-center">
@@ -1668,7 +1227,7 @@ export default function SaaS_MasterOwnerConsole({
                     <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-500/30 px-2.5 py-0.5 rounded font-bold">
                       [ TARJETA 2: DIRECTORIO DE CLIENTES ACTIVO ]
                     </span>
-                    <h3 className="text-base font-bold text-white mt-1">Copropiedades Suscritas (3 Clientes SaaS — 3 Al día, 0 Suspendidos)</h3>
+                    <h3 className="text-base font-bold text-white mt-1">Copropiedades Suscritas (3 Clientes SaaS)</h3>
                     <p className="text-xs text-slate-400 font-sans mt-0.5">Fichas técnicas, membresía y acceso a soporte técnico.</p>
                   </div>
                   <button onClick={() => setActiveModalCard(null)} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded border border-slate-700 font-bold cursor-pointer">✕ Cerrar</button>
@@ -1685,35 +1244,7 @@ export default function SaaS_MasterOwnerConsole({
                       </div>
                       <div className="flex justify-between items-center pt-2 border-t border-slate-800">
                         <span className="text-[10px] text-slate-400">Membresía SaaS Activa • Paz y Salvo Verificado</span>
-                        <button onClick={() => { setActiveModalCard(null); onImpersonateAdmin('P.H. Reserva del Tesoro'); }} className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded font-bold text-[10px] cursor-pointer">🛠️ Consultar Credenciales / Soporte</button>
-                      </div>
-                    </div>
-
-                    <div className="p-4 bg-slate-950 border border-emerald-500/30 rounded-xl space-y-2">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <div className="font-bold text-white">2. Edificio Torre El Poblado</div>
-                          <div className="text-[11px] text-slate-400">NIT: 811.025.993-8 • 45 Unidades • Admin: Julián Arango</div>
-                        </div>
-                        <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 rounded font-bold text-[10px]">Al Día 🟢</span>
-                      </div>
-                      <div className="flex justify-between items-center pt-2 border-t border-slate-800">
-                        <span className="text-[10px] text-slate-400">Membresía SaaS Activa • Paz y Salvo Verificado</span>
-                        <button onClick={() => { setActiveModalCard(null); onImpersonateAdmin('Edificio Torre El Poblado'); }} className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded font-bold text-[10px] cursor-pointer">🛠️ Consultar Credenciales / Soporte</button>
-                      </div>
-                    </div>
-
-                    <div className="p-4 bg-slate-950 border border-emerald-500/30 rounded-xl space-y-2">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <div className="font-bold text-white">3. C.C. San Diego (Localidades)</div>
-                          <div className="text-[11px] text-slate-400">NIT: 890.300.122-1 • 80 Unidades • Admin: Luz Elena Ríos</div>
-                        </div>
-                        <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 rounded font-bold text-[10px]">Al Día 🟢</span>
-                      </div>
-                      <div className="flex justify-between items-center pt-2 border-t border-slate-800">
-                        <span className="text-[10px] text-slate-400">Membresía SaaS Activa • Paz y Salvo Verificado</span>
-                        <button onClick={() => { setActiveModalCard(null); onImpersonateAdmin('C.C. San Diego (Localidades)'); }} className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded font-bold text-[10px] cursor-pointer">🛠️ Consultar Credenciales / Soporte</button>
+                        <button onClick={() => { setActiveModalCard(null); onImpersonateAdmin('P.H. Reserva del Tesoro'); }} className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded font-bold text-[10px] cursor-pointer">🛠️ Soporte</button>
                       </div>
                     </div>
                   </div>
@@ -1721,53 +1252,25 @@ export default function SaaS_MasterOwnerConsole({
               </>
             )}
 
-            {/* MODAL 3: FACTURACIÓN ELECTRÓNICA DIAN */}
             {activeModalCard === 'dian_facturacion' && (
               <>
                 <div className="p-5 bg-slate-950 border-b border-slate-800 flex justify-between items-center">
                   <div>
                     <span className="text-[10px] bg-purple-950 text-purple-300 border border-purple-500/30 px-2.5 py-0.5 rounded font-bold">
-                      [ TARJETA 3: CENTRO DE CONTROL Y TRANSMISIÓN DIAN ]
+                      [ TARJETA 3: FACTURACIÓN SAAS ]
                     </span>
-                    <h3 className="text-base font-bold text-white mt-1">Facturación Electrónica DIAN (2/3 Emitidas — Estándar UBL 2.1, CUFE Activo)</h3>
-                    <p className="text-xs text-slate-400 font-sans mt-0.5">Documentos electrónicos, validación de CUFE y reintento de transmisión.</p>
+                    <h3 className="text-base font-bold text-white mt-1">Facturación SaaS y Recaudo</h3>
+                    <p className="text-xs text-slate-400 font-sans mt-0.5">Control de emisión y estado de pago de las cuotas del software.</p>
                   </div>
                   <button onClick={() => setActiveModalCard(null)} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded border border-slate-700 font-bold cursor-pointer">✕ Cerrar</button>
                 </div>
                 <div className="p-6 space-y-4 overflow-y-auto max-h-[70vh] text-slate-200">
-                  <div className="space-y-3">
-                    <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex justify-between items-center">
-                      <div>
-                        <div className="font-bold text-white">Factura SETT-001 • P.H. Reserva del Tesoro</div>
-                        <div className="text-[10px] text-slate-400 font-mono">CUFE: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2bnd • Estándar UBL 2.1</div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 rounded text-[10px] font-bold">Emitida y Aprobada 🟢</span>
-                        <button onClick={() => onShowToast('📄 Descargando XML y PDF UBL 2.1 validado por la DIAN...')} className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-cyan-400 rounded text-[10px] font-bold cursor-pointer">Descargar XML/PDF</button>
-                      </div>
+                  <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex justify-between items-center">
+                    <div>
+                      <div className="font-bold text-white">Factura Mensual • P.H. Reserva del Tesoro</div>
+                      <div className="text-[10px] text-slate-400 font-mono">Plan Enterprise • $1.200.000 COP</div>
                     </div>
-
-                    <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex justify-between items-center">
-                      <div>
-                        <div className="font-bold text-white">Factura SETT-002 • Edificio Torre El Poblado</div>
-                        <div className="text-[10px] text-slate-400 font-mono">CUFE: 4b227777d4dd7d659a2feaa0c55ad015a3bf4f1b2bnd • Estándar UBL 2.1</div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 rounded text-[10px] font-bold">Emitida y Aprobada 🟢</span>
-                        <button onClick={() => onShowToast('📄 Descargando XML y PDF UBL 2.1 validado por la DIAN...')} className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-cyan-400 rounded text-[10px] font-bold cursor-pointer">Descargar XML/PDF</button>
-                      </div>
-                    </div>
-
-                    <div className="p-3 bg-slate-950 border border-rose-500/40 rounded-xl flex justify-between items-center bg-rose-950/10">
-                      <div>
-                        <div className="font-bold text-rose-300">Factura SETT-003 • C.C. San Diego (Localidades)</div>
-                        <div className="text-[10px] text-slate-400 font-mono">Estado: Pendiente de reintento de transmisión (Error de red DIAN)</div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="px-2.5 py-1 bg-amber-500/20 text-amber-300 rounded text-[10px] font-bold">Pendiente ⚠️</span>
-                        <button onClick={() => onShowToast('🔄 Transmisión DIAN reintentada con éxito. CUFE asignado: e3b0c44298fc...')} className="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-black rounded text-[10px] cursor-pointer">Reintentar Transmisión</button>
-                      </div>
-                    </div>
+                    <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 rounded text-[10px] font-bold">Pagada 🟢</span>
                   </div>
                 </div>
               </>
@@ -1778,10 +1281,9 @@ export default function SaaS_MasterOwnerConsole({
                 onClick={() => setActiveModalCard(null)}
                 className="bg-purple-600 hover:bg-purple-500 text-white font-bold px-5 py-2 rounded-xl text-xs transition-colors cursor-pointer"
               >
-                Cerrar Centro DIAN
+                Cerrar Detalle
               </button>
             </div>
-
           </div>
         </div>
       )}

@@ -2,6 +2,7 @@
   "name": "VeciApp Medellín - Gestión de Unidades Residenciales",
   "description": "Plataforma SaaS multi-tenant para la administración inteligente de conjuntos y unidades residenciales en Medellín con roles de Superadmin, Administrador, Portería y Residente.",
   "requestFramePermissions": [
+    "camera",
     "microphone"
   ],
   "majorCapabilities": [
