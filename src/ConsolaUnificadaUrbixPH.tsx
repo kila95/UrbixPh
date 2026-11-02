@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Building2, FileText, HardHat, DollarSign,
-  Wrench, Calendar, MessageSquare, ShieldCheck, Plus, Camera, AlertCircle, Search
+  Wrench, Calendar, MessageSquare, ShieldCheck, Plus, Camera, AlertCircle, Search, LogOut
 } from 'lucide-react';
 import type { GuardIncidentReport, CommonAreaReservation } from './App';
 import type { UserProfile } from './supabaseClient';
@@ -20,6 +20,7 @@ export interface ConsolaUnificadaUrbixPHProps {
   onUpdateIncidentStatus?: (id: string, status: GuardIncidentReport['status'], note?: string) => void;
   onAdminReservationDecision?: (id: string, decision: 'Aprobada' | 'Rechazada') => void;
   onOpenCreateTenantModal?: () => void;
+  onCerrarSesion?: () => void;
   onShowToast?: (msg: string) => void;
 }
 
@@ -32,6 +33,7 @@ export default function ConsolaUnificadaUrbixPH({
   onAssignIncident,
   onUpdateIncidentStatus,
   onOpenCreateTenantModal,
+  onCerrarSesion,
   onShowToast
 }: ConsolaUnificadaUrbixPHProps) {
   // Las 7 pestañas limpias de la Consola de Gestión (Imagen 2) que absorben los 10 módulos de la Imagen 1
@@ -227,6 +229,17 @@ export default function ConsolaUnificadaUrbixPH({
           >
             <MessageSquare className="w-4 h-4 text-emerald-400" /> PQRS
           </button>
+
+          {onCerrarSesion && (
+            <button
+              type="button"
+              onClick={onCerrarSesion}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-mono font-bold bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 hover:text-white transition whitespace-nowrap cursor-pointer shadow-[0_0_15px_rgba(244,63,94,0.15)] ml-2"
+              title="Cerrar sesión"
+            >
+              <LogOut className="w-3.5 h-3.5 text-rose-400" /> Cerrar Sesión
+            </button>
+          )}
         </nav>
       </header>
 

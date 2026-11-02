@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Home, Bell, Calendar, QrCode, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { Home, Bell, Calendar, QrCode, ShieldCheck, CheckCircle2, LogOut } from 'lucide-react';
 
 export interface PortalResidenteExecutiveProps {
   notifications?: any[];
@@ -7,6 +7,7 @@ export interface PortalResidenteExecutiveProps {
   onCreateReservation?: (amenity: string, date: string) => void;
   onCreateQr?: (visitorName: string, visitorPlate: string) => void;
   onShowToast?: (msg: string) => void;
+  onCerrarSesion?: () => void;
 }
 
 export default function PortalResidenteExecutive({
@@ -14,7 +15,8 @@ export default function PortalResidenteExecutive({
   onMarkNotificationsRead,
   onCreateReservation,
   onCreateQr,
-  onShowToast
+  onShowToast,
+  onCerrarSesion
 }: PortalResidenteExecutiveProps) {
   const [selectedAmenity, setSelectedAmenity] = useState('Salón Social');
   const [reservationDate, setReservationDate] = useState('');
@@ -51,14 +53,27 @@ export default function PortalResidenteExecutive({
           <h2 className="text-xl font-black mt-2 text-slate-950 tracking-tight">Esteban Ochoa Mesa</h2>
           <p className="text-xs font-bold text-slate-900 mt-0.5">Urbix Activo • Paz y Salvo al día</p>
         </div>
-        <button
-          type="button"
-          onClick={() => onMarkNotificationsRead?.()}
-          className="relative bg-slate-950/20 hover:bg-slate-950/30 p-3 rounded-2xl transition cursor-pointer"
-          title="Notificaciones"
-        >
-          <Bell className="w-6 h-6 text-slate-950" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onMarkNotificationsRead?.()}
+            className="relative bg-slate-950/20 hover:bg-slate-950/30 p-2.5 rounded-2xl transition cursor-pointer"
+            title="Notificaciones"
+          >
+            <Bell className="w-5 h-5 text-slate-950" />
+          </button>
+          {onCerrarSesion && (
+            <button
+              type="button"
+              onClick={onCerrarSesion}
+              className="bg-slate-950/20 hover:bg-rose-950/40 text-slate-950 hover:text-rose-900 border border-slate-950/30 p-2.5 rounded-2xl transition cursor-pointer flex items-center gap-1.5 text-xs font-mono font-bold"
+              title="Cerrar Sesión"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="hidden sm:inline">Salir</span>
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="p-6 space-y-6 bg-[#0b0f17]">

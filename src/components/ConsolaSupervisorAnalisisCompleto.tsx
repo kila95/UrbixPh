@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Sliders, Wrench, Radio, Clock, AlertTriangle, Users, FileCheck, CheckCircle2, PlusCircle, Bell, ArrowRight, ShieldAlert, Sparkles } from 'lucide-react';
+import { ShieldCheck, Sliders, Wrench, Radio, Clock, AlertTriangle, Users, FileCheck, CheckCircle2, PlusCircle, Bell, ArrowRight, ShieldAlert, Sparkles, LogOut } from 'lucide-react';
 
 export interface ConsolaSupervisorAnalisisCompletoProps {
   checklistConfig?: any[];
@@ -13,6 +13,8 @@ export interface ConsolaSupervisorAnalisisCompletoProps {
   onShowToast?: (msg: string) => void;
   onDerivarMantenimientoTodero?: (tarea: any) => void;
   onActivarAlertaCriticaSupervisor?: (alerta: any) => void;
+  onCerrarSesion?: () => void;
+  userProfile?: any;
 }
 
 export default function ConsolaSupervisorAnalisisCompleto({
@@ -26,7 +28,9 @@ export default function ConsolaSupervisorAnalisisCompleto({
   setAlertasShared,
   onShowToast,
   onDerivarMantenimientoTodero,
-  onActivarAlertaCriticaSupervisor
+  onActivarAlertaCriticaSupervisor,
+  onCerrarSesion,
+  userProfile
 }: ConsolaSupervisorAnalisisCompletoProps) {
   const [subTab, setSubTab] = useState<'rondas' | 'frecuencias' | 'ordenes' | 'alertas'>('rondas');
 
@@ -202,10 +206,21 @@ export default function ConsolaSupervisorAnalisisCompleto({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-xl">
               ● Cuadrilla 100% Sincronizada
             </span>
+            {onCerrarSesion && (
+              <button
+                type="button"
+                onClick={onCerrarSesion}
+                className="px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 hover:border-rose-500/60 text-rose-300 hover:text-white rounded-xl text-xs font-mono font-bold transition-all duration-200 flex items-center gap-1.5 cursor-pointer shrink-0 min-h-[40px] shadow-[0_0_15px_rgba(244,63,94,0.15)] hover:shadow-[0_0_20px_rgba(244,63,94,0.35)]"
+                title="Cerrar sesión de Supervisor Operativo"
+              >
+                <LogOut className="w-3.5 h-3.5 text-rose-400" />
+                <span>Cerrar Sesión</span>
+              </button>
+            )}
           </div>
         </div>
       </header>

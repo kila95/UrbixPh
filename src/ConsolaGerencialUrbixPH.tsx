@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Building2, FileText, HardHat, DollarSign,
-  Wrench, Calendar, MessageSquare, ShieldCheck, Plus, Camera, AlertCircle, Search, Users, UserPlus, Trash2, Radio, Check, Edit3, Scan, FileSpreadsheet
+  Wrench, Calendar, MessageSquare, ShieldCheck, Plus, Camera, AlertCircle, Search, Users, UserPlus, Trash2, Radio, Check, Edit3, Scan, FileSpreadsheet, LogOut
 } from 'lucide-react';
 import type { GuardIncidentReport, CommonAreaReservation } from './App';
 import type { UserProfile } from './supabaseClient';
@@ -53,6 +53,7 @@ export default function ConsolaGerencialUrbixPH({
   guardIncidents = [],
   onUpdateIncidentStatus,
   onOpenCreateTenantModal,
+  onCerrarSesion,
   onShowToast
 }: ConsolaGerencialUrbixPHProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'asamblea' | 'actas' | 'contractors' | 'cartera' | 'facturas_ocr' | 'exogena_dian' | 'mantenimiento' | 'personal' | 'reservas' | 'pqrs' | 'porteria'>('general');
@@ -313,6 +314,17 @@ export default function ConsolaGerencialUrbixPH({
               className="px-3.5 py-2 bg-[#07090e] hover:bg-slate-800 border border-cyan-500/30 text-cyan-400 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 min-h-[40px]"
             >
               <Plus className="w-3.5 h-3.5" /> Registrar Unidad
+            </button>
+          )}
+          {onCerrarSesion && (
+            <button
+              type="button"
+              onClick={onCerrarSesion}
+              className="px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 hover:border-rose-500/60 text-rose-300 hover:text-white rounded-xl text-xs font-mono font-bold transition-all duration-200 flex items-center gap-1.5 cursor-pointer shrink-0 min-h-[40px] shadow-[0_0_15px_rgba(244,63,94,0.15)] hover:shadow-[0_0_20px_rgba(244,63,94,0.35)]"
+              title="Cerrar sesión de Administrador PH"
+            >
+              <LogOut className="w-3.5 h-3.5 text-rose-400" />
+              <span>Cerrar Sesión</span>
             </button>
           )}
         </div>

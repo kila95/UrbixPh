@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { QrCode, ShieldCheck, ShieldAlert, Compass, UserCheck, HardHat, Package, PlusCircle, CheckCircle2, Clock, AlertTriangle, Paintbrush, Box, Calendar, Droplet, FileText } from 'lucide-react';
+import { QrCode, ShieldCheck, ShieldAlert, Compass, UserCheck, HardHat, Package, PlusCircle, CheckCircle2, Clock, AlertTriangle, Paintbrush, Box, Calendar, Droplet, FileText, LogOut } from 'lucide-react';
 import ConsolaVigilanteEnterpriseCompleta from './ConsolaVigilanteEnterpriseCompleta';
 import ModuloMinutaDigitalEnterprise from './ModuloMinutaDigitalEnterprise';
 import ModuloContratistasYVisitasTecnicas from './ModuloContratistasYVisitasTecnicas';
@@ -29,7 +29,9 @@ export default function ConsolaUnificadaPorteria({
   onShowToast,
   appendAuditLog,
   onDerivarMantenimientoTodero,
-  onActivarAlertaCriticaSupervisor
+  onActivarAlertaCriticaSupervisor,
+  onCerrarSesion,
+  userProfile
 }: {
   visitasQrShared?: any[];
   setVisitasQrShared?: React.Dispatch<React.SetStateAction<any[]>>;
@@ -49,6 +51,8 @@ export default function ConsolaUnificadaPorteria({
   appendAuditLog?: (action: string, details: string, customUser?: string) => void;
   onDerivarMantenimientoTodero?: (tarea: any) => void;
   onActivarAlertaCriticaSupervisor?: (alerta: any) => void;
+  onCerrarSesion?: () => void;
+  userProfile?: any;
 }) {
   const [submoduloPorteriaActivo, setSubmoduloPorteriaActivo] = useState<number>(1);
   const [alertaPanicoCabecera, setAlertaPanicoCabecera] = useState(false);
@@ -305,6 +309,17 @@ export default function ConsolaUnificadaPorteria({
               <ShieldAlert className="w-4 h-4 animate-pulse shrink-0" />
               {alertaPanicoCabecera ? '🚨 ¡PÁNICO EN CURSO!' : 'Botón de Pánico (Garita)'}
             </button>
+            {onCerrarSesion && (
+              <button
+                type="button"
+                onClick={onCerrarSesion}
+                className="px-3.5 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 hover:border-rose-500/60 text-rose-300 hover:text-white rounded-xl text-xs font-mono font-bold transition-all duration-200 flex items-center gap-1.5 cursor-pointer shrink-0 min-h-[44px] shadow-[0_0_15px_rgba(244,63,94,0.15)] hover:shadow-[0_0_20px_rgba(244,63,94,0.35)]"
+                title="Cerrar turno y salir de Portería"
+              >
+                <LogOut className="w-4 h-4 text-rose-400" />
+                <span>Cerrar Sesión</span>
+              </button>
+            )}
           </div>
         </div>
       </header>

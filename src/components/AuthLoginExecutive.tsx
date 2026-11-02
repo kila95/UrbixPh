@@ -366,7 +366,8 @@ export default function AuthLoginExecutive({
               { label: '🚀 Master Owner', email: 'estebanochoamesa@gmail.com', role: 'master_owner', name: 'Esteban Ochoa Mesa' },
               { label: '🛡️ Admin PH', email: 'carlos.admin@reservatesoro.com', role: 'admin_ph', name: 'Carlos Mario Pineda' },
               { label: '⚡ Supervisor', email: 'supervisor@urbix.ph', role: 'supervisor', name: 'Julián Arango' },
-              { label: '🚨 Portería', email: 'porteria@urbix.ph', role: 'porteria', name: 'Guarda en Turno' }
+              { label: '🚨 Portería', email: 'porteria@urbix.ph', role: 'porteria', name: 'Guarda en Turno' },
+              { label: '🏡 Residente', email: 'martha.residente@reservatesoro.com', role: 'residente', name: 'Martha Lucía Gómez (Apto 301)' }
             ].map((demo) => (
               <button
                 key={demo.role}

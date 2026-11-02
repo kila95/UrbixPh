@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  Building2, Home, QrCode, Package, Send, Sparkles, Camera, Bot, User, Calendar, MessageSquare, Download, Store, Globe, Tag, Clock, Flame, MapPin, CheckCircle2, Share2, Copy, Car, Shield, AlertCircle, PhoneCall
+  Building2, Home, QrCode, Package, Send, Sparkles, Camera, Bot, User, Calendar, MessageSquare, Download, Store, Globe, Tag, Clock, Flame, MapPin, CheckCircle2, Share2, Copy, Car, Shield, AlertCircle, PhoneCall, LogOut
 } from 'lucide-react';
 import ResidenteEmprendimientosApp from './ResidenteEmprendimientosApp';
 import RedMarketplaceOfertasApp from './RedMarketplaceOfertasApp';
@@ -154,7 +154,9 @@ export default function ResidentPortalConsole({
   visitasQrShared,
   setVisitasQrShared,
   encomiendasShared,
-  setEncomiendasShared
+  setEncomiendasShared,
+  onCerrarSesion,
+  userProfile
 }: { 
   onShowToast?: (msg: string) => void;
   unidades?: UnidadCarteraPH[];
@@ -186,6 +188,8 @@ export default function ResidentPortalConsole({
   setVisitasQrShared?: React.Dispatch<React.SetStateAction<VisitaQrPH[]>>;
   encomiendasShared?: EncomiendaPH[];
   setEncomiendasShared?: React.Dispatch<React.SetStateAction<EncomiendaPH[]>>;
+  onCerrarSesion?: () => void;
+  userProfile?: any;
 }) {
   const activeVisitasQr = visitasQrShared || visitasQr;
   const activeEncomiendas = encomiendasShared || encomiendas;
@@ -412,9 +416,22 @@ export default function ResidentPortalConsole({
             <p className="text-xs text-gray-400">{miEstadoCuenta.unidad} • {miEstadoCuenta.propietario} • Coeficiente: <span className="text-cyan-400 font-mono font-bold">{unidadResidente.coeficiente}%</span></p>
           </div>
         </div>
-        <span className={`px-3 py-1 rounded font-mono text-xs font-bold shrink-0 ${miEstadoCuenta.saldoActual === 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-          {miEstadoCuenta.saldoActual === 0 ? '🟢 Paz y Salvo Vigente' : '🔴 En Mora'}
-        </span>
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          <span className={`px-3 py-1.5 rounded font-mono text-xs font-bold ${miEstadoCuenta.saldoActual === 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+            {miEstadoCuenta.saldoActual === 0 ? '🟢 Paz y Salvo Vigente' : '🔴 En Mora'}
+          </span>
+          {onCerrarSesion && (
+            <button
+              type="button"
+              onClick={onCerrarSesion}
+              className="px-3.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 hover:border-rose-500/60 text-rose-300 hover:text-white rounded-xl text-xs font-mono font-bold transition-all duration-200 flex items-center gap-1.5 cursor-pointer shrink-0 shadow-[0_0_15px_rgba(244,63,94,0.15)] hover:shadow-[0_0_20px_rgba(244,63,94,0.35)]"
+              title="Cerrar sesión de Residente"
+            >
+              <LogOut className="w-3.5 h-3.5 text-rose-400" />
+              <span>Cerrar Sesión</span>
+            </button>
+          )}
+        </div>
       </header>
 
       {/* SELECTOR MÓVIL DIRECTO (PANTALLAS PEQUEÑAS) */}

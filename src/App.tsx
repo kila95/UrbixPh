@@ -3,6 +3,9 @@ import AuthLoginExecutive from './components/AuthLoginExecutive';
 import UrbixCyberSplashTransition from './components/UrbixCyberSplashTransition';
 import SaaS_MasterOwnerConsole from './components/SaaS_MasterOwnerConsole';
 import AdminConsoleView from './components/AdminConsoleView';
+import ConsolaSupervisorAnalisisCompleto from './components/ConsolaSupervisorAnalisisCompleto';
+import ConsolaUnificadaPorteria from './components/ConsolaUnificadaPorteria';
+import ResidentPortalConsole from './components/ResidentPortalConsole';
 
 // Tipos exportados para compatibilidad del ecosistema Urbix PH
 export interface GuardIncidentReport {
@@ -107,6 +110,12 @@ export default function App() {
         ? 'MASTER OWNER ROOT'
         : currentUserProfile?.role === 'admin_ph'
         ? 'ADMINISTRADOR PH'
+        : currentUserProfile?.role === 'supervisor'
+        ? 'SUPERVISOR OPERATIVO'
+        : currentUserProfile?.role === 'porteria' || currentUserProfile?.role === 'vigilante'
+        ? 'PORTERÍA & SEGURIDAD'
+        : currentUserProfile?.role === 'residente'
+        ? 'RESIDENTE COPROPIETARIO'
         : currentUserProfile?.role
         ? String(currentUserProfile.role).toUpperCase()
         : 'USUARIO AUTENTICADO';
@@ -167,7 +176,49 @@ export default function App() {
     );
   }
 
-  // 2. VISTA DE ADMINISTRADOR PH (Y ROLES OPERATIVOS)
+  // 2. VISTA DE SUPERVISOR OPERATIVO
+  if (currentUserProfile.role === 'supervisor') {
+    return (
+      <ErrorBoundary>
+        <ConsolaSupervisorAnalisisCompleto
+          userProfile={currentUserProfile}
+          onCerrarSesion={handleCerrarSesion}
+          onShowToast={showToast}
+        />
+        {renderToast()}
+      </ErrorBoundary>
+    );
+  }
+
+  // 3. VISTA DE PORTERÍA / VIGILANTE
+  if (currentUserProfile.role === 'porteria' || currentUserProfile.role === 'vigilante') {
+    return (
+      <ErrorBoundary>
+        <ConsolaUnificadaPorteria
+          userProfile={currentUserProfile}
+          onCerrarSesion={handleCerrarSesion}
+          onShowToast={showToast}
+        />
+        {renderToast()}
+      </ErrorBoundary>
+    );
+  }
+
+  // 4. VISTA DE RESIDENTE
+  if (currentUserProfile.role === 'residente') {
+    return (
+      <ErrorBoundary>
+        <ResidentPortalConsole
+          userProfile={currentUserProfile}
+          onCerrarSesion={handleCerrarSesion}
+          onShowToast={showToast}
+        />
+        {renderToast()}
+      </ErrorBoundary>
+    );
+  }
+
+  // 5. VISTA DE ADMINISTRADOR PH (POR DEFECTO Y GENERAL)
   return (
     <ErrorBoundary>
       <AdminConsoleView
