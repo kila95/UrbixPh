@@ -1,0 +1,588 @@
+import React, { useState } from 'react';
+import { 
+  Shield, Building2, Home, QrCode, Package, 
+  CheckCircle2, XCircle, Clock, Plus, Search, MessageSquare, 
+  CreditCard, Calendar, Key, Bell, LogIn, Lock, Unlock, User, LogOut
+} from 'lucide-react';
+
+export default function App() {
+  // Estado de sesión y autenticación simulada con la marca Urbix
+  const [session, setSession] = useState(false);
+  const [activeRole, setActiveRole] = useState('residente'); // 'superadmin' | 'admin' | 'vigilante' | 'residente'
+  const [loginInput, setLoginInput] = useState('t1-302');
+  const [loginPass, setLoginPass] = useState('');
+  const [loginType, setLoginType] = useState('residente');
+
+  // 1. Estado Multi-Tenant (Controlado por Superadministrador)
+  const [tenants, setTenants] = useState([
+    { id: 't1', name: 'Reserva del Tesoro', zone: 'El Poblado', units: 120, plan: 'Pro', status: 'Activo' },
+    { id: 't2', name: 'Bosques de la Castellana', zone: 'Laureles', units: 85, plan: 'Estándar', status: 'Activo' },
+    { id: 't3', name: 'Altos de Zúñiga', zone: 'Envigado', units: 64, plan: 'Pro', status: 'Mora SaaS' },
+  ]);
+  const [newTenantName, setNewTenantName] = useState('');
+  const [newTenantZone, setNewTenantZone] = useState('');
+
+  // 2. Estado de Apartamentos
+  const [apartments] = useState([
+    { id: 'a1', apt: 'Torre 1 - 302', resident: 'Esteban Ochoa', phone: '3001234567', debt: 0, status: 'Al día' },
+    { id: 'a2', apt: 'Torre 1 - 405', resident: 'Camila Restrepo', phone: '3109876543', debt: 450000, status: 'En Mora' },
+    { id: 'a3', apt: 'Torre 2 - 101', resident: 'Andrés Gómez', phone: '3205551234', debt: 0, status: 'Al día' },
+  ]);
+
+  // 3. Estado de Reservas de Zonas Comunes
+  const [reservations, setReservations] = useState([
+    { 
+      id: 'res1', 
+      apt: 'Torre 1 - 302', 
+      resident: 'Esteban Ochoa',
+      amenity: 'Cancha Sintética', 
+      date: 'Sábado 31 Oct - 4:00 PM', 
+      status: 'Pendiente',
+      adminNote: 'Esperando revisión de administración'
+    },
+    { 
+      id: 'res2', 
+      apt: 'Torre 1 - 302', 
+      resident: 'Esteban Ochoa',
+      amenity: 'Salón Social', 
+      date: 'Domingo 1 Nov - 2:00 PM', 
+      status: 'Aprobada', 
+      adminNote: 'Aprobada. Reclamar llaves en portería 30 min antes.'
+    }
+  ]);
+  const [selectedAmenity, setSelectedAmenity] = useState('Salón Social');
+  const [reservationDate, setReservationDate] = useState('');
+
+  // 4. Notificaciones del Residente
+  const [notifications, setNotifications] = useState([
+    {
+      id: 'n1',
+      apt: 'Torre 1 - 302',
+      title: '✅ Reserva Aprobada: Salón Social',
+      message: 'El administrador aprobó tu reserva para el Domingo 1 Nov - 2:00 PM. Portería ya fue notificada.',
+      time: 'Hace 10 min',
+      type: 'success',
+      read: false
+    }
+  ]);
+
+  // 5. Pases QR / Visitas
+  const [qrPasses, setQrPasses] = useState([
+    { id: 'qr1', code: 'QR-8821', visitor: 'Santiago Mejía (Visita)', apt: 'Torre 1 - 302', plate: 'KLM-456', status: 'Autorizado', time: 'Pendiente' },
+    { id: 'qr2', code: 'QR-1049', visitor: 'Domicilio Rappi', apt: 'Torre 1 - 405', plate: 'Moto', status: 'Adentro', time: '08:45 AM' },
+  ]);
+  const [visitorName, setVisitorName] = useState('');
+  const [visitorPlate, setVisitorPlate] = useState('');
+  const [qrSearch, setQrSearch] = useState('');
+
+  // 6. Encomiendas / Paquetes
+  const [packages, setPackages] = useState([
+    { id: 'p1', apt: 'Torre 1 - 302', carrier: 'Mercado Libre', pin: '4829', time: '08:30 AM', status: 'En Portería' },
+  ]);
+  const [selectedAptPkg, setSelectedAptPkg] = useState('Torre 1 - 302');
+  const [carrierPkg, setCarrierPkg] = useState('Mercado Libre');
+
+  // 7. PQRS
+  const [pqrsList, setPqrsList] = useState([
+    { id: 'pq1', apt: 'Torre 1 - 302', type: 'Mantenimiento', desc: 'Bombillo fundido en el pasillo del piso 3', status: 'Abierto' },
+  ]);
+
+  // --- FUNCIONES ---
+  const handleLogin = (e) => {
+    e.preventDefault();
+    setSession(true);
+  };
+
+  const handleLogout = () => {
+    setSession(false);
+  };
+
+  const handleCreateReservation = (e) => {
+    e.preventDefault();
+    if (!reservationDate.trim()) return;
+    const newRes = {
+      id: `res${Date.now()}`,
+      apt: 'Torre 1 - 302',
+      resident: 'Esteban Ochoa',
+      amenity: selectedAmenity,
+      date: reservationDate,
+      status: 'Pendiente',
+      adminNote: 'Solicitud enviada. Pendiente de respuesta del administrador.'
+    };
+    setReservations([newRes, ...reservations]);
+    setReservationDate('');
+  };
+
+  const handleAdminDecision = (resId, decision) => {
+    const targetRes = reservations.find(r => r.id === resId);
+    if (!targetRes) return;
+    const note = decision === 'Aprobada' 
+      ? 'Reserva confirmada. El vigilante en portería ya tiene autorización.' 
+      : 'Reserva rechazada por cruce de horario.';
+
+    setReservations(reservations.map(r => r.id === resId ? { ...r, status: decision, adminNote: note } : r));
+    
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const newNotif = {
+      id: `notif${Date.now()}`,
+      apt: targetRes.apt,
+      title: decision === 'Aprobada' ? `✅ ¡Reserva Aprobada! (${targetRes.amenity})` : `❌ Reserva Rechazada (${targetRes.amenity})`,
+      message: `Fecha: ${targetRes.date}. Nota: ${note}`,
+      time: now,
+      type: decision === 'Aprobada' ? 'success' : 'error',
+      read: false
+    };
+    setNotifications([newNotif, ...notifications]);
+  };
+
+  const markNotificationsRead = () => {
+    setNotifications(notifications.map(n => ({ ...n, read: true })));
+  };
+
+  const handleAddTenant = (e) => {
+    e.preventDefault();
+    if (!newTenantName.trim()) return;
+    setTenants([...tenants, { id: `t${Date.now()}`, name: newTenantName, zone: newTenantZone || 'Medellín', units: 50, plan: 'Pro', status: 'Activo' }]);
+    setNewTenantName('');
+    setNewTenantZone('');
+  };
+
+  const toggleTenantStatus = (id) => {
+    setTenants(tenants.map(t => t.id === id ? { ...t, status: t.status === 'Activo' ? 'Suspendido' : 'Activo' } : t));
+  };
+
+  const handleCreateQr = (e) => {
+    e.preventDefault();
+    if (!visitorName.trim()) return;
+    const randomPin = Math.floor(1000 + Math.random() * 9000);
+    setQrPasses([{
+      id: `qr${Date.now()}`,
+      code: `QR-${randomPin}`,
+      visitor: visitorName,
+      apt: 'Torre 1 - 302',
+      plate: visitorPlate || 'Peatón',
+      status: 'Autorizado',
+      time: 'Pendiente'
+    }, ...qrPasses]);
+    setVisitorName('');
+    setVisitorPlate('');
+  };
+
+  const handleToggleVisitStatus = (id) => {
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setQrPasses(qrPasses.map(q => {
+      if (q.id !== id) return q;
+      if (q.status === 'Autorizado') return { ...q, status: 'Adentro', time: now };
+      if (q.status === 'Adentro') return { ...q, status: 'Salió', time: now };
+      return q;
+    }));
+  };
+
+  const handleRegisterPackage = (e) => {
+    e.preventDefault();
+    const pin = Math.floor(1000 + Math.random() * 9000).toString();
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setPackages([{ id: `p${Date.now()}`, apt: selectedAptPkg, carrier: carrierPkg, pin, time: now, status: 'En Portería' }, ...packages]);
+  };
+
+  const handleDeliverPackage = (id) => {
+    setPackages(packages.map(p => p.id === id ? { ...p, status: 'Entregado' } : p));
+  };
+
+  const unreadCount = notifications.filter(n => !n.read && n.apt === 'Torre 1 - 302').length;
+  const pendingReservationsCount = reservations.filter(r => r.status === 'Pendiente').length;
+
+  // -------------------------------------------------------------------------
+  // PANTALLA DE INICIO DE SESIÓN CON MARCA URBIX
+  // -------------------------------------------------------------------------
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-8 rounded-3xl shadow-2xl space-y-6">
+          <div className="text-center">
+            {/* LOGOTIPO URBIX */}
+            <div className="inline-flex items-center justify-center bg-gradient-to-tr from-emerald-500 to-teal-400 w-16 h-16 rounded-2xl text-slate-950 font-black shadow-lg shadow-emerald-500/20 mb-3">
+              <Building2 className="w-8 h-8" />
+            </div>
+            <h1 className="text-3xl font-black text-white tracking-tight">Urbix</h1>
+            <p className="text-xs font-semibold text-emerald-400 mt-1 uppercase tracking-widest">Tu unidad inteligente, portería sin fricción</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-4 pt-2">
+            <div>
+              <label className="text-xs font-bold text-slate-300">Selecciona tu Rol de Acceso</label>
+              <select 
+                value={loginType} 
+                onChange={(e) => {
+                  setLoginType(e.target.value);
+                  setActiveRole(e.target.value);
+                }}
+                className="w-full mt-1.5 p-3 bg-slate-800 border border-slate-700 text-white rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                <option value="residente">🏠 Residente (Apto 302)</option>
+                <option value="vigilante">🛡️ Vigilante / Portería</option>
+                <option value="admin">🏢 Administrador de Unidad</option>
+                <option value="superadmin">👑 Superadministrador Global</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-300">Usuario / Apartamento / Credencial</label>
+              <input
+                type="text"
+                value={loginInput}
+                onChange={(e) => setLoginInput(e.target.value)}
+                placeholder="ej. t1-302 o admin"
+                className="w-full mt-1.5 p-3 bg-slate-800 border border-slate-700 text-white rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-300">Contraseña</label>
+              <input
+                type="password"
+                value={loginPass}
+                onChange={(e) => setLoginPass(e.target.value)}
+                placeholder="••••••••"
+                className="w-full mt-1.5 p-3 bg-slate-800 border border-slate-700 text-white rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold py-3.5 rounded-xl text-sm transition shadow-lg shadow-emerald-500/20 mt-2"
+            >
+              Ingresar a Urbix
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // APLICACIÓN PRINCIPAL CON IDENTIDAD URBIX
+  // -------------------------------------------------------------------------
+  return (
+    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans">
+      {/* BARRA SUPERIOR INSTITUCIONAL */}
+      <header className="bg-slate-950 border-b border-slate-800 p-4 shadow-md sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="bg-emerald-500 p-2 rounded-xl text-slate-950 font-bold shadow">
+              <Building2 className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="font-black text-lg tracking-tight text-white">Urbix</h1>
+                <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full font-bold border border-emerald-500/20">
+                  Medellín
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">Copropiedad Activa: Reserva del Tesoro (El Poblado)</p>
+            </div>
+          </div>
+
+          {/* SELECTOR DE RÁPIDO CAMBIO DE ROL Y SALIDA */}
+          <div className="flex flex-wrap items-center gap-2 bg-slate-900 p-1.5 rounded-xl border border-slate-800">
+            <button
+              onClick={() => setActiveRole('superadmin')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${activeRole === 'superadmin' ? 'bg-purple-600 text-white shadow' : 'text-slate-400 hover:bg-slate-800'}`}
+            >
+              👑 Superadmin
+            </button>
+            <button
+              onClick={() => setActiveRole('admin')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${activeRole === 'admin' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:bg-slate-800'}`}
+            >
+              🏢 Administrador {pendingReservationsCount > 0 && <span className="bg-amber-400 text-slate-950 px-1 rounded text-[10px] font-bold">{pendingReservationsCount}</span>}
+            </button>
+            <button
+              onClick={() => setActiveRole('vigilante')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${activeRole === 'vigilante' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:bg-slate-800'}`}
+            >
+              🛡️ Vigilante
+            </button>
+            <button
+              onClick={() => setActiveRole('residente')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${activeRole === 'residente' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:bg-slate-800'}`}
+            >
+              🏠 Residente {unreadCount > 0 && <span className="bg-rose-500 text-white px-1 rounded text-[10px] font-bold">{unreadCount}</span>}
+            </button>
+            <button
+              onClick={handleLogout}
+              className="p-1.5 text-rose-400 hover:bg-rose-500/10 rounded-lg transition ml-2"
+              title="Cerrar Sesión"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* CONTENIDO SEGÚN EL ROL */}
+      <main className="max-w-7xl mx-auto p-4 md:p-6">
+        
+        {/* ROL 1: SUPERADMINISTRADOR */}
+        {activeRole === 'superadmin' && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-purple-900 to-indigo-950 text-white p-6 rounded-2xl shadow-lg">
+              <span className="bg-purple-800 text-purple-200 text-xs px-2.5 py-1 rounded-full font-bold uppercase">Urbix Global SaaS</span>
+              <h2 className="text-2xl font-black mt-2">Panel Maestro Superadministrador</h2>
+              <p className="text-purple-200 text-sm">Control de unidades residenciales suscritas, planes y accesos en el Valle de Aburrá.</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl">
+                <h3 className="font-bold text-sm text-white mb-4 flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-purple-400" /> Registrar Nueva Unidad
+                </h3>
+                <form onSubmit={handleAddTenant} className="space-y-3">
+                  <input
+                    type="text"
+                    placeholder="Nombre Copropiedad"
+                    value={newTenantName}
+                    onChange={(e) => setNewTenantName(e.target.value)}
+                    className="w-full p-2.5 bg-slate-900 border border-slate-800 text-white rounded-xl text-sm"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Sector (Ej. El Poblado)"
+                    value={newTenantZone}
+                    onChange={(e) => setNewTenantZone(e.target.value)}
+                    className="w-full p-2.5 bg-slate-900 border border-slate-800 text-white rounded-xl text-sm"
+                  />
+                  <button type="submit" className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2.5 rounded-xl text-sm">
+                    Crear Copropiedad
+                  </button>
+                </form>
+              </div>
+
+              <div className="md:col-span-2 bg-slate-950 border border-slate-800 p-5 rounded-2xl">
+                <h3 className="font-bold text-sm text-white mb-4">Unidades Residenciales Conectadas</h3>
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase">
+                      <th className="py-2">Copropiedad</th>
+                      <th className="py-2">Sector</th>
+                      <th className="py-2">Estado</th>
+                      <th className="py-2 text-right">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {tenants.map(t => (
+                      <tr key={t.id}>
+                        <td className="py-3 font-semibold text-white">{t.name}</td>
+                        <td className="py-3 text-slate-300">{t.zone}</td>
+                        <td className="py-3">
+                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${t.status === 'Activo' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}`}>
+                            {t.status}
+                          </span>
+                        </td>
+                        <td className="py-3 text-right">
+                          <button onClick={() => toggleTenantStatus(t.id)} className="text-xs font-semibold text-purple-400 hover:underline">
+                            {t.status === 'Activo' ? 'Suspender' : 'Activar'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ROL 2: ADMINISTRADOR */}
+        {activeRole === 'admin' && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-blue-950 to-slate-950 border border-blue-900/50 text-white p-6 rounded-2xl">
+              <span className="bg-blue-600/30 text-blue-300 text-xs px-2.5 py-1 rounded-full font-bold uppercase border border-blue-500/30">Gestión de Propiedad Horizontal</span>
+              <h2 className="text-2xl font-black mt-2">Panel de Administración Urbix</h2>
+              <p className="text-blue-200 text-sm">Conciliación de cartera, control de áreas comunes y atención de solicitudes sin fricción.</p>
+            </div>
+
+            <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl">
+              <h3 className="font-bold text-base text-white mb-4 flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-blue-400" /> Solicitudes de Zonas Comunes (Salón Social / Cancha)
+              </h3>
+              <div className="space-y-3">
+                {reservations.map(res => (
+                  <div key={res.id} className="p-4 bg-slate-900 border border-slate-800 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-white">{res.amenity}</span>
+                        <span className="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded">{res.apt} ({res.resident})</span>
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded ${res.status === 'Pendiente' ? 'bg-amber-500/10 text-amber-400' : res.status === 'Aprobada' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                          {res.status}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">📅 Horario: <strong>{res.date}</strong></p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleAdminDecision(res.id, 'Aprobada')} disabled={res.status === 'Aprobada'} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-xl disabled:opacity-50">
+                        Aprobar
+                      </button>
+                      <button onClick={() => handleAdminDecision(res.id, 'Rechazada')} disabled={res.status === 'Rechazada'} className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-2 rounded-xl disabled:opacity-50">
+                        Rechazar
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ROL 3: VIGILANTE / PORTERÍA */}
+        {activeRole === 'vigilante' && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-amber-950 to-slate-950 border border-amber-900/50 text-white p-5 rounded-2xl">
+              <span className="bg-amber-500/20 text-amber-300 text-xs px-2.5 py-1 rounded-full font-bold uppercase border border-amber-500/30">Consola de Portería</span>
+              <h2 className="text-2xl font-black mt-1">Control de Accesos y Paquetes</h2>
+              <p className="text-amber-200 text-sm">Escaneo rápido de visitantes y entrega ágil de encomiendas.</p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl space-y-4">
+                <h3 className="font-bold text-base text-white flex items-center gap-2">
+                  <QrCode className="w-5 h-5 text-amber-400" /> Accesos QR en Vivo
+                </h3>
+                <div className="space-y-2">
+                  {qrPasses.map(pass => (
+                    <div key={pass.id} className="p-3 bg-slate-900 border border-slate-800 rounded-xl flex items-center justify-between">
+                      <div>
+                        <span className="font-mono text-xs font-bold bg-slate-800 text-amber-400 px-2 py-0.5 rounded mr-2">{pass.code}</span>
+                        <span className="font-bold text-white text-sm">{pass.visitor}</span>
+                        <p className="text-xs text-slate-400">Destino: {pass.apt} • Placa: {pass.plate}</p>
+                      </div>
+                      {pass.status === 'Autorizado' && (
+                        <button onClick={() => handleToggleVisitStatus(pass.id)} className="bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg">
+                          Dar Ingreso
+                        </button>
+                      )}
+                      {pass.status === 'Adentro' && (
+                        <button onClick={() => handleToggleVisitStatus(pass.id)} className="bg-amber-500 text-slate-950 text-xs font-bold px-3 py-1.5 rounded-lg">
+                          Marcar Salida
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl space-y-4">
+                <h3 className="font-bold text-base text-white flex items-center gap-2">
+                  <Package className="w-5 h-5 text-amber-400" /> Recepción de Paquetes
+                </h3>
+                <form onSubmit={handleRegisterPackage} className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-900 p-3 rounded-xl border border-slate-800">
+                  <select value={selectedAptPkg} onChange={(e) => setSelectedAptPkg(e.target.value)} className="p-2 bg-slate-800 border border-slate-700 text-white rounded-lg text-sm">
+                    {apartments.map(a => <option key={a.id} value={a.apt}>{a.apt}</option>)}
+                  </select>
+                  <select value={carrierPkg} onChange={(e) => setCarrierPkg(e.target.value)} className="p-2 bg-slate-800 border border-slate-700 text-white rounded-lg text-sm">
+                    <option>Mercado Libre</option>
+                    <option>Servientrega</option>
+                    <option>Coordinadora</option>
+                  </select>
+                  <button type="submit" className="bg-emerald-500 text-slate-950 font-bold py-2 px-3 rounded-lg text-xs">
+                    Notificar Apto
+                  </button>
+                </form>
+
+                <div className="space-y-2">
+                  {packages.map(pkg => (
+                    <div key={pkg.id} className="p-3 bg-slate-900 border border-slate-800 rounded-xl flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-white text-sm">{pkg.apt} — {pkg.carrier}</p>
+                        <p className="text-xs text-slate-400">PIN: <strong className="text-emerald-400">{pkg.pin}</strong> ({pkg.time})</p>
+                      </div>
+                      {pkg.status === 'En Portería' ? (
+                        <button onClick={() => handleDeliverPackage(pkg.id)} className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold px-3 py-1 rounded-lg">
+                          Entregar
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-500">Entregado ✓</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ROL 4: RESIDENTE */}
+        {activeRole === 'residente' && (
+          <div className="max-w-md mx-auto bg-slate-950 border border-slate-800 rounded-3xl shadow-xl overflow-hidden">
+            <div className="bg-gradient-to-tr from-emerald-600 to-teal-500 text-slate-950 p-5 flex items-center justify-between">
+              <div>
+                <span className="text-xs uppercase font-extrabold bg-slate-950/20 px-2.5 py-1 rounded-full text-slate-950">
+                  Mi Apartamento: Torre 1 - 302
+                </span>
+                <h2 className="text-xl font-black mt-2 text-slate-950">Esteban Ochoa</h2>
+                <p className="text-xs font-semibold text-slate-900">Urbix Activo • Sin multas ni cartera</p>
+              </div>
+              <button onClick={markNotificationsRead} className="relative bg-slate-950/20 hover:bg-slate-950/30 p-3 rounded-2xl transition">
+                <Bell className="w-6 h-6 text-slate-950" />
+                {unreadCount > 0 && <span className="absolute -top-1 -right-1 bg-rose-600 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center">{unreadCount}</span>}
+              </button>
+            </div>
+
+            <div className="p-5 space-y-6">
+              {/* Notificaciones */}
+              <div>
+                <h3 className="text-xs font-bold uppercase text-slate-400 tracking-wider mb-2">🔔 Alertas en Vivo</h3>
+                <div className="space-y-2">
+                  {notifications.filter(n => n.apt === 'Torre 1 - 302').map(notif => (
+                    <div key={notif.id} className={`p-3.5 rounded-xl border text-xs ${notif.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' : 'bg-rose-500/10 border-rose-500/20 text-rose-300'}`}>
+                      <div className="flex justify-between font-bold">
+                        <span>{notif.title}</span>
+                        <span className="opacity-75">{notif.time}</span>
+                      </div>
+                      <p className="mt-1 opacity-90">{notif.message}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Solicitar Reservas */}
+              <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
+                <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-emerald-400" /> Reservar Zonas Comunes
+                </h3>
+                <form onSubmit={handleCreateReservation} className="space-y-2.5">
+                  <select value={selectedAmenity} onChange={(e) => setSelectedAmenity(e.target.value)} className="w-full p-2.5 text-sm bg-slate-950 border border-slate-800 text-white rounded-xl">
+                    <option>Salón Social</option>
+                    <option>Cancha Sintética</option>
+                    <option>Zona BBQ</option>
+                  </select>
+                  <input type="text" placeholder="Fecha (Ej. Sábado 7 Nov - 6 PM)" value={reservationDate} onChange={(e) => setReservationDate(e.target.value)} className="w-full p-2.5 text-sm bg-slate-950 border border-slate-800 text-white rounded-xl" />
+                  <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 rounded-xl text-sm">
+                    Solicitar al Administrador
+                  </button>
+                </form>
+              </div>
+
+              {/* Generador de QR */}
+              <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800">
+                <h3 className="font-bold text-sm text-white flex items-center gap-2 mb-3">
+                  <QrCode className="w-4 h-4 text-emerald-400" /> Autorizar Visita o Domicilio
+                </h3>
+                <form onSubmit={handleCreateQr} className="space-y-2.5">
+                  <input type="text" placeholder="Nombre visitante / Domiciliario" value={visitorName} onChange={(e) => setVisitorName(e.target.value)} className="w-full p-2.5 text-sm bg-slate-950 border border-slate-800 text-white rounded-xl" />
+                  <input type="text" placeholder="Placa vehículo (Opcional)" value={visitorPlate} onChange={(e) => setVisitorPlate(e.target.value)} className="w-full p-2.5 text-sm bg-slate-950 border border-slate-800 text-white rounded-xl" />
+                  <button type="submit" className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-xl text-sm border border-slate-700">
+                    Generar Pase QR
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+      </main>
+    </div>
+  );
+}

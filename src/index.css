@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+body {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: #141416;
+  color: #f1f5f9;
+}
+
+code, kbd, samp, pre, .font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* ========================================================
+   URBIX PH ENTERPRISE CUSTOM SCROLLBAR ENGINE
+   Eliminates white native OS scrollbars across all browsers
+   ======================================================== */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #27272a #141416;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #141416;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #22d3ee;
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.4);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+
+/* Dynamic Sleek Scrollbar for Horizontal Navigation Strips */
+.urbix-tabs-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #2e3038 #141416;
+  scroll-behavior: smooth;
+}
+
+.urbix-tabs-scrollbar::-webkit-scrollbar {
+  height: 6px;
+}
+
+.urbix-tabs-scrollbar::-webkit-scrollbar-track {
+  background: #141416;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 9999px;
+  margin: 0 4px;
+}
+
+.urbix-tabs-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(90deg, #27272a 0%, #3f3f46 50%, #27272a 100%);
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.urbix-tabs-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(90deg, #06b6d4 0%, #a855f7 100%);
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.5);
+  border-color: rgba(34, 211, 238, 0.3);
+}
+
+.urbix-tabs-scrollbar::-webkit-scrollbar-thumb:active {
+  background: #22d3ee;
+  box-shadow: 0 0 14px rgba(34, 211, 238, 0.7);
+}
+
+/* ========================================================
+   INTENSE STATIC TURQUOISE NEON BACKLIGHT LAMP SYSTEM
+   Simulates a super-bright static backlight behind the card
+   ======================================================== */
+.neon-moving-wrapper {
+  position: relative;
+  border-radius: 24px;
+  padding: 3px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  isolation: isolate;
+  background: linear-gradient(135deg, #00f5d4 0%, #00e5b7 40%, #06b6d4 100%);
+  box-shadow: 
+    0 0 20px rgba(0, 245, 212, 0.95),
+    0 0 45px rgba(0, 245, 212, 0.8),
+    0 0 90px rgba(0, 245, 212, 0.6),
+    0 0 150px rgba(0, 229, 183, 0.45),
+    0 0 220px rgba(6, 182, 212, 0.3);
+}
+
+/* Lámpara estática difusa ultra-brillante verde turquesa que abarca el fondo */
+.neon-moving-wrapper::before {
+  content: '';
+  position: absolute;
+  top: -35px;
+  left: -35px;
+  right: -35px;
+  bottom: -35px;
+  border-radius: 40px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 245, 212, 0.95) 0%,
+    rgba(0, 229, 183, 0.75) 35%,
+    rgba(6, 182, 212, 0.45) 70%,
+    transparent 100%
+  );
+  filter: blur(45px);
+  opacity: 0.98;
+  z-index: -2;
+  pointer-events: none;
+}
+
+/* Resplandor inmediato en el borde exterior del cuadro */
+.neon-moving-wrapper::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 27px;
+  background: linear-gradient(135deg, #00f5d4, #00e5b7, #06b6d4, #10b981);
+  filter: blur(6px);
+  opacity: 0.9;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.neon-moving-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border-radius: 21.5px;
+  background-color: #12141a;
+  border: 1px solid rgba(0, 245, 212, 0.35);
+}
+
+

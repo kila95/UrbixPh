@@ -1,0 +1,506 @@
+import React, { useState } from 'react';
+import { 
+  Building2, Shield, QrCode, Package, AlertTriangle, 
+  Wrench, Bell, CheckCircle2, LogIn, LogOut, Plus, Search, User, Smartphone, Tablet
+} from 'lucide-react';
+
+export default function UrbixAppCompleta() {
+  // Estado general de sesión y roles para demostración
+  const [session, setSession] = useState(false);
+  const [activeRole, setActiveRole] = useState('admin'); // 'superadmin' | 'admin' | 'vigilante' | 'operativo' | 'residente'
+
+  // 1. Estados Globales (Superadmin)
+  const [tenants, setTenants] = useState([
+    { id: 't1', name: 'Reserva del Tesoro', zone: 'El Poblado', units: 120, status: 'Activo' },
+    { id: 't2', name: 'Bosques de la Castellana', zone: 'Laureles', units: 85, status: 'Activo' },
+  ]);
+  const [newTenantName, setNewTenantName] = useState('');
+  const [newTenantZone, setNewTenantZone] = useState('');
+
+  // 2. Estados de Portería (Vigilante)
+  const [qrPasses, setQrPasses] = useState([
+    { id: 'qr1', code: 'QR-8821', visitor: 'Santiago Mejía', apt: 'Torre 1 - 302', plate: 'KLM-456', status: 'Autorizado' }
+  ]);
+  const [packages, setPackages] = useState([
+    { id: 'p1', apt: 'Torre 1 - 302', carrier: 'Mercado Libre', pin: '4829', status: 'En Portería' }
+  ]);
+
+  // 3. Estados de Mantenimiento y Novedades (Admin, Vigilante y Personal Operativo)
+  const [maintenanceReports, setMaintenanceReports] = useState([
+    { id: 'nov1', category: 'Infraestructura', location: 'Torre 1 - Lobby', desc: 'Lámpara de emergencia parpadeando', vigilante: 'Carlos Pérez', status: 'Reportado', assignedTo: 'Sin asignar' },
+    { id: 'nov2', category: 'Seguridad / Puertas', location: 'Sótano 2 - Portón', desc: 'Sensor de cierre lento trabado', vigilante: 'Alberto Ruiz', status: 'En Proceso', assignedTo: 'Pedro (Toderos)' }
+  ]);
+  
+  // Formulario de nuevo reporte desde portería
+  const [categoryNov, setCategoryNov] = useState('Infraestructura');
+  const [locationNov, setLocationNov] = useState('');
+  const [descNov, setDescNov] = useState('');
+
+  // --- FUNCIONES DE ACCIÓN ---
+  const handleLogin = (e) => {
+    e.preventDefault();
+    setSession(true);
+  };
+
+  const handleLogout = () => {
+    setSession(false);
+  };
+
+  const handleAddTenant = (e) => {
+    e.preventDefault();
+    if (!newTenantName.trim()) return;
+    setTenants([...tenants, { id: `t${Date.now()}`, name: newTenantName, zone: newTenantZone || 'Medellín', units: 50, status: 'Activo' }]);
+    setNewTenantName('');
+    setNewTenantZone('');
+  };
+
+  const handleReportNovedad = (e) => {
+    e.preventDefault();
+    if (!locationNov.trim() || !descNov.trim()) return;
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const nuevoReporte = {
+      id: `nov${Date.now()}`,
+      category: categoryNov,
+      location: locationNov,
+      desc: descNov,
+      vigilante: 'Guarda en Turno',
+      status: 'Reportado',
+      assignedTo: 'Sin asignar',
+      time: now
+    };
+
+    setMaintenanceReports([nuevoReporte, ...maintenanceReports]);
+    setLocationNov('');
+    setDescNov('');
+    alert('Novedad reportada con éxito a la administración de la copropiedad.');
+  };
+
+  const handleUpdateReportStatus = (id, nuevoEstado, assigned = null) => {
+    setMaintenanceReports(maintenanceReports.map(rep => {
+      if (rep.id === id) {
+        return { 
+          ...rep, 
+          status: nuevoEstado, 
+          assignedTo: assigned !== null ? assigned : rep.assignedTo 
+        };
+      }
+      return rep;
+    }));
+  };
+
+  // -------------------------------------------------------------------------
+  // PANTALLA DE INICIO DE SESIÓN
+  // -------------------------------------------------------------------------
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 font-sans">
+        <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-8 rounded-3xl shadow-2xl space-y-6">
+          <div className="text-center">
+            <div className="inline-flex items-center justify-center bg-gradient-to-tr from-emerald-500 to-teal-400 w-16 h-16 rounded-2xl text-slate-950 font-black shadow-lg shadow-emerald-500/20 mb-3">
+              <Building2 className="w-8 h-8" />
+            </div>
+            <h1 className="text-3xl font-black text-white tracking-tight">Urbix</h1>
+            <p className="text-xs font-semibold text-emerald-400 mt-1 uppercase tracking-widest">Tu unidad inteligente, portería sin fricción</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-4 pt-2">
+            <div>
+              <label className="text-xs font-bold text-slate-300">Selecciona tu Rol de Acceso</label>
+              <select 
+                value={activeRole} 
+                onChange={(e) => setActiveRole(e.target.value)}
+                className="w-full mt-1.5 p-3 bg-slate-800 border border-slate-700 text-white rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                <option value="admin">🏢 Administrador de Unidad</option>
+                <option value="vigilante">🛡️ Vigilante / Portería</option>
+                <option value="operativo">🛠️ Personal Operativo / Mantenimiento</option>
+                <option value="superadmin">👑 Superadministrador Global</option>
+                <option value="residente">🏠 Residente (Apto 302)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-300">Correo Electrónico o Credencial</label>
+              <input
+                type="text"
+                placeholder="ej. admin@urbix.co"
+                defaultValue="esteban@urbix.co"
+                className="w-full mt-1.5 p-3 bg-slate-800 border border-slate-700 text-white rounded-xl text-sm outline-none"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-300">Contraseña</label>
+              <input
+                type="password"
+                defaultValue="********"
+                className="w-full mt-1.5 p-3 bg-slate-800 border border-slate-700 text-white rounded-xl text-sm outline-none"
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold py-3.5 rounded-xl text-sm transition shadow-lg shadow-emerald-500/20 mt-2"
+            >
+              Ingresar a Urbix
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // APLICACIÓN PRINCIPAL CON IDENTIDAD URBIX Y ROLES AISLADOS
+  // -------------------------------------------------------------------------
+  return (
+    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans">
+      
+      {/* BARRA SUPERIOR INSTITUCIONAL */}
+      <header className="bg-slate-950 border-b border-slate-800 p-4 shadow-md sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="bg-emerald-500 p-2 rounded-xl text-slate-950 font-bold shadow">
+              <Building2 className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="font-black text-lg tracking-tight text-white">Urbix</h1>
+                <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full font-bold border border-emerald-500/20">
+                  Medellín
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">Copropiedad Activa: Reserva del Tesoro</p>
+            </div>
+          </div>
+
+          {/* SELECTOR RÁPIDO DE DEMO DE ROLES Y SALIDA */}
+          <div className="flex flex-wrap items-center gap-1.5 bg-slate-900 p-1.5 rounded-xl border border-slate-800">
+            <button
+              onClick={() => setActiveRole('superadmin')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${activeRole === 'superadmin' ? 'bg-purple-600 text-white shadow' : 'text-slate-400 hover:bg-slate-800'}`}
+            >
+              👑 Superadmin
+            </button>
+            <button
+              onClick={() => setActiveRole('admin')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${activeRole === 'admin' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:bg-slate-800'}`}
+            >
+              🏢 Admin
+            </button>
+            <button
+              onClick={() => setActiveRole('vigilante')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${activeRole === 'vigilante' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:bg-slate-800'}`}
+            >
+              🛡️ Vigilante
+            </button>
+            <button
+              onClick={() => setActiveRole('operativo')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${activeRole === 'operativo' ? 'bg-teal-600 text-white shadow' : 'text-slate-400 hover:bg-slate-800'}`}
+            >
+              🛠️ Operativo
+            </button>
+            <button
+              onClick={() => setActiveRole('residente')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${activeRole === 'residente' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:bg-slate-800'}`}
+            >
+              🏠 Residente
+            </button>
+            <button
+              onClick={handleLogout}
+              className="p-1.5 text-rose-400 hover:bg-rose-500/10 rounded-lg transition ml-2"
+              title="Cerrar Sesión"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* CONTENEDOR SEGÚN EL ROL ACTIVO */}
+      <main className="max-w-7xl mx-auto p-4 md:p-6">
+        
+        {/* ================= 1. VISTA SUPERADMINISTRADOR ================= */}
+        {activeRole === 'superadmin' && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-purple-900 to-indigo-950 text-white p-6 rounded-3xl shadow-lg">
+              <span className="bg-purple-800 text-purple-200 text-xs px-2.5 py-1 rounded-full font-bold uppercase">Urbix Global SaaS</span>
+              <h2 className="text-2xl font-black mt-2">Panel Maestro Superadministrador</h2>
+              <p className="text-purple-200 text-sm">Control global de unidades residenciales y suscripciones en Antioquia.</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-slate-950 border border-slate-800 p-5 rounded-3xl">
+                <h3 className="font-bold text-sm text-white mb-4 flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-purple-400" /> Registrar Copropiedad
+                </h3>
+                <form onSubmit={handleAddTenant} className="space-y-3">
+                  <input
+                    type="text"
+                    placeholder="Nombre Copropiedad"
+                    value={newTenantName}
+                    onChange={(e) => setNewTenantName(e.target.value)}
+                    className="w-full p-2.5 bg-slate-900 border border-slate-800 text-white rounded-xl text-sm outline-none"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Sector (Ej. El Poblado)"
+                    value={newTenantZone}
+                    onChange={(e) => setNewTenantZone(e.target.value)}
+                    className="w-full p-2.5 bg-slate-900 border border-slate-800 text-white rounded-xl text-sm outline-none"
+                  />
+                  <button type="submit" className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2.5 rounded-xl text-sm">
+                    Crear y Asignar Admin
+                  </button>
+                </form>
+              </div>
+
+              <div className="md:col-span-2 bg-slate-950 border border-slate-800 p-5 rounded-3xl">
+                <h3 className="font-bold text-sm text-white mb-4">Unidades Residenciales Conectadas</h3>
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase">
+                      <th className="py-2">Copropiedad</th>
+                      <th className="py-2">Sector</th>
+                      <th className="py-2">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {tenants.map(t => (
+                      <tr key={t.id}>
+                        <td className="py-3 font-semibold text-white">{t.name}</td>
+                        <td className="py-3 text-slate-300">{t.zone}</td>
+                        <td className="py-3">
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            {t.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================= 2. VISTA ADMINISTRADOR ================= */}
+        {activeRole === 'admin' && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-blue-950 to-slate-950 border border-blue-900/50 text-white p-6 rounded-3xl">
+              <span className="bg-blue-600/30 text-blue-300 text-xs px-2.5 py-1 rounded-full font-bold uppercase border border-blue-500/30">Gestión de Copropiedad</span>
+              <h2 className="text-2xl font-black mt-2">Panel de Administración Urbix</h2>
+              <p className="text-blue-200 text-sm">Supervisión de cartera, áreas comunes y gestión de reportes de mantenimiento enviados por portería.</p>
+            </div>
+
+            <div className="bg-slate-950 border border-slate-800 p-5 rounded-3xl space-y-4">
+              <h3 className="font-bold text-base text-white flex items-center gap-2">
+                <Wrench className="w-5 h-5 text-blue-400" /> Novedades y Daños Reportados por Vigilancia
+              </h3>
+              
+              <div className="space-y-3">
+                {maintenanceReports.map(rep => (
+                  <div key={rep.id} className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black bg-slate-950 text-blue-400 px-2.5 py-1 rounded-lg border border-slate-800">
+                          {rep.category}
+                        </span>
+                        <span className="font-bold text-white text-sm">{rep.location}</span>
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded ${rep.status === 'Reportado' ? 'bg-rose-500/10 text-rose-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                          {rep.status}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-300 mt-1">{rep.desc}</p>
+                      <p className="text-[11px] text-slate-400 mt-1">Reportado por: <strong>{rep.vigilante}</strong> • Asignado a: <strong className="text-teal-400">{rep.assignedTo}</strong></p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <select
+                        onChange={(e) => handleUpdateReportStatus(rep.id, rep.status, e.target.value)}
+                        className="p-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs outline-none"
+                        defaultValue=""
+                      >
+                        <option value="" disabled>Asignar a personal...</option>
+                        <option value="Pedro (Toderos)">Pedro (Toderos)</option>
+                        <option value="Equipo Aseo">Equipo Aseo</option>
+                        <option value="Contratista Externo">Contratista Externo</option>
+                      </select>
+                      
+                      <button
+                        onClick={() => handleUpdateReportStatus(rep.id, 'Solucionado')}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-xl transition"
+                      >
+                        Resolver ✓
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================= 3. VISTA VIGILANTE (ADAPTATIVA) ================= */}
+        {activeRole === 'vigilante' && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-amber-950 to-slate-950 border border-amber-900/50 text-white p-5 rounded-3xl">
+              <span className="bg-amber-500/20 text-amber-300 text-xs px-2.5 py-1 rounded-full font-bold uppercase border border-amber-500/30">Consola de Portería</span>
+              <h2 className="text-2xl font-black mt-1">Control de Accesos, Paquetes y Rondas</h2>
+              <p className="text-amber-200 text-sm">Diseño adaptable automático para tablet de garita o celular en rondas.</p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              
+              {/* Lector QR y Paquetes */}
+              <div className="bg-slate-950 border border-slate-800 p-5 rounded-3xl space-y-4">
+                <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
+                  <QrCode className="w-4 h-4 text-amber-400" /> Accesos QR y Paquetes en Vivo
+                </h3>
+                <div className="space-y-2">
+                  {qrPasses.map(q => (
+                    <div key={q.id} className="p-3 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-bold text-white">{q.visitor} ({q.apt})</span>
+                        <p className="text-slate-400">Código: <strong className="text-amber-400">{q.code}</strong></p>
+                      </div>
+                      <span className="bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded font-bold border border-emerald-500/20">
+                        {q.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Formulario de Reporte de Daños en Ronda */}
+              <div className="bg-slate-950 border border-slate-800 p-5 rounded-3xl space-y-4">
+                <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-400" /> Reportar Daño o Novedad (Ronda)
+                </h3>
+
+                <form onSubmit={handleReportNovedad} className="space-y-3 bg-slate-900 p-4 rounded-2xl border border-slate-800">
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-slate-400">Categoría</label>
+                    <select
+                      value={categoryNov}
+                      onChange={(e) => setCategoryNov(e.target.value)}
+                      className="w-full mt-1 p-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs outline-none"
+                    >
+                      <option>Infraestructura / Daño</option>
+                      <option>Seguridad / Puertas</option>
+                      <option>Iluminación</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-slate-400">Ubicación</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Sótano 2, Torre 3"
+                      value={locationNov}
+                      onChange={(e) => setLocationNov(e.target.value)}
+                      className="w-full mt-1 p-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs outline-none"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-slate-400">Descripción</label>
+                    <textarea
+                      rows="2"
+                      placeholder="Detalle del incidente..."
+                      value={descNov}
+                      onChange={(e) => setDescNov(e.target.value)}
+                      className="w-full mt-1 p-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs outline-none resize-none"
+                      required
+                    />
+                  </div>
+                  <button type="submit" className="w-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold py-2.5 rounded-xl shadow transition">
+                    Enviar al Administrador
+                  </button>
+                </form>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* ================= 4. VISTA PERSONAL OPERATIVO / MANTENIMIENTO ================= */}
+        {activeRole === 'operativo' && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-teal-950 to-slate-950 border border-teal-900/50 text-white p-6 rounded-3xl">
+              <span className="bg-teal-500/20 text-teal-300 text-xs px-2.5 py-1 rounded-full font-bold uppercase border border-teal-500/30">
+                Módulo de Mantenimiento y Aseo
+              </span>
+              <h2 className="text-2xl font-black mt-2">Panel Operativo Urbix</h2>
+              <p className="text-teal-200 text-sm">Tareas, reparaciones y reportes asignados por la administración en tiempo real.</p>
+            </div>
+
+            <div className="bg-slate-950 border border-slate-800 p-5 rounded-3xl space-y-4">
+              <h3 className="font-bold text-base text-white flex items-center gap-2">
+                <Wrench className="w-5 h-5 text-teal-400" /> Mis Tareas Asignadas
+              </h3>
+
+              <div className="space-y-3">
+                {maintenanceReports.map(rep => (
+                  <div key={rep.id} className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black bg-slate-950 text-teal-400 px-2.5 py-1 rounded-lg border border-slate-800">
+                          {rep.category}
+                        </span>
+                        <span className="font-bold text-white text-sm">{rep.location}</span>
+                      </div>
+                      <p className="text-xs text-slate-300 mt-2">{rep.desc}</p>
+                      <p className="text-[11px] text-slate-400 mt-2">Asignado a: <strong className="text-teal-300">{rep.assignedTo}</strong></p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-bold px-3 py-1.5 rounded-xl border ${
+                        rep.status === 'Solucionado' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                      }`}>
+                        {rep.status}
+                      </span>
+                      {rep.status !== 'Solucionado' && (
+                        <button
+                          onClick={() => handleUpdateReportStatus(rep.id, 'Solucionado')}
+                          className="bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold px-3 py-2 rounded-xl transition shadow"
+                        >
+                          Marcar Solucionado ✓
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================= 5. VISTA RESIDENTE ================= */}
+        {activeRole === 'residente' && (
+          <div className="max-w-md mx-auto bg-slate-950 border border-slate-800 rounded-3xl shadow-xl overflow-hidden">
+            <div className="bg-gradient-to-tr from-emerald-600 to-teal-500 text-slate-950 p-5">
+              <span className="text-xs uppercase font-extrabold bg-slate-950/20 px-2.5 py-1 rounded-full text-slate-950">
+                Mi Apartamento: Torre 1 - 302
+              </span>
+              <h2 className="text-xl font-black mt-2 text-slate-950">Esteban Ochoa</h2>
+              <p className="text-xs font-semibold text-slate-900">Urbix Activo • Sin multas ni cartera</p>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800">
+                <h3 className="font-bold text-sm text-white mb-2 flex items-center gap-2">
+                  <QrCode className="w-4 h-4 text-emerald-400" /> Mis Pases QR Activos
+                </h3>
+                <p className="text-xs text-slate-400">Genera accesos rápidos para tus visitas o domicilios directamente con la portería.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+      </main>
+    </div>
+  );
+}

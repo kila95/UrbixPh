@@ -1,0 +1,533 @@
+import React, { useState } from 'react';
+import { 
+  Building2, Users, FileText, HardHat, DollarSign, 
+  MessageSquare, ShieldCheck, AlertTriangle, Plus, 
+  Search, Download, CheckCircle2, Clock, Calendar, 
+  Printer, ArrowUpRight, Scale, Check, X, RefreshCw
+} from 'lucide-react';
+
+export default function AdminMasterConsole() {
+  // 1. ESTADO MULTI-TENANT (SWITCHER)
+  const [tenants, setTenants] = useState([
+    { id: 't1', name: 'Edificio Reserva del Tesoro P.H.', nit: '900.456.789-1', zone: 'El Poblado, Medellín', units: 64 },
+    { id: 't2', name: 'Conjunto Residencial Bosques de San Lucas', nit: '901.887.332-4', zone: 'Envigado', units: 112 },
+    { id: 't3', name: 'Torres de la Castellana P.H.', nit: '890.112.544-9', zone: 'Laureles, Medellín', units: 48 }
+  ]);
+  const [currentTenantId, setCurrentTenantId] = useState('t1');
+  const activeTenant = tenants.find(t => t.id === currentTenantId) || tenants[0];
+
+  // Pestañas principales
+  const [activeTab, setActiveTab] = useState('cartera'); // 'cartera' | 'pqrsd' | 'contractors' | 'actas'
+
+  // 2. ESTADO DE CARTERA Y PAZ Y SALVOS
+  const [balances, setBalances] = useState([
+    { id: 'b1', unit: 'Apto 402', owner: 'Mauricio Restrepo', doc: 'CC 71.554.889', phone: '300 123 4567', fee: 450000, debt: 0, days: 0, status: 'Al Día' },
+    { id: 'b2', unit: 'Apto 201', owner: 'Carolina Echeverri', doc: 'CC 43.889.112', phone: '310 987 6543', fee: 450000, debt: 1350000, days: 90, status: 'Cobro Prejurídico' },
+    { id: 'b3', unit: 'Apto 703', owner: 'David Londoño', doc: 'CC 1.037.445.667', phone: '314 555 8899', fee: 520000, debt: 520000, days: 30, status: 'Mora Leve (1-60d)' },
+    { id: 'b4', unit: 'Apto 105', owner: 'Juliana Arango', doc: 'CC 32.776.543', phone: '301 444 2211', fee: 410000, debt: 0, days: 0, status: 'Al Día' }
+  ]);
+  const [searchCartera, setSearchCartera] = useState('');
+
+  // 3. ESTADO DE PQRSD Y CONVIVENCIA
+  const [tickets, setTickets] = useState([
+    { id: 't-1', number: 'PQR-2026-031', unit: 'Apto 201', applicant: 'Carolina Echeverri', category: 'Convivencia / Ruidos', desc: 'Ruido reiterado en horas de la madrugada los fines de semana.', deadline: '2026-11-04', daysLeft: 5, status: 'En Trámite' },
+    { id: 't-2', number: 'PQR-2026-032', unit: 'Apto 504', applicant: 'Santiago Gómez', category: 'Mantenimiento / Locativo', desc: 'Humedad en techo de alcoba principal proveniente de jardinera superior.', deadline: '2026-10-31', daysLeft: 2, status: 'Radicado' },
+    { id: 't-3', number: 'PQR-2026-033', unit: 'Apto 302', applicant: 'Beatriz Ospina', category: 'Financiero / Recaudo', desc: 'Solicitud de revisión en cobro de intereses moratorios de expensa de agosto.', deadline: '2026-11-08', daysLeft: 8, status: 'Remitido a Comité' }
+  ]);
+
+  // 4. ESTADO DE CONTRATISTAS Y SEGURIDAD SOCIAL
+  const [contractors, setContractors] = useState([
+    { id: 'c1', name: 'Hidráulicas & Redes del Valle S.A.S.', specialty: 'Plomería / Redes', arl: 'SURA Riesgo V', validUntil: '2026-11-20', active: true, phone: '300 456 7890' },
+    { id: 'c2', name: 'Acabados y Pisos Medellín', specialty: 'Obra Civil / Enchapes', arl: 'Positiva Riesgo IV', validUntil: '2026-11-12', active: true, phone: '311 889 0011' },
+    { id: 'c3', name: 'Mantenimiento de Fachadas Verticales', specialty: 'Alturas / Fachadas', arl: 'SURA Riesgo V', validUntil: '2026-10-15', active: false, phone: '314 222 3344' }
+  ]);
+
+  // 5. ESTADO DE ACTAS CON LEY 675
+  const [actas, setActas] = useState([
+    { id: 'act-1', number: 'ACT-CONS-2026-10', type: 'Consejo de Administración', date: '2026-10-24', quorum: '100%', president: 'Mauricio Restrepo', secretary: 'Esteban Ochoa', status: 'Firmada / Publicada', summary: 'Aprobación del plan de impermeabilización y revisión de cartera morosa.' },
+    { id: 'act-2', number: 'ACT-ASAM-2026-01', type: 'Asamblea Ordinaria', date: '2026-03-15', quorum: '78.5%', president: 'Carlos Mario Ruiz', secretary: 'Laura Henao', status: 'Firmada / Publicada', summary: 'Aprobación de presupuesto anual y fijación de cuota de administración ordinaria.' }
+  ]);
+
+  // ==========================================================================
+  // GENERADOR OFICIAL DE PAZ Y SALVO EN PDF / IMPRESIÓN (ART. 29 LEY 675)
+  // ==========================================================================
+  const generatePazYSalvo = (item) => {
+    if (item.debt > 0) {
+      alert(`No se puede expedir Paz y Salvo. El ${item.unit} presenta un saldo en mora de $${item.debt.toLocaleString('es-CO')} COP.`);
+      return;
+    }
+
+    const printWin = window.open('', '_blank', 'width=850,height=900');
+    if (!printWin) return;
+
+    const fechaHoy = new Date().toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
+    const codeVerif = `PYS-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+
+    const docHtml = `
+      <!DOCTYPE html>
+      <html lang="es">
+      <head>
+        <meta charset="UTF-8">
+        <title>Certificado de Paz y Salvo - ${item.unit}</title>
+        <style>
+          @page { size: letter; margin: 3cm 2.5cm; }
+          body { font-family: 'Georgia', serif; color: #0f172a; line-height: 1.8; font-size: 11pt; padding: 20px; }
+          .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 30px; }
+          .header h1 { margin: 0; font-size: 16pt; text-transform: uppercase; }
+          .header p { margin: 3px 0 0; font-size: 10pt; color: #475569; }
+          .title { text-align: center; font-size: 14pt; font-weight: bold; margin: 40px 0 30px; letter-spacing: 1px; text-transform: uppercase; }
+          .body-text { text-align: justify; margin-bottom: 30px; }
+          .highlight { font-weight: bold; color: #0f172a; }
+          .signatures { margin-top: 80px; display: flex; justify-content: space-between; }
+          .sig-box { width: 45%; border-top: 1.5px solid #0f172a; text-align: center; padding-top: 8px; font-size: 10pt; }
+          .footer { margin-top: 60px; font-size: 8pt; color: #64748b; text-align: center; border-top: 1px dashed #cbd5e1; padding-top: 10px; }
+          .btn-print { background: #10b981; color: #022c22; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; margin-bottom: 20px; }
+          @media print { .btn-print { display: none; } }
+        </style>
+      </head>
+      <body>
+        <button class="btn-print" onclick="window.print()">Guardar como PDF / Imprimir</button>
+        <div class="header">
+          <h1>${activeTenant.name}</h1>
+          <p>NIT: ${activeTenant.nit} • ${activeTenant.zone}, ${activeTenant.city}</p>
+          <p>Personería Jurídica Registrada - Régimen de Propiedad Horizontal Ley 675 de 2001</p>
+        </div>
+
+        <div class="title">Certificado Oficial de Paz y Salvo</div>
+
+        <div class="body-text">
+          La Administración de <span class="highlight">${activeTenant.name}</span>, legalmente constituida según las disposiciones de la Ley 675 de 2001,
+          <br/><br/>
+          <strong>HACE CONSTAR QUE:</strong>
+          <br/><br/>
+          El inmueble distinguido como <span class="highlight">${item.unit}</span>, de propiedad de <span class="highlight">${item.owner}</span>, 
+          identificado(a) con cédula de ciudadanía No. <span class="highlight">${item.doc}</span>, se encuentra a la fecha 
+          <strong>TOTALMENTE A PAZ Y SALVO</strong> por concepto de expensas comunes ordinarias, extraordinarias, intereses moratorios y sanciones de convivencia.
+          <br/><br/>
+          El presente certificado se expide a solicitud de la parte interesada en ${activeTenant.city}, a los <strong>${fechaHoy}</strong>, con una validez legal de treinta (30) días calendario contados a partir de su emisión, para los fines notariales, comerciales y de registro a que haya lugar.
+        </div>
+
+        <div class="signatures">
+          <div class="sig-box">
+            <strong>ADMINISTRADOR(A) DELEGADO(A)</strong><br/>
+            ${activeTenant.name}<br/>
+            C.C. ________________________
+          </div>
+          <div class="sig-box">
+            <strong>REVISORÍA FISCAL / CONTROL</strong><br/>
+            Firma Gestora Urbix PH<br/>
+            T.P. ________________________
+          </div>
+        </div>
+
+        <div class="footer">
+          Código de Verificación Notarial: <strong>${codeVerif}</strong> • Certificado auditado digitalmente bajo el Régimen de Propiedad Horizontal Ley 675 de 2001.
+        </div>
+      </body>
+      </html>
+    `;
+
+    printWin.document.open();
+    printWin.document.write(docHtml);
+    printWin.document.close();
+  };
+
+  // ==========================================================================
+  // EXPORTADOR FORMAL DE ACTAS A PDF (LEY 675)
+  // ==========================================================================
+  const exportActaPDF = (acta) => {
+    const printWin = window.open('', '_blank', 'width=850,height=950');
+    if (!printWin) return;
+
+    const docHtml = `
+      <!DOCTYPE html>
+      <html lang="es">
+      <head>
+        <meta charset="UTF-8">
+        <title>${acta.number} - ${activeTenant.name}</title>
+        <style>
+          @page { size: letter; margin: 2.5cm 2cm; }
+          body { font-family: 'Georgia', serif; color: #0f172a; line-height: 1.7; font-size: 11pt; padding: 20px; }
+          .header { border: 1.5px solid #0f172a; padding: 14px; text-align: center; margin-bottom: 25px; }
+          .header h2 { margin: 0; font-size: 14pt; text-transform: uppercase; }
+          .table-meta { width: 100%; border-collapse: collapse; margin-bottom: 25px; font-size: 10pt; }
+          .table-meta td { border: 1px solid #cbd5e1; padding: 8px 12px; }
+          .label { background: #f8fafc; font-weight: bold; width: 25%; }
+          .btn-print { background: #10b981; color: #022c22; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; margin-bottom: 20px; }
+          @media print { .btn-print { display: none; } }
+        </style>
+      </head>
+      <body>
+        <button class="btn-print" onclick="window.print()">Descargar como PDF</button>
+        <div class="header">
+          <h2>${activeTenant.name}</h2>
+          <p style="margin:2px 0 0; font-size:10pt;">NIT: ${activeTenant.nit} • ${acta.number}</p>
+          <p style="margin:0; font-size:9pt; color:#475569;">Libro Oficial de Actas - Ley 675 de 2001</p>
+        </div>
+
+        <table class="table-meta">
+          <tr><td class="label">Reunión</td><td>${acta.type}</td><td class="label">Quórum</td><td>${acta.quorum}</td></tr>
+          <tr><td class="label">Fecha</td><td>${acta.date}</td><td class="label">Estado</td><td>${acta.status}</td></tr>
+          <tr><td class="label">Presidente</td><td>${acta.president}</td><td class="label">Secretario</td><td>${acta.secretary}</td></tr>
+        </table>
+
+        <h3 style="text-transform:uppercase; border-bottom:1px solid #0f172a; padding-bottom:4px;">I. Deliberaciones y Acuerdos Principales</h3>
+        <p style="text-align:justify;">${acta.summary}</p>
+
+        <div style="margin-top:80px; display:flex; justify-content:space-between;">
+          <div style="width:45%; border-top:1.5px solid #0f172a; text-align:center; padding-top:8px;">
+            <strong>${acta.president}</strong><br/>Presidente de Sesión
+          </div>
+          <div style="width:45%; border-top:1.5px solid #0f172a; text-align:center; padding-top:8px;">
+            <strong>${acta.secretary}</strong><br/>Secretario(a) / Administrador
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+    printWin.document.open();
+    printWin.document.write(docHtml);
+    printWin.document.close();
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col">
+      
+      {/* ====================================================================
+          BARRA DE CONTROL SUPERIOR CON SWITCHER MULTIRRESIDENCIAL
+         ==================================================================== */}
+      <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-0 z-40">
+        
+        {/* Identidad de la Plataforma */}
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-emerald-500 flex items-center justify-center font-black text-slate-950 text-xl shadow-lg shadow-emerald-500/20">
+            U
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-black text-white">Urbix PH</h1>
+              <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">
+                Suscripción Total
+              </span>
+            </div>
+            <p className="text-xs text-slate-400">Consola Maestra del Administrador Delegado</p>
+          </div>
+        </div>
+
+        {/* SWITCHER MULTIRRESIDENCIAL (SELECTOR RÁPIDO DE CONJUNTO) */}
+        <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
+          <Building2 className="w-4 h-4 text-emerald-400 ml-2" />
+          <select 
+            value={currentTenantId} 
+            onChange={(e) => setCurrentTenantId(e.target.value)}
+            className="bg-transparent text-white text-xs font-bold outline-none cursor-pointer pr-3"
+          >
+            {tenants.map(t => (
+              <option key={t.id} value={t.id} className="bg-slate-900 text-white">
+                {t.name} ({t.zone})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* PESTAÑAS DE NAVEGACIÓN PRINCIPAL */}
+        <nav className="flex items-center gap-1.5 overflow-x-auto">
+          <button
+            onClick={() => setActiveTab('cartera')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+              activeTab === 'cartera' ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <DollarSign className="w-4 h-4" /> Cartera & Paz y Salvos
+          </button>
+
+          <button
+            onClick={() => setActiveTab('pqrsd')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+              activeTab === 'pqrsd' ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" /> PQRSD & Convivencia
+          </button>
+
+          <button
+            onClick={() => setActiveTab('contractors')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+              activeTab === 'contractors' ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <HardHat className="w-4 h-4" /> Contratistas & ARL
+          </button>
+
+          <button
+            onClick={() => setActiveTab('actas')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+              activeTab === 'actas' ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <FileText className="w-4 h-4" /> Actas con IA (Ley 675)
+          </button>
+        </nav>
+      </header>
+
+      {/* ====================================================================
+          CUERPO PRINCIPAL DINÁMICO
+         ==================================================================== */}
+      <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
+        
+        {/* ==================================================================
+            PESTAÑA 1: CARTERA, COBROS Y EMISIÓN DE PAZ Y SALVOS
+           ================================================================== */}
+        {activeTab === 'cartera' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-5 rounded-3xl">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-400 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
+                  Artículos 29 y 30 • Ley 675
+                </span>
+                <h2 className="text-xl font-black text-white mt-1">Gestión de Cartera y Paz y Salvos Notariales</h2>
+                <p className="text-xs text-slate-400">Expensas comunes, control de morosos y certificados inmediatos para escrituración.</p>
+              </div>
+
+              <div className="relative w-full sm:w-72">
+                <Search className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  placeholder="Buscar inmueble o propietario..."
+                  value={searchCartera}
+                  onChange={(e) => setSearchCartera(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-emerald-500"
+                />
+              </div>
+            </div>
+
+            {/* TABLA DE CARTERA */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="p-4">Inmueble</th>
+                      <th className="p-4">Propietario / Contacto</th>
+                      <th className="p-4">Cuota Mes</th>
+                      <th className="p-4">Saldo en Mora</th>
+                      <th className="p-4">Estado Legal</th>
+                      <th className="p-4 text-right">Acción Notarial</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 text-slate-300">
+                    {balances
+                      .filter(b => b.unit.toLowerCase().includes(searchCartera.toLowerCase()) || b.owner.toLowerCase().includes(searchCartera.toLowerCase()))
+                      .map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-800/40 transition">
+                          <td className="p-4 font-black text-white">{item.unit}</td>
+                          <td className="p-4">
+                            <p className="font-bold text-white">{item.owner}</p>
+                            <p className="text-[10px] text-slate-400">{item.doc} • {item.phone}</p>
+                          </td>
+                          <td className="p-4 font-mono">${item.fee.toLocaleString('es-CO')}</td>
+                          <td className="p-4">
+                            <span className={`font-mono font-bold ${item.debt > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                              ${item.debt.toLocaleString('es-CO')}
+                            </span>
+                          </td>
+                          <td className="p-4">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              item.status === 'Al Día' 
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                                : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                            }`}>
+                              {item.status}
+                            </span>
+                          </td>
+                          <td className="p-4 text-right">
+                            <button
+                              onClick={() => generatePazYSalvo(item)}
+                              disabled={item.debt > 0}
+                              className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed text-slate-950 font-black rounded-xl text-xs transition inline-flex items-center gap-1.5 shadow"
+                            >
+                              <Printer className="w-3.5 h-3.5" /> Expedir Paz y Salvo
+                            </button>
+                          </td>
+                        </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================================================================
+            PESTAÑA 2: PQRSD Y COMITÉ DE CONVIVENCIA (ART. 58 LEY 675)
+           ================================================================== */}
+        {activeTab === 'pqrsd' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-5 rounded-3xl">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider bg-blue-500/10 text-blue-400 px-2.5 py-0.5 rounded-full border border-blue-500/20">
+                  Ley 1755 • Art. 58 Ley 675
+                </span>
+                <h2 className="text-xl font-black text-white mt-1">Buzón de PQRSD y Conflictos de Convivencia</h2>
+                <p className="text-xs text-slate-400">Control de términos legales de respuesta y escalamiento formal al Comité de Convivencia.</p>
+              </div>
+
+              <button 
+                onClick={() => alert('Formulario de nueva radicación para el residente.')}
+                className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-4 py-2.5 rounded-xl text-xs transition shadow-lg shadow-emerald-500/20"
+              >
+                <Plus className="w-4 h-4" /> Radicar Nueva PQRSD
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              {tickets.map((t) => (
+                <div key={t.id} className="bg-slate-900 border border-slate-800 p-5 rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-4 hover:border-slate-700 transition">
+                  <div className="space-y-2 max-w-2xl">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs font-black text-white bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                        {t.number}
+                      </span>
+                      <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                        {t.category}
+                      </span>
+                      <span className="text-xs font-bold text-slate-300">
+                        {t.unit} • {t.applicant}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-slate-300 font-medium leading-relaxed">
+                      {t.desc}
+                    </p>
+
+                    <div className="flex items-center gap-4 text-xs text-slate-400 pt-1">
+                      <span className="flex items-center gap-1 text-rose-400 font-bold">
+                        <Clock className="w-3.5 h-3.5" /> Término legal: {t.daysLeft} días hábiles restantes ({t.deadline})
+                      </span>
+                      <span>Estado: <strong className="text-white">{t.status}</strong></span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => alert(`El caso ${t.number} ha sido remitido formalmente con citación al Comité de Convivencia.`)}
+                      className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition border border-slate-700 flex items-center gap-1.5"
+                    >
+                      <Scale className="w-3.5 h-3.5 text-amber-400" /> Remitir a Convivencia
+                    </button>
+                    <button
+                      onClick={() => alert(`Responder oficialmente a ${t.applicant} mediante acta motivada.`)}
+                      className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black rounded-xl transition shadow"
+                    >
+                      Responder PQRSD
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ==================================================================
+            PESTAÑA 3: CONTRATISTAS Y SEGURIDAD SOCIAL (SG-SST)
+           ================================================================== */}
+        {activeTab === 'contractors' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-5 rounded-3xl">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-400 px-2.5 py-0.5 rounded-full border border-amber-500/20">
+                  Decreto 1072 (SG-SST)
+                </span>
+                <h2 className="text-xl font-black text-white mt-1">Contratistas Externos y Semáforo de ARL</h2>
+                <p className="text-xs text-slate-400">Plomería, obra civil, ascensores y blindaje contra accidentes laborales.</p>
+              </div>
+
+              <button 
+                onClick={() => alert('Modal para registrar nuevo proveedor con planilla ARL.')}
+                className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-4 py-2.5 rounded-xl text-xs transition shadow-lg shadow-emerald-500/20"
+              >
+                <Plus className="w-4 h-4" /> Registrar Proveedor
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {contractors.map((c) => (
+                <div key={c.id} className="bg-slate-900 border border-slate-800 p-5 rounded-3xl flex flex-col justify-between space-y-4">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-950 text-emerald-400 border border-slate-800">
+                      {c.specialty}
+                    </span>
+                    <h3 className="text-base font-black text-white mt-2">{c.name}</h3>
+                    <p className="text-xs text-slate-400 mt-1">📞 {c.phone} • {c.arl}</p>
+                  </div>
+
+                  <div className={`p-3 rounded-2xl border flex items-center justify-between text-xs ${
+                    c.active 
+                      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' 
+                      : 'bg-rose-500/10 border-rose-500/20 text-rose-300'
+                  }`}>
+                    <div>
+                      <p className="font-bold">{c.active ? '✓ ARL Vigente (Autorizado)' : '⚠️ Planilla ARL Vencida'}</p>
+                      <p className="text-[10px] opacity-80">Vence: {c.validUntil}</p>
+                    </div>
+                    {c.active ? <ShieldCheck className="w-5 h-5 text-emerald-400" /> : <AlertTriangle className="w-5 h-5 text-rose-400" />}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ==================================================================
+            PESTAÑA 4: ACTAS Y REUNIONES CON IA (LEY 675)
+           ================================================================== */}
+        {activeTab === 'actas' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-5 rounded-3xl">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-400 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
+                  Art. 47 y 51 • Ley 675
+                </span>
+                <h2 className="text-xl font-black text-white mt-1">Libro Oficial de Actas y Reuniones de Consejo</h2>
+                <p className="text-xs text-slate-400">Transcripción automática con Google Gemini, soporte multijornada y exportación legal.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              {actas.map((acta) => (
+                <div key={acta.id} className="bg-slate-900 border border-slate-800 p-5 rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1.5 max-w-2xl">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-black text-white bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
+                        {acta.number}
+                      </span>
+                      <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
+                        {acta.type}
+                      </span>
+                      <span className="text-[10px] bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded font-bold">
+                        {acta.status}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-slate-300 pt-1">{acta.summary}</p>
+                    <p className="text-[11px] text-slate-400">
+                      📅 {acta.date} • Quórum: {acta.quorum} • Pte: {acta.president} • Srio: {acta.secretary}
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => exportActaPDF(acta)}
+                    className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs transition shadow-lg shadow-emerald-500/20 shrink-0"
+                  >
+                    <Download className="w-4 h-4" /> Exportar Acta Legal (PDF)
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+      </main>
+    </div>
+  );
+}
