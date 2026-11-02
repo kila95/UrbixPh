@@ -32,6 +32,7 @@ export function useCitofonoEngine({
     offer?: any;
   } | null>(null);
   const [segundos, setSegundos] = useState(0);
+  const [estaSilenciado, setEstaSilenciado] = useState(false);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -243,6 +244,17 @@ export function useCitofonoEngine({
     }
   };
 
+  const alternarSilencio = () => {
+    if (localStreamRef.current) {
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        setEstaSilenciado(!audioTrack.enabled);
+        console.log('Estado del micrófono local:', audioTrack.enabled ? 'ACTIVO' : 'SILENCIADO');
+      }
+    }
+  };
+
   const colgarLlamada = () => {
     cerrarConexion(true);
   };
@@ -266,6 +278,7 @@ export function useCitofonoEngine({
     }
     pendingOfferRef.current = null;
     setLlamadaActiva(null);
+    setEstaSilenciado(false);
     setEstado('disponible');
   };
 
@@ -281,6 +294,8 @@ export function useCitofonoEngine({
     tiempoFormateado: formatearTiempo(segundos),
     llamadaActiva,
     colaLlamadas: [],
+    estaSilenciado,
+    alternarSilencio,
     iniciarLlamada,
     contestarLlamada,
     colgarLlamada

@@ -34,6 +34,8 @@ export default function CitofonoVirtualEnterprise({
     tiempoFormateado,
     llamadaActiva,
     colaLlamadas,
+    estaSilenciado,
+    alternarSilencio,
     iniciarLlamada,
     contestarLlamada,
     colgarLlamada
@@ -325,13 +327,13 @@ export default function CitofonoVirtualEnterprise({
                   <div className="flex flex-wrap items-center justify-center gap-3">
                     <button
                       type="button"
-                      onClick={() => setAudioActivo(!audioActivo)}
+                      onClick={alternarSilencio}
                       className={`p-3 rounded-2xl text-xs font-bold font-mono transition cursor-pointer flex items-center gap-1.5 ${
-                        audioActivo ? 'bg-slate-800 text-white border border-slate-700' : 'bg-amber-500 text-slate-950 font-black'
+                        !estaSilenciado ? 'bg-slate-800 text-white border border-slate-700' : 'bg-amber-500 text-slate-950 font-black'
                       }`}
                     >
-                      {audioActivo ? <Mic className="w-4 h-4 text-emerald-400" /> : <MicOff className="w-4 h-4" />}
-                      {audioActivo ? 'Micrófono Abierto' : 'Micrófono Silenciado'}
+                      {!estaSilenciado ? <Mic className="w-4 h-4 text-emerald-400" /> : <MicOff className="w-4 h-4" />}
+                      {!estaSilenciado ? 'Micrófono Abierto' : 'Micrófono Silenciado'}
                     </button>
                     <button
                       type="button"

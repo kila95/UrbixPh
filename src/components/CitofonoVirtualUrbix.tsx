@@ -17,6 +17,8 @@ export default function CitofonoVirtualUrbix({
     tiempoFormateado,
     llamadaActiva,
     colaLlamadas,
+    estaSilenciado,
+    alternarSilencio,
     iniciarLlamada,
     contestarLlamada,
     colgarLlamada
@@ -161,10 +163,11 @@ export default function CitofonoVirtualUrbix({
               
               <div className="flex items-center justify-center gap-3">
                 <button
-                  onClick={() => setAudioActivo(!audioActivo)}
-                  className={`p-3 rounded-2xl text-xs font-bold font-mono transition cursor-pointer flex items-center gap-1.5 ${audioActivo ? 'bg-slate-800 text-white' : 'bg-amber-500 text-slate-950'}`}
+                  type="button"
+                  onClick={alternarSilencio}
+                  className={`p-3 rounded-2xl text-xs font-bold font-mono transition cursor-pointer flex items-center gap-1.5 ${!estaSilenciado ? 'bg-slate-800 text-white' : 'bg-amber-500 text-slate-950 font-black'}`}
                 >
-                  <Mic className="w-4 h-4" /> {audioActivo ? 'Micrófono Abierto' : 'Silenciado'}
+                  <Mic className="w-4 h-4" /> {!estaSilenciado ? 'Micrófono Abierto' : 'Silenciado'}
                 </button>
                 <button
                   onClick={colgarLlamada}
