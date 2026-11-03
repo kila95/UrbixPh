@@ -10,6 +10,8 @@ import ResidenteMiApartamentoGeneral from './ResidenteMiApartamentoGeneral';
 import SalaAsambleaVirtualExecutive from './SalaAsambleaVirtualExecutive';
 import ModuloReunionesConSubmodulos from './ModuloReunionesConSubmodulos';
 import CitofonoVirtualUrbix from './CitofonoVirtualUrbix';
+import VentanaFlotanteCitofono from './VentanaFlotanteCitofono';
+import { useCitofonoEngine } from '../useCitofonoEngine';
 import { UnidadCarteraPH, ReformaMudanzaPH, SancionConvivenciaPH } from '../PanelAdministradorModulo3';
 import type { VisitaQrPH, EncomiendaPH } from '../App';
 
@@ -548,6 +550,14 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
     onShowToast?.(`🏡 Cambiado a ${demo.label}: ${demo.unidad} (${demo.propietario})`);
   };
 
+  // Motor global de Citofonía para el Residente (permite recibir llamadas de Portería con ventana flotante en cualquier pestaña)
+  const citofonoResidentEngine = useCitofonoEngine({
+    miRol: 'residente',
+    miUnidad: miEstadoCuenta.unidad || unidadResidente.unidad || 'Torre 2 - 301',
+    miNombre: miEstadoCuenta.propietario || unidadResidente.propietario || 'Martha Lucía Gómez',
+    miCargo: residenteDemoActivo.cargo || 'Residente Copropietario'
+  });
+
   // Función para generar pase QR y sincronizarlo en tiempo real con Portería
   const generarPaseQRResidente = (e: any) => {
     e.preventDefault();
@@ -655,6 +665,14 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
   return (
     <div className="min-h-screen bg-[#07090e] text-slate-100 font-sans p-3 sm:p-5 md:p-6 space-y-4 sm:space-y-6 flex flex-col">
       
+      {/* VENTANA FLOTANTE SUPERIOR PARA LLAMADAS ENTRANTES O ACTIVAS DEL CITÓFONO */}
+      <VentanaFlotanteCitofono
+        engine={citofonoResidentEngine}
+        rolVista="residente"
+        onIrAlModuloCitofono={() => setActiveTabResidente('citofono')}
+        onShowToast={onShowToast}
+      />
+
       {/* 1. CABECERA SIEMPRE ARRIBA + SELECTOR RÁPIDO DE LOS 3 RESIDENTES DEMO */}
       <header className="w-full shrink-0 bg-[#1c1c1f] border border-[#262629] rounded-2xl px-4 sm:px-6 py-3.5 sm:py-4 flex flex-col gap-3 shadow-lg">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
@@ -838,7 +856,10 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
         {activeTabResidente === 'citofono' && (
           <CitofonoVirtualUrbix 
             unidadResidenteActual={miEstadoCuenta.unidad || unidadResidente.unidad || 'Torre 2 - 301'}
+            nombreResidenteActual={miEstadoCuenta.propietario || unidadResidente.propietario}
+            cargoResidenteActual={residenteDemoActivo.cargo}
             onShowToast={onShowToast}
+            engineExternal={citofonoResidentEngine}
           />
         )}
 

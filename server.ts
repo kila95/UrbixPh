@@ -114,10 +114,12 @@ async function startServer() {
     }
   );
 
-  // Bus de señalización en tiempo real en memoria (SSE + POST) para respaldar WebRTC multi-participante y control de palabra entre dispositivos
+  // Bus de señalización en tiempo real en memoria (SSE + POST) para respaldar WebRTC multi-participante, control de palabra y Citofonía entre dispositivos
   const asambleaSseClients = new Set<express.Response>();
   let ultimaConvocatoriaCache: any = null;
   let ultimoControlPalabraCache: any = null;
+  let llamadaCitofonoActivaCache: { payload: any; timestamp: number } | null = null;
+  const participantesActivosCache = new Map<string, any>();
 
   app.get("/api/asamblea-events", (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
@@ -133,6 +135,13 @@ async function startServer() {
     }
     if (ultimoControlPalabraCache) {
       res.write(`data: ${JSON.stringify({ event: "asamblea_control_palabra", payload: ultimoControlPalabraCache })}\n\n`);
+    }
+    // Si hay una llamada de citófono timbrando (menor a 90s), notificar de inmediato al vigilante o residente recién conectado
+    if (llamadaCitofonoActivaCache && Date.now() - llamadaCitofonoActivaCache.timestamp < 90000) {
+      res.write(`data: ${JSON.stringify({ event: "solicitar_llamada", payload: llamadaCitofonoActivaCache.payload })}\n\n`);
+    }
+    for (const partPayload of participantesActivosCache.values()) {
+      res.write(`data: ${JSON.stringify({ event: "participante_listo", payload: partPayload })}\n\n`);
     }
 
     const keepAlive = setInterval(() => {
@@ -161,8 +170,26 @@ async function startServer() {
     } else if (event === "asamblea_cerrada") {
       ultimaConvocatoriaCache = null;
       ultimoControlPalabraCache = null;
+      participantesActivosCache.clear();
     } else if (event === "asamblea_control_palabra") {
       ultimoControlPalabraCache = payload;
+    } else if (event === "solicitar_llamada") {
+      llamadaCitofonoActivaCache = { payload, timestamp: Date.now() };
+    } else if (event === "webrtc_answer" || event === "terminar_llamada") {
+      llamadaCitofonoActivaCache = null;
+    } else if (event === "participante_listo" && payload?.peerId) {
+      participantesActivosCache.set(payload.peerId, payload);
+    } else if (event === "asamblea_unidad_actualizada" && payload?.peerId) {
+      const prev = participantesActivosCache.get(payload.peerId);
+      if (prev) {
+        participantesActivosCache.set(payload.peerId, {
+          ...prev,
+          unidad: payload.unidad || prev.unidad,
+          etiqueta: payload.etiqueta || payload.unidad || prev.etiqueta
+        });
+      }
+    } else if (event === "asamblea_peer_salio" && payload?.peerId) {
+      participantesActivosCache.delete(payload.peerId);
     }
 
     const packet = `data: ${JSON.stringify({ event, payload })}\n\n`;

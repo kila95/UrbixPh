@@ -75,8 +75,11 @@ export default function ModuloReunionesConSubmodulos({
 
   // Unidad activa (permite verificar acceso por apartamento en modo residente)
   const [unidadActiva, setUnidadActiva] = useState(unidadResidenteActual);
+  const unidadAutoAsignadaPorSalaRef = useRef<boolean>(false);
   useEffect(() => {
-    setUnidadActiva(unidadResidenteActual);
+    if (!unidadAutoAsignadaPorSalaRef.current) {
+      setUnidadActiva(unidadResidenteActual);
+    }
   }, [unidadResidenteActual]);
 
   // Catálogo de apartamentos para escoger en citaciones del Consejo / Reuniones
@@ -174,7 +177,58 @@ export default function ModuloReunionesConSubmodulos({
       streamTick: number;
     }>
   >([]);
+  const participantesRemotosRef = useRef<
+    Array<{
+      peerId: string;
+      unidad: string;
+      rol: string;
+      etiqueta: string;
+      conectado: boolean;
+      streamTick: number;
+    }>
+  >([]);
+  const actualizarParticipantesRemotos = useCallback(
+    (
+      updater:
+        | Array<{
+            peerId: string;
+            unidad: string;
+            rol: string;
+            etiqueta: string;
+            conectado: boolean;
+            streamTick: number;
+          }>
+        | ((
+            prev: Array<{
+              peerId: string;
+              unidad: string;
+              rol: string;
+              etiqueta: string;
+              conectado: boolean;
+              streamTick: number;
+            }>
+          ) => Array<{
+            peerId: string;
+            unidad: string;
+            rol: string;
+            etiqueta: string;
+            conectado: boolean;
+            streamTick: number;
+          }>)
+    ) => {
+      const next =
+        typeof updater === 'function' ? updater(participantesRemotosRef.current) : updater;
+      participantesRemotosRef.current = next;
+      setParticipantesRemotos(next);
+      return next;
+    },
+    []
+  );
   const [peerIdConPalabra, setPeerIdConPalabra] = useState<string>('');
+  const peerIdConPalabraRef = useRef<string>('');
+  useEffect(() => {
+    peerIdConPalabraRef.current = peerIdConPalabra;
+  }, [peerIdConPalabra]);
 
   const canalRtcRef = useRef<any>(null);
   const localBroadcastRef = useRef<BroadcastChannel | null>(null);
@@ -364,11 +418,11 @@ export default function ModuloReunionesConSubmodulos({
       if (node.srcObject !== streamRemotoRef.current) {
         node.srcObject = streamRemotoRef.current;
       }
-      node.muted = !audioRemotoOn;
-      node.volume = 1.0;
+      // Los elementos <video> se mantienen silenciados para que ningún navegador móvil/escritorio bloquee el autoplay de múltiples cámaras; el audio sale por los elementos <audio> dedicados
+      node.muted = true;
       node.play().catch(() => {});
     }
-  }, [audioRemotoOn]);
+  }, []);
 
   // Vincular el elemento <video> y <audio> individual de cada participante conectado en los subcuadros
   const bindRemoteSubcuadroVideo = useCallback(
@@ -383,8 +437,7 @@ export default function ModuloReunionesConSubmodulos({
         if (node.srcObject !== stream) {
           node.srcObject = stream;
         }
-        node.muted = !audioRemotoOnRef.current;
-        node.volume = 1.0;
+        node.muted = true;
         node.play().catch(() => {});
       }
     },
@@ -414,38 +467,45 @@ export default function ModuloReunionesConSubmodulos({
   // Desbloquear y reproducir todos los flujos remotos de video y audio (vital en navegadores al dar la palabra)
   const forzarReproduccionStreamsRemotos = useCallback((muteOverride?: boolean) => {
     const debeSilenciar = muteOverride !== undefined ? muteOverride : !audioRemotoOnRef.current;
+    if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume().catch(() => {});
+    }
     if (videoRemotoRef.current && streamRemotoRef.current) {
       if (videoRemotoRef.current.srcObject !== streamRemotoRef.current) {
         videoRemotoRef.current.srcObject = streamRemotoRef.current;
       }
-      videoRemotoRef.current.muted = debeSilenciar;
-      videoRemotoRef.current.volume = 1.0;
+      videoRemotoRef.current.muted = true;
       videoRemotoRef.current.play().catch(() => {});
     }
     remoteVideoElementsMapRef.current.forEach((vidEl, pid) => {
       const st = remoteStreamsMapRef.current.get(pid);
-      if (st && vidEl.srcObject !== st) {
-        vidEl.srcObject = st;
+      if (st) {
+        if (vidEl.srcObject !== st) {
+          vidEl.srcObject = st;
+        }
+        vidEl.muted = true;
+        vidEl.play().catch(() => {});
       }
-      vidEl.muted = debeSilenciar;
-      vidEl.volume = 1.0;
-      vidEl.play().catch(() => {});
     });
     remoteAudioElementsMapRef.current.forEach((audEl, pid) => {
       const st = remoteStreamsMapRef.current.get(pid);
-      if (st && audEl.srcObject !== st) {
-        audEl.srcObject = st;
+      if (st) {
+        if (audEl.srcObject !== st) {
+          audEl.srcObject = st;
+        }
+        audEl.muted = debeSilenciar;
+        audEl.volume = 1.0;
+        audEl.play().catch(() => {});
       }
-      audEl.muted = debeSilenciar;
-      audEl.volume = 1.0;
-      audEl.play().catch(() => {});
     });
   }, []);
 
   // Reforzar asignación de streams cuando cambia enVivo, participantesRemotos o audioRemotoOn
   useEffect(() => {
     if (enVivo && videoLocalRef.current && streamLocalRef.current) {
-      videoLocalRef.current.srcObject = streamLocalRef.current;
+      if (videoLocalRef.current.srcObject !== streamLocalRef.current) {
+        videoLocalRef.current.srcObject = streamLocalRef.current;
+      }
       videoLocalRef.current.play().catch(() => {});
     }
     if (enVivo) {
@@ -488,38 +548,24 @@ export default function ModuloReunionesConSubmodulos({
     }
   }, []);
 
-  // Crear o recuperar un RTCPeerConnection dedicado para un peer remoto específico (Malla Multi-Peer real)
+  // Crear o recuperar un RTCPeerConnection dedicado para un peer remoto específico (Malla Multi-Peer real sin colisiones)
   const obtenerOCrearPeerParaParticipante = useCallback(
     (
       remotePeerId: string,
       esIniciadorOferta: boolean,
-      metaRemoto?: { unidad?: string; rol?: string; etiqueta?: string }
+      metaRemoto?: { unidad?: string; rol?: string; etiqueta?: string },
+      forzarReinicio = false
     ) => {
       const targetKey = remotePeerId || 'default-peer';
-      const existente = peersMapRef.current.get(targetKey);
-      if (existente && esIniciadorOferta) {
-        try {
-          existente.close();
-        } catch {}
-        peersMapRef.current.delete(targetKey);
-      } else if (existente && !esIniciadorOferta && existente.signalingState !== 'closed') {
-        try {
-          existente.close();
-        } catch {}
-        peersMapRef.current.delete(targetKey);
-      }
 
-      const pc = new RTCPeerConnection(iceServersConfig);
-      peersMapRef.current.set(targetKey, pc);
-      peerRef.current = pc;
-
-      // Registrar participante en la lista de subcuadros conectados
+      // Registrar o actualizar participante sincrónicamente en la lista de subcuadros conectados
       if (metaRemoto?.unidad || metaRemoto?.etiqueta) {
-        setParticipantesRemotos((prev) => {
-          const unidadRemota = metaRemoto.unidad || 'Torre 2 - 301';
-          const etiquetaRemota = metaRemoto.etiqueta || unidadRemota;
-          const rolRemoto = metaRemoto.rol || 'residente';
+        actualizarParticipantesRemotos((prev) => {
           const idx = prev.findIndex((p) => p.peerId === targetKey);
+          const unidadRemota =
+            metaRemoto.unidad || (idx >= 0 ? prev[idx].unidad : 'Torre 2 - 301');
+          const etiquetaRemota = metaRemoto.etiqueta || unidadRemota;
+          const rolRemoto = metaRemoto.rol || (idx >= 0 ? prev[idx].rol : 'residente');
           if (idx >= 0) {
             const copia = [...prev];
             copia[idx] = {
@@ -530,52 +576,103 @@ export default function ModuloReunionesConSubmodulos({
             };
             return copia;
           }
-          return [
+          const nuevoListado = [
             ...prev,
             {
               peerId: targetKey,
               unidad: unidadRemota,
               rol: rolRemoto,
               etiqueta: etiquetaRemota,
-              conectado: false,
+              conectado: remoteStreamsMapRef.current.has(targetKey),
               streamTick: Date.now()
             }
           ];
+          setAsistentesConectados(Math.max(2, nuevoListado.length + 1));
+          return nuevoListado;
         });
       }
+
+      const existente = peersMapRef.current.get(targetKey);
+
+      // Si ya existe una conexión activa o negociando y NO es un reinicio forzado, reutilizarla sin destruirla
+      if (existente && !forzarReinicio && esIniciadorOferta) {
+        const iceOk =
+          existente.iceConnectionState === 'connected' ||
+          existente.iceConnectionState === 'completed' ||
+          existente.iceConnectionState === 'checking';
+        const sigOk = existente.signalingState !== 'closed';
+        if (sigOk && (iceOk || existente.signalingState === 'have-local-offer')) {
+          // Asegurar que nuestras pistas locales estén adjuntas
+          if (streamLocalRef.current) {
+            const currentSenders = existente.getSenders();
+            streamLocalRef.current.getTracks().forEach((track) => {
+              const sender = currentSenders.find((s) => s.track?.kind === track.kind);
+              if (sender) {
+                if (sender.track !== track) {
+                  sender.replaceTrack(track).catch(() => {});
+                }
+              } else {
+                try {
+                  existente.addTrack(track, streamLocalRef.current!);
+                } catch {}
+              }
+            });
+          }
+          return existente;
+        }
+      }
+
+      if (existente) {
+        try {
+          existente.ontrack = null;
+          existente.onicecandidate = null;
+          existente.oniceconnectionstatechange = null;
+          existente.close();
+        } catch {}
+        peersMapRef.current.delete(targetKey);
+      }
+
+      const pc = new RTCPeerConnection(iceServersConfig);
+      peersMapRef.current.set(targetKey, pc);
+      peerRef.current = pc;
 
       // Añadir pistas locales (video + audio) a este RTCPeerConnection específico
       if (streamLocalRef.current) {
         streamLocalRef.current.getTracks().forEach((track) => {
-          pc.addTrack(track, streamLocalRef.current!);
+          try {
+            pc.addTrack(track, streamLocalRef.current!);
+          } catch {}
         });
       }
 
       // Cuando llegan las pistas de video y audio de ESTE participante remoto
       pc.ontrack = (evt) => {
         let remoteStream = remoteStreamsMapRef.current.get(targetKey);
+        if (!remoteStream) {
+          remoteStream = new MediaStream();
+          remoteStreamsMapRef.current.set(targetKey, remoteStream);
+        }
+
         if (evt.streams && evt.streams[0]) {
-          remoteStream = evt.streams[0];
-        } else {
-          if (!remoteStream) {
-            remoteStream = new MediaStream();
-          }
-          if (!remoteStream.getTracks().some((t) => t.id === evt.track.id)) {
+          evt.streams[0].getTracks().forEach((t) => {
+            t.enabled = true;
+            if (!remoteStream!.getTracks().some((existing) => existing.id === t.id)) {
+              remoteStream!.addTrack(t);
+            }
+          });
+        }
+        if (evt.track) {
+          evt.track.enabled = true;
+          if (!remoteStream.getTracks().some((existing) => existing.id === evt.track.id)) {
             remoteStream.addTrack(evt.track);
           }
         }
 
-        // Asegurar que todas las pistas entrantes estén habilitadas
-        remoteStream.getTracks().forEach((t) => {
-          t.enabled = true;
-        });
-
-        remoteStreamsMapRef.current.set(targetKey, remoteStream);
         streamRemotoRef.current = remoteStream;
         setRemotoConectado(true);
 
-        // Actualizar estado del participante remoto para re-renderizar su subcuadro con video y audio en vivo
-        setParticipantesRemotos((prev) => {
+        // Actualizar estado del participante remoto conservando su unidad asignada
+        actualizarParticipantesRemotos((prev) => {
           const existe = prev.some((p) => p.peerId === targetKey);
           const actualizado = existe
             ? prev.map((p) =>
@@ -598,17 +695,16 @@ export default function ModuloReunionesConSubmodulos({
           return actualizado;
         });
 
-        // Asignar inmediatamente a su <video> y <audio> dedicado y al monitor principal
+        // Asignar inmediatamente a su <video> (muted=true para autoplay garantizado) y <audio> dedicado
         const subVideo = remoteVideoElementsMapRef.current.get(targetKey);
         if (subVideo) {
-          if (subVideo.srcObject !== remoteStream) subVideo.srcObject = remoteStream;
-          subVideo.muted = !audioRemotoOnRef.current;
-          subVideo.volume = 1.0;
+          subVideo.srcObject = remoteStream;
+          subVideo.muted = true;
           subVideo.play().catch(() => {});
         }
         const subAudio = remoteAudioElementsMapRef.current.get(targetKey);
         if (subAudio) {
-          if (subAudio.srcObject !== remoteStream) subAudio.srcObject = remoteStream;
+          subAudio.srcObject = remoteStream;
           subAudio.muted = !audioRemotoOnRef.current;
           subAudio.volume = 1.0;
           subAudio.play().catch(() => {});
@@ -617,12 +713,12 @@ export default function ModuloReunionesConSubmodulos({
           if (
             !videoRemotoRef.current.srcObject ||
             rolUsuarioRef.current === 'residente' ||
-            metaRemoto?.rol === 'admin'
+            metaRemoto?.rol === 'admin' ||
+            peerIdConPalabraRef.current === targetKey
           ) {
             videoRemotoRef.current.srcObject = remoteStream;
           }
-          videoRemotoRef.current.muted = !audioRemotoOnRef.current;
-          videoRemotoRef.current.volume = 1.0;
+          videoRemotoRef.current.muted = true;
           videoRemotoRef.current.play().catch(() => {});
         }
       };
@@ -652,10 +748,13 @@ export default function ModuloReunionesConSubmodulos({
         const iceState = pc.iceConnectionState;
         if (iceState === 'connected' || iceState === 'completed') {
           setRemotoConectado(true);
-          setParticipantesRemotos((prev) =>
-            prev.map((p) => (p.peerId === targetKey ? { ...p, conectado: true } : p))
+          actualizarParticipantesRemotos((prev) =>
+            prev.map((p) =>
+              p.peerId === targetKey ? { ...p, conectado: true, streamTick: Date.now() } : p
+            )
           );
-        } else if (iceState === 'failed' || iceState === 'disconnected') {
+          forzarReproduccionStreamsRemotos();
+        } else if (iceState === 'failed') {
           if (typeof pc.restartIce === 'function') {
             pc.restartIce();
           }
@@ -697,7 +796,7 @@ export default function ModuloReunionesConSubmodulos({
 
       return pc;
     },
-    [emitirEventoSenalizacion]
+    [actualizarParticipantesRemotos, emitirEventoSenalizacion, forzarReproduccionStreamsRemotos]
   );
 
   // Wrapper compatible para botones de resincronización manual
@@ -710,6 +809,7 @@ export default function ModuloReunionesConSubmodulos({
           rol: rolUsuarioRef.current,
           etiqueta:
             rolUsuarioRef.current === 'admin' ? 'Administración Principal' : unidadActivaRef.current,
+          forzarRenegociacion: true,
           hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         });
       }
@@ -727,7 +827,10 @@ export default function ModuloReunionesConSubmodulos({
 
       let audioTracks = streamLocalRef.current.getAudioTracks();
       const tieneMicHardwareVivo = audioTracks.some(
-        (t) => t.readyState === 'live' && !t.label.toLowerCase().includes('destination')
+        (t) =>
+          t.readyState === 'live' &&
+          !t.label.toLowerCase().includes('destination') &&
+          !t.label.toLowerCase().includes('web audio')
       );
 
       // Si se nos concede la palabra (activar === true) y no había pista de micrófono real, solicitarla y reemplazarla en caliente en todas las conexiones
@@ -740,17 +843,12 @@ export default function ModuloReunionesConSubmodulos({
           const nuevoTrack = nuevoAudioStream.getAudioTracks()[0];
           if (nuevoTrack) {
             nuevoTrack.enabled = true;
-            // Reemplazar en el stream local
-            audioTracks.forEach((oldT) => {
-              streamLocalRef.current?.removeTrack(oldT);
-              oldT.stop();
-            });
-            streamLocalRef.current.addTrack(nuevoTrack);
-            audioTracks = [nuevoTrack];
 
-            // Reemplazar en todos los RTCPeerConnections activos
+            // 1. Reemplazar PRIMERO en todos los RTCPeerConnections activos antes de detener la pista anterior
             peersMapRef.current.forEach((pc) => {
-              const audioSender = pc.getSenders().find((s) => s.track?.kind === 'audio' || !s.track);
+              const audioSender = pc
+                .getSenders()
+                .find((s) => s.track?.kind === 'audio');
               if (audioSender) {
                 audioSender.replaceTrack(nuevoTrack).catch(() => {});
               } else if (streamLocalRef.current) {
@@ -759,9 +857,17 @@ export default function ModuloReunionesConSubmodulos({
                 } catch {}
               }
             });
+
+            // 2. Reemplazar en el stream local
+            audioTracks.forEach((oldT) => {
+              streamLocalRef.current?.removeTrack(oldT);
+              oldT.stop();
+            });
+            streamLocalRef.current.addTrack(nuevoTrack);
+            audioTracks = [nuevoTrack];
           }
         } catch {
-          // Si el navegador no tiene micrófono físico, habilitar la pista existente
+          // Si el navegador no tiene micrófono físico libre, habilitar la pista existente
         }
       }
 
@@ -825,7 +931,21 @@ export default function ModuloReunionesConSubmodulos({
       } else if (event === 'asamblea_cerrada') {
         setInvitacionEntrante(null);
         setRemotoConectado(false);
-        setParticipantesRemotos([]);
+        actualizarParticipantesRemotos([]);
+      } else if (event === 'asamblea_unidad_actualizada') {
+        const remotePeerId = payload.peerId || payload._senderPeerId;
+        if (!remotePeerId || remotePeerId === miPeerIdRef.current || !payload.unidad) return;
+        actualizarParticipantesRemotos((prev) =>
+          prev.map((p) =>
+            p.peerId === remotePeerId
+              ? {
+                  ...p,
+                  unidad: payload.unidad,
+                  etiqueta: payload.etiqueta || payload.unidad
+                }
+              : p
+          )
+        );
       } else if (event === 'participante_listo') {
         // Un participante (residente o admin) acaba de entrar o actualizar su unidad y anuncia su peerId
         const remotePeerId = payload.peerId || payload._senderPeerId;
@@ -834,24 +954,39 @@ export default function ModuloReunionesConSubmodulos({
         if (enVivoRef.current && streamLocalRef.current) {
           let unidadAsignada = payload.unidad || 'Torre 2 - 301';
 
-          // Si el usuario abrió una 2da o 3ra pestaña de Residente sin cambiar el selector "Torre 2 - 301",
-          // asignarle automáticamente el siguiente apartamento Demo disponible para que cada participante tenga su propio subcuadro
+          // Asignación sincrónica usando participantesRemotosRef para que el 2°, 3°+ residente NUNCA colisione con el 1°
           if (payload.rol !== 'admin') {
-            setParticipantesRemotos((prev) => {
-              const yaExisteEstePeer = prev.find((p) => p.peerId === remotePeerId);
-              if (!yaExisteEstePeer) {
-                const unidadesOcupadasPorOtrosPeers = new Set(
-                  prev.filter((p) => p.peerId !== remotePeerId && p.rol !== 'admin').map((p) => p.unidad)
+            const listaActual = participantesRemotosRef.current;
+            const existentePeer = listaActual.find((p) => p.peerId === remotePeerId);
+
+            // Si este peer ya tenía una unidad asignada y no es un cambio explícito desde su selector, conservarla
+            if (existentePeer && !payload.cambioExplicito) {
+              unidadAsignada = existentePeer.unidad;
+            } else {
+              const unidadesOcupadasPorOtrosPeers = new Set(
+                listaActual
+                  .filter((p) => p.peerId !== remotePeerId && p.rol !== 'admin')
+                  .map((p) => p.unidad.trim().toLowerCase())
+              );
+              if (rolUsuarioRef.current === 'residente') {
+                unidadesOcupadasPorOtrosPeers.add(unidadActivaRef.current.trim().toLowerCase());
+              }
+
+              if (unidadesOcupadasPorOtrosPeers.has(unidadAsignada.trim().toLowerCase())) {
+                const demosOrden = [
+                  'Torre 2 - 301',
+                  'Torre 1 - 302',
+                  'Torre 1 - 201',
+                  'Torre 2 - 402',
+                  'Torre 1 - 101',
+                  'Torre 1 - 102'
+                ];
+                const libre = demosOrden.find(
+                  (u) => !unidadesOcupadasPorOtrosPeers.has(u.trim().toLowerCase())
                 );
-                if (rolUsuarioRef.current === 'residente') {
-                  unidadesOcupadasPorOtrosPeers.add(unidadActivaRef.current);
-                }
-                if (unidadesOcupadasPorOtrosPeers.has(unidadAsignada)) {
-                  const demosOrden = ['Torre 2 - 301', 'Torre 1 - 302', 'Torre 1 - 201', 'Torre 2 - 402'];
-                  const libre = demosOrden.find((u) => !unidadesOcupadasPorOtrosPeers.has(u));
-                  if (libre) {
-                    unidadAsignada = libre;
-                    // Notificar a ese peer su unidad asignada para que su botón de palabra coincida al 100%
+                if (libre) {
+                  unidadAsignada = libre;
+                  if (rolUsuarioRef.current === 'admin') {
                     emitirEventoSenalizacion('asamblea_asignar_unidad_peer', {
                       toPeerId: remotePeerId,
                       unidadAsignada: libre
@@ -859,26 +994,70 @@ export default function ModuloReunionesConSubmodulos({
                   }
                 }
               }
-              return prev;
-            });
+            }
           }
 
           if (payload.rol !== 'admin') {
             setNombreParticipanteRemoto(unidadAsignada);
           }
 
-          // Crear un RTCPeerConnection exclusivo para este participante y enviarle oferta SDP dirigida a su peerId
-          obtenerOCrearPeerParaParticipante(remotePeerId, true, {
-            unidad: unidadAsignada,
-            rol: payload.rol || 'residente',
-            etiqueta: payload.rol === 'admin' ? 'Administración Principal' : unidadAsignada
-          });
+          // Evitar colisión (glare): si soy residente y quien anuncia es el Admin, anuncio mi presencia para que el Admin inicie la oferta hacia mí
+          if (rolUsuarioRef.current === 'residente' && payload.rol === 'admin') {
+            actualizarParticipantesRemotos((prev) => {
+              if (prev.some((p) => p.peerId === remotePeerId)) return prev;
+              return [
+                ...prev,
+                {
+                  peerId: remotePeerId,
+                  unidad: 'ADMIN',
+                  rol: 'admin',
+                  etiqueta: 'Administración Principal',
+                  conectado: remoteStreamsMapRef.current.has(remotePeerId),
+                  streamTick: Date.now()
+                }
+              ];
+            });
+            if (!peersMapRef.current.has(remotePeerId)) {
+              emitirEventoSenalizacion('participante_listo', {
+                peerId: miPeerIdRef.current,
+                unidad: unidadActivaRef.current,
+                rol: 'residente',
+                etiqueta: unidadActivaRef.current,
+                hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              });
+            }
+            return;
+          }
+
+          // Crear o reutilizar el RTCPeerConnection exclusivo para este participante y enviarle oferta SDP dirigida a su peerId
+          obtenerOCrearPeerParaParticipante(
+            remotePeerId,
+            true,
+            {
+              unidad: unidadAsignada,
+              rol: payload.rol || 'residente',
+              etiqueta: payload.rol === 'admin' ? 'Administración Principal' : unidadAsignada
+            },
+            Boolean(payload.forzarRenegociacion)
+          );
         }
       } else if (event === 'asamblea_asignar_unidad_peer') {
-        if (payload.toPeerId === miPeerIdRef.current && payload.unidadAsignada && rolUsuarioRef.current === 'residente') {
+        if (
+          payload.toPeerId === miPeerIdRef.current &&
+          payload.unidadAsignada &&
+          rolUsuarioRef.current === 'residente'
+        ) {
+          unidadAutoAsignadaPorSalaRef.current = true;
           setUnidadActiva(payload.unidadAsignada);
           unidadActivaRef.current = payload.unidadAsignada;
-          onShowToast?.(`🏡 Unidad sincronizada automáticamente como ${payload.unidadAsignada} para evitar duplicados en sala.`);
+          emitirEventoSenalizacion('asamblea_unidad_actualizada', {
+            peerId: miPeerIdRef.current,
+            unidad: payload.unidadAsignada,
+            etiqueta: payload.unidadAsignada
+          });
+          onShowToast?.(
+            `🏡 Unidad sincronizada automáticamente como ${payload.unidadAsignada} para tu subcuadro independiente en sala.`
+          );
         }
       } else if (event === 'asamblea_oferta') {
         if (!enVivoRef.current || !streamLocalRef.current) return;
@@ -890,15 +1069,38 @@ export default function ModuloReunionesConSubmodulos({
           if (payload.fromRol !== 'admin' && payload.orador) {
             setNombreParticipanteRemoto(payload.orador);
           }
-          const pc = obtenerOCrearPeerParaParticipante(remotePeerId, false, {
-            unidad: payload.fromUnidad || payload.orador || 'ADMIN',
-            rol: payload.fromRol || 'admin',
-            etiqueta: payload.orador || 'Administración Principal'
-          });
+
+          // Conservar la unidad ya asignada para este peer si existe
+          const peerPrevio = participantesRemotosRef.current.find((p) => p.peerId === remotePeerId);
+          const unidadRemotaOferta =
+            peerPrevio && peerPrevio.rol !== 'admin'
+              ? peerPrevio.unidad
+              : payload.fromUnidad || payload.orador || 'ADMIN';
+
+          const pc = obtenerOCrearPeerParaParticipante(
+            remotePeerId,
+            false,
+            {
+              unidad: unidadRemotaOferta,
+              rol: payload.fromRol || 'admin',
+              etiqueta:
+                payload.fromRol === 'admin' ? 'Administración Principal' : unidadRemotaOferta
+            },
+            true
+          );
 
           await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
 
-          // Drenar candidatos ICE en cola para este peerId
+          // Garantizar que todos los transceptores envíen y reciban audio y video bidireccionalmente
+          pc.getTransceivers().forEach((tr) => {
+            if (tr.sender && tr.sender.track && tr.direction === 'recvonly') {
+              try {
+                tr.direction = 'sendrecv';
+              } catch {}
+            }
+          });
+
+          // Drenar candidatos ICE en cola exclusivos de este peerId
           const colaIce = pendingIceMapRef.current.get(remotePeerId) || [];
           while (colaIce.length > 0) {
             const cand = colaIce.shift();
@@ -922,15 +1124,15 @@ export default function ModuloReunionesConSubmodulos({
       } else if (event === 'asamblea_respuesta') {
         if (payload.toPeerId && payload.toPeerId !== miPeerIdRef.current) return;
         const remotePeerId = payload.fromPeerId || payload._senderPeerId;
-        const pc = (remotePeerId ? peersMapRef.current.get(remotePeerId) : null) || peerRef.current;
+        if (!remotePeerId) return;
 
-        if (pc && pc.signalingState !== 'stable') {
+        // Buscar estrictamente el RTCPeerConnection de este remotePeerId (jamás usar el de otro residente)
+        const pc = peersMapRef.current.get(remotePeerId);
+
+        if (pc && pc.signalingState === 'have-local-offer') {
           try {
-            if (payload.unidad && payload.unidad !== 'ADMIN') {
-              setNombreParticipanteRemoto(payload.unidad);
-            }
             await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-            const colaIce = (remotePeerId ? pendingIceMapRef.current.get(remotePeerId) : null) || [];
+            const colaIce = pendingIceMapRef.current.get(remotePeerId) || [];
             while (colaIce.length > 0) {
               const cand = colaIce.shift();
               if (cand) {
@@ -946,7 +1148,8 @@ export default function ModuloReunionesConSubmodulos({
         const remotePeerId = payload.fromPeerId || payload._senderPeerId;
         if (!remotePeerId || remotePeerId === miPeerIdRef.current) return;
 
-        const pc = peersMapRef.current.get(remotePeerId) || peerRef.current;
+        // Buscar estrictamente el RTCPeerConnection de este remotePeerId (si aún no tiene remoteDescription, encolar para este remotePeerId)
+        const pc = peersMapRef.current.get(remotePeerId);
         if (payload.candidate) {
           if (pc && pc.remoteDescription && pc.remoteDescription.type) {
             await pc.addIceCandidate(new RTCIceCandidate(payload.candidate)).catch(() => {});
@@ -971,6 +1174,7 @@ export default function ModuloReunionesConSubmodulos({
         const targetPeerId = payload.peerIdConPalabra || '';
         setUnidadConPalabra(nuevaUnidadConPalabra);
         setPeerIdConPalabra(targetPeerId);
+        peerIdConPalabraRef.current = targetPeerId;
 
         if (payload.nombreOrador) {
           setNombreParticipanteRemoto(payload.nombreOrador);
@@ -980,16 +1184,29 @@ export default function ModuloReunionesConSubmodulos({
         }
 
         // Asegurar que todos los elementos de audio/video remotos estén reproduciendo sin bloqueo
-        forzarReproduccionStreamsRemotos();
+        forzarReproduccionStreamsRemotos(false);
 
-        // Blindaje de Audio en el Residente/Consejero: activar el micrófono si coincide nuestra unidad O nuestro peerId
+        // Blindaje de Audio en el Residente/Consejero:
+        // Si viene peerIdConPalabra específico de un residente conectado, validar por peerId exacto para que el 1° y 2° residente jamás se confundan
         if (rolUsuarioRef.current === 'residente') {
-          const coincideUnidad =
-            nuevaUnidadConPalabra.trim().toLowerCase() === unidadActivaRef.current.trim().toLowerCase();
-          const coincidePeer = Boolean(targetPeerId && targetPeerId === miPeerIdRef.current);
-          const esMiTurno = coincideUnidad || coincidePeer;
+          let esMiTurno = false;
+          if (nuevaUnidadConPalabra === 'ADMIN') {
+            esMiTurno = false;
+          } else if (targetPeerId) {
+            esMiTurno = targetPeerId === miPeerIdRef.current;
+          } else {
+            esMiTurno =
+              nuevaUnidadConPalabra.trim().toLowerCase() ===
+              unidadActivaRef.current.trim().toLowerCase();
+          }
 
-          if (coincidePeer && !coincideUnidad && nuevaUnidadConPalabra !== 'ADMIN') {
+          if (
+            esMiTurno &&
+            nuevaUnidadConPalabra !== 'ADMIN' &&
+            nuevaUnidadConPalabra.trim().toLowerCase() !==
+              unidadActivaRef.current.trim().toLowerCase()
+          ) {
+            unidadAutoAsignadaPorSalaRef.current = true;
             setUnidadActiva(nuevaUnidadConPalabra);
             unidadActivaRef.current = nuevaUnidadConPalabra;
           }
@@ -1012,16 +1229,26 @@ export default function ModuloReunionesConSubmodulos({
         }
       } else if (event === 'asamblea_pedir_palabra') {
         if (payload.unidad) {
+          // Si viene de un peer específico cuya unidad fue auto-asignada en sala, usar la unidad registrada de ese peer
+          const peerSolicitante = payload.peerId
+            ? participantesRemotosRef.current.find((p) => p.peerId === payload.peerId)
+            : undefined;
+          const unidadEfectiva = peerSolicitante?.unidad || payload.unidad;
+
           if (payload.activa) {
-            setSolicitudesPalabra((prev) => (prev.includes(payload.unidad) ? prev : [...prev, payload.unidad]));
+            setSolicitudesPalabra((prev) =>
+              prev.includes(unidadEfectiva) ? prev : [...prev, unidadEfectiva]
+            );
             if (rolUsuarioRef.current === 'admin') {
               reproducirTonoAudio('timbre');
               onShowToast?.(
-                `✋ ${payload.unidad} solicita la palabra. Haz clic en "Dar Palabra" en su subcuadro derecho.`
+                `✋ ${unidadEfectiva} solicita la palabra. Haz clic en "Dar Palabra" en su subcuadro derecho.`
               );
             }
           } else {
-            setSolicitudesPalabra((prev) => prev.filter((u) => u !== payload.unidad));
+            setSolicitudesPalabra((prev) =>
+              prev.filter((u) => u !== unidadEfectiva && u !== payload.unidad)
+            );
           }
         }
       } else if (event === 'asamblea_chat') {
@@ -1036,6 +1263,7 @@ export default function ModuloReunionesConSubmodulos({
       }
     },
     [
+      actualizarParticipantesRemotos,
       emitirEventoSenalizacion,
       forzarReproduccionStreamsRemotos,
       obtenerOCrearPeerParaParticipante,
@@ -1110,6 +1338,7 @@ export default function ModuloReunionesConSubmodulos({
         'asamblea_convocatoria_abierta',
         'asamblea_cerrada',
         'participante_listo',
+        'asamblea_unidad_actualizada',
         'asamblea_asignar_unidad_peer',
         'asamblea_oferta',
         'asamblea_respuesta',
@@ -1364,23 +1593,45 @@ export default function ModuloReunionesConSubmodulos({
       });
     } catch {
       try {
-        // Intento 2: Capturar SIEMPRE el micrófono real aunque la cámara esté ocupada por otra ventana
-        const audioOnly = await navigator.mediaDevices.getUserMedia({
-          video: false,
+        // Intento 1B: Cámara con configuración estándar + Micrófono (evita OverconstrainedError en segundo dispositivo)
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
         });
-        usoRespaldo = true;
-        stream = crearStreamRespaldoEnVivo(
-          rolUsuario === 'admin' ? 'Administración Central' : unidadActiva,
-          audioOnly
-        );
       } catch {
-        // Intento 3: Stream en vivo autogenerado para que jamás quede bloqueado
-        usoRespaldo = true;
-        stream = crearStreamRespaldoEnVivo(
-          rolUsuario === 'admin' ? 'Administración Central' : unidadActiva,
-          null
-        );
+        try {
+          // Intento 2: Si el micrófono está ocupado o sin permiso pero la cámara sí está libre, capturar cámara real + pista de audio de respaldo
+          const videoOnly = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+          });
+          const fallbackStream = crearStreamRespaldoEnVivo(
+            rolUsuario === 'admin' ? 'Administración Central' : unidadActiva,
+            null
+          );
+          fallbackStream.getAudioTracks().forEach((at) => videoOnly.addTrack(at));
+          stream = videoOnly;
+        } catch {
+          try {
+            // Intento 3: Capturar SIEMPRE el micrófono real aunque la cámara esté ocupada por otra ventana
+            const audioOnly = await navigator.mediaDevices.getUserMedia({
+              video: false,
+              audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+            });
+            usoRespaldo = true;
+            stream = crearStreamRespaldoEnVivo(
+              rolUsuario === 'admin' ? 'Administración Central' : unidadActiva,
+              audioOnly
+            );
+          } catch {
+            // Intento 4: Stream en vivo autogenerado (video + audio) para que jamás quede bloqueado
+            usoRespaldo = true;
+            stream = crearStreamRespaldoEnVivo(
+              rolUsuario === 'admin' ? 'Administración Central' : unidadActiva,
+              null
+            );
+          }
+        }
       }
     }
 
@@ -1389,7 +1640,9 @@ export default function ModuloReunionesConSubmodulos({
 
     // Blindaje de Audio: El Administrador inicia con micrófono activo; los residentes inician con micrófono silenciado hasta que el Admin les dé la palabra
     const tienePalabraInicial =
-      rolUsuario === 'admin' || unidadConPalabra.trim().toLowerCase() === unidadActiva.trim().toLowerCase();
+      rolUsuario === 'admin' ||
+      (unidadConPalabra !== 'ADMIN' &&
+        unidadConPalabra.trim().toLowerCase() === unidadActiva.trim().toLowerCase());
 
     if (stream) {
       stream.getAudioTracks().forEach((t) => {
@@ -1441,6 +1694,7 @@ export default function ModuloReunionesConSubmodulos({
 
       setUnidadConPalabra('ADMIN');
       setPeerIdConPalabra(miPeerIdRef.current);
+      peerIdConPalabraRef.current = miPeerIdRef.current;
       setInvitacionEntrante(payloadConvocatoria);
       emitirEventoSenalizacion('asamblea_convocatoria_abierta', payloadConvocatoria);
       emitirEventoSenalizacion('asamblea_control_palabra', {
@@ -1470,15 +1724,15 @@ export default function ModuloReunionesConSubmodulos({
       // El residente acepta la llamada y anuncia su peerId y unidad para crear conexiones P2P con el Admin y con los demás participantes
       emitirEventoSenalizacion('participante_listo', {
         peerId: miPeerIdRef.current,
-        unidad: unidadActiva,
+        unidad: unidadActivaRef.current,
         rol: 'residente',
-        etiqueta: unidadActiva,
+        etiqueta: unidadActivaRef.current,
         hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
 
-      // Re-anunciar 900ms después por seguridad si algún par estaba terminando de abrir cámara
+      // Re-anunciar a los 2200ms SOLO si aún no se ha establecido ninguna conexión WebRTC (sin cerrar conexiones activas)
       setTimeout(() => {
-        if (enVivoRef.current) {
+        if (enVivoRef.current && peersMapRef.current.size === 0) {
           emitirEventoSenalizacion('participante_listo', {
             peerId: miPeerIdRef.current,
             unidad: unidadActivaRef.current,
@@ -1487,7 +1741,7 @@ export default function ModuloReunionesConSubmodulos({
             hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           });
         }
-      }, 900);
+      }, 2200);
 
       // Registrar unidad en la planilla de quórum si no estaba
       setUnidadesPresentes((prev) => {
@@ -1558,15 +1812,17 @@ export default function ModuloReunionesConSubmodulos({
       } catch {}
       emitirEventoSenalizacion('asamblea_cerrada', { cerrada: true });
       setInvitacionEntrante(null);
+    } else {
+      emitirEventoSenalizacion('asamblea_peer_salio', { peerId: miPeerIdRef.current });
     }
 
     setEnVivo(false);
     enVivoRef.current = false;
     setRemotoConectado(false);
-    setParticipantesRemotos([]);
+    actualizarParticipantesRemotos([]);
     setCompartiendoPantalla(false);
     setNivelMic(0);
-  }, [emitirEventoSenalizacion, grabandoSesion, rolUsuario]);
+  }, [actualizarParticipantesRemotos, emitirEventoSenalizacion, grabandoSesion, rolUsuario]);
 
   useEffect(() => {
     return () => {
@@ -1838,20 +2094,23 @@ export default function ModuloReunionesConSubmodulos({
         ? 'Administración Principal'
         : etiquetaOrador || unidadDestino;
 
-    // Buscar si existe un peerId conectado para esta unidad (o usar el primer residente conectado si solo hay 1 y no coincidía el nombre)
+    // Buscar el peerId exacto del residente conectado para esta unidad
     const peerConectado =
-      peerIdEspecifico ||
-      participantesRemotos.find(
-        (p) => p.unidad.trim().toLowerCase() === unidadDestino.trim().toLowerCase()
-      )?.peerId ||
-      (unidadDestino !== 'ADMIN' && participantesRemotos.length === 1
-        ? participantesRemotos[0].peerId
-        : '');
+      unidadDestino === 'ADMIN'
+        ? miPeerIdRef.current
+        : peerIdEspecifico ||
+          participantesRemotosRef.current.find(
+            (p) =>
+              p.rol !== 'admin' &&
+              p.unidad.trim().toLowerCase() === unidadDestino.trim().toLowerCase()
+          )?.peerId ||
+          '';
 
     setUnidadConPalabra(unidadDestino);
     setPeerIdConPalabra(peerConectado);
+    peerIdConPalabraRef.current = peerConectado;
 
-    // Asegurar que el altavoz remoto del Admin esté activo y desbloqueado por este gesto de clic
+    // Asegurar que el altavoz remoto esté activo y desbloqueado por este gesto de clic
     setAudioRemotoOn(true);
     audioRemotoOnRef.current = true;
     forzarReproduccionStreamsRemotos(false);
@@ -1861,14 +2120,13 @@ export default function ModuloReunionesConSubmodulos({
       setSolicitudesPalabra((prev) => prev.filter((u) => u !== unidadDestino));
       setNivelVozRemota(75);
 
-      // Si tenemos el stream de este participante, ponerlo también en el monitor superior de orador remoto
+      // Si tenemos el stream de este participante (sea el 1°, 2° o 3° residente), mostrarlo también en el monitor superior de orador activo
       if (peerConectado) {
         const st = remoteStreamsMapRef.current.get(peerConectado);
         if (st && videoRemotoRef.current) {
           streamRemotoRef.current = st;
           videoRemotoRef.current.srcObject = st;
-          videoRemotoRef.current.muted = false;
-          videoRemotoRef.current.volume = 1.0;
+          videoRemotoRef.current.muted = true;
           videoRemotoRef.current.play().catch(() => {});
         }
       }
@@ -2020,14 +2278,21 @@ export default function ModuloReunionesConSubmodulos({
                 key={d.unidad}
                 type="button"
                 onClick={() => {
+                  unidadAutoAsignadaPorSalaRef.current = true;
                   setUnidadActiva(d.unidad);
                   unidadActivaRef.current = d.unidad;
                   if (enVivoRef.current) {
+                    emitirEventoSenalizacion('asamblea_unidad_actualizada', {
+                      peerId: miPeerIdRef.current,
+                      unidad: d.unidad,
+                      etiqueta: d.unidad
+                    });
                     emitirEventoSenalizacion('participante_listo', {
                       peerId: miPeerIdRef.current,
                       unidad: d.unidad,
                       rol: 'residente',
                       etiqueta: d.unidad,
+                      cambioExplicito: true,
                       hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                     });
                   }
@@ -2046,14 +2311,21 @@ export default function ModuloReunionesConSubmodulos({
               value={unidadActiva}
               onChange={(e) => {
                 const nuevaU = e.target.value;
+                unidadAutoAsignadaPorSalaRef.current = true;
                 setUnidadActiva(nuevaU);
                 unidadActivaRef.current = nuevaU;
                 if (enVivoRef.current) {
+                  emitirEventoSenalizacion('asamblea_unidad_actualizada', {
+                    peerId: miPeerIdRef.current,
+                    unidad: nuevaU,
+                    etiqueta: nuevaU
+                  });
                   emitirEventoSenalizacion('participante_listo', {
                     peerId: miPeerIdRef.current,
                     unidad: nuevaU,
                     rol: 'residente',
                     etiqueta: nuevaU,
+                    cambioExplicito: true,
                     hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                   });
                 }
@@ -2129,11 +2401,11 @@ export default function ModuloReunionesConSubmodulos({
               <div className="relative flex-1 flex flex-col justify-between overflow-hidden my-3 rounded-2xl bg-[#07090e]/90 border border-slate-800/80 p-3 sm:p-4">
                 {enVivo ? (
                   <div className="w-full flex flex-col gap-3">
-                    {/* Reproductores de audio dedicados para cada participante conectado en la malla WebRTC */}
-                    <div className="hidden" aria-hidden="true">
+                    {/* Banco de audio dedicado para cada participante conectado en la malla WebRTC (fuera de display:none para que el navegador nunca suspenda el audio del 2° o 3° residente) */}
+                    <div className="sr-only w-0 h-0 overflow-hidden pointer-events-none" aria-hidden="true">
                       {participantesRemotos.map((pr) => (
                         <audio
-                          key={`audio-${pr.peerId}-${pr.streamTick}`}
+                          key={`audio-${pr.peerId}`}
                           ref={(node) => bindRemoteSubcuadroAudio(pr.peerId, node)}
                           autoPlay
                           playsInline
@@ -2284,7 +2556,7 @@ export default function ModuloReunionesConSubmodulos({
                               ref={setVideoRemotoElement}
                               autoPlay
                               playsInline
-                              muted={!audioRemotoOn}
+                              muted
                               className={`w-full h-full object-cover ${remotoConectado ? 'block' : 'hidden'}`}
                             />
 
@@ -2336,38 +2608,67 @@ export default function ModuloReunionesConSubmodulos({
                             </div>
                           </div>
 
-                          {/* SUBCUADROS INDIVIDUALES DE CADA UNO DE LOS OTROS PARTICIPANTES (CON SU VIDEO WEBRTC EN VIVO) */}
-                          {(esModoMasivoSFU
-                            ? catalogoApartamentos
-                            : catalogoApartamentos.filter((c) => apartamentosEscogidosAdmin.includes(c.unidad))
-                          )
-                            .filter((part) => (rolUsuario === 'residente' ? part.unidad !== unidadActiva : true))
-                            .map((part, index) => {
-                              const etiqueta = `${part.unidad} (${part.propietario})`;
-                              const tienePalabra =
-                                unidadConPalabra.trim().toLowerCase() === part.unidad.trim().toLowerCase();
-                              const pidioPalabra = solicitudesPalabra.includes(part.unidad);
+                          {/* SUBCUADROS INDIVIDUALES DE CADA UNO DE LOS OTROS PARTICIPANTES (MAPEO 1-A-1 GARANTIZADO PARA 1°, 2°, 3°+ RESIDENTE) */}
+                          {(() => {
+                            const listaBase = (
+                              esModoMasivoSFU
+                                ? catalogoApartamentos
+                                : catalogoApartamentos.filter((c) => apartamentosEscogidosAdmin.includes(c.unidad))
+                            ).filter((part) => (rolUsuario === 'residente' ? part.unidad !== unidadActiva : true));
 
-                              // Buscar el peer conectado que corresponde a este apartamento (o por índice si hay residentes extra conectados)
-                              const residentesRemotos = participantesRemotos.filter((p) => p.rol !== 'admin');
-                              const peerDeEstaUnidad =
-                                residentesRemotos.find(
-                                  (p) => p.unidad.trim().toLowerCase() === part.unidad.trim().toLowerCase()
-                                ) ||
-                                (!residentesRemotos.some(
-                                  (p) => p.unidad.trim().toLowerCase() === part.unidad.trim().toLowerCase()
-                                ) &&
-                                index < residentesRemotos.length &&
-                                !catalogoApartamentos.some(
-                                  (c) =>
-                                    c.unidad.trim().toLowerCase() ===
-                                    residentesRemotos[index]?.unidad.trim().toLowerCase()
-                                )
-                                  ? residentesRemotos[index]
-                                  : undefined);
+                            const residentesRemotos = participantesRemotos.filter((p) => p.rol !== 'admin');
+                            const peersAsignados = new Set<string>();
+                            const peerPorUnidadSubcuadro = new Map<
+                              string,
+                              (typeof participantesRemotos)[number]
+                            >();
+
+                            // Pasada 1: Coincidencia exacta por unidad (1 a 1)
+                            listaBase.forEach((part) => {
+                              const matchExacto = residentesRemotos.find(
+                                (p) =>
+                                  !peersAsignados.has(p.peerId) &&
+                                  p.unidad.trim().toLowerCase() === part.unidad.trim().toLowerCase()
+                              );
+                              if (matchExacto) {
+                                peerPorUnidadSubcuadro.set(part.unidad, matchExacto);
+                                peersAsignados.add(matchExacto.peerId);
+                              }
+                            });
+
+                            // Pasada 2: Cualquier residente conectado adicional (2°, 3°+) cuya unidad colisionó o aún no se sincronizó se asigna al siguiente subcuadro libre
+                            residentesRemotos.forEach((p) => {
+                              if (!peersAsignados.has(p.peerId)) {
+                                const subcuadroLibre = listaBase.find(
+                                  (part) => !peerPorUnidadSubcuadro.has(part.unidad)
+                                );
+                                if (subcuadroLibre) {
+                                  peerPorUnidadSubcuadro.set(subcuadroLibre.unidad, p);
+                                  peersAsignados.add(p.peerId);
+                                }
+                              }
+                            });
+
+                            return listaBase.map((part) => {
+                              const etiqueta = `${part.unidad} (${part.propietario})`;
+                              const peerDeEstaUnidad = peerPorUnidadSubcuadro.get(part.unidad);
+                              const tienePalabra =
+                                unidadConPalabra !== 'ADMIN' &&
+                                ((peerDeEstaUnidad && peerIdConPalabra
+                                  ? peerIdConPalabra === peerDeEstaUnidad.peerId
+                                  : false) ||
+                                  unidadConPalabra.trim().toLowerCase() === part.unidad.trim().toLowerCase());
+                              const pidioPalabra =
+                                solicitudesPalabra.includes(part.unidad) ||
+                                Boolean(
+                                  peerDeEstaUnidad &&
+                                    solicitudesPalabra.includes(peerDeEstaUnidad.unidad)
+                                );
 
                               const tieneVideoEnVivo = Boolean(
-                                peerDeEstaUnidad && remoteStreamsMapRef.current.has(peerDeEstaUnidad.peerId)
+                                peerDeEstaUnidad &&
+                                  (remoteStreamsMapRef.current.has(peerDeEstaUnidad.peerId) ||
+                                    peerDeEstaUnidad.conectado)
                               );
 
                               return (
@@ -2397,11 +2698,11 @@ export default function ModuloReunionesConSubmodulos({
                                       {peerDeEstaUnidad && tieneVideoEnVivo ? (
                                         <>
                                           <video
-                                            key={`vid-${peerDeEstaUnidad.peerId}-${peerDeEstaUnidad.streamTick}`}
+                                            key={`vid-${peerDeEstaUnidad.peerId}`}
                                             ref={(node) => bindRemoteSubcuadroVideo(peerDeEstaUnidad.peerId, node)}
                                             autoPlay
                                             playsInline
-                                            muted={!audioRemotoOn}
+                                            muted
                                             className="w-full h-full object-cover"
                                           />
                                           <span className="absolute bottom-0.5 right-1 bg-emerald-500 text-slate-950 text-[8px] font-black px-1 rounded">
@@ -2481,7 +2782,8 @@ export default function ModuloReunionesConSubmodulos({
                                   )}
                                 </div>
                               );
-                            })}
+                            });
+                          })()}
                         </div>
                       </div>
                     </div>

@@ -10,6 +10,8 @@ import CitofonoVirtualEnterprise from './CitofonoVirtualEnterprise';
 import ModuloParqueaderosVisitantesEnterprise from './ModuloParqueaderosVisitantesEnterprise';
 import GaritaParqueaderosYSosHub, { CeldaParqueadero, INITIAL_CELDAS_GARITA } from './GaritaParqueaderosYSosHub';
 import LectorQrConAsignacionParqueadero from './LectorQrConAsignacionParqueadero';
+import { useCitofonoEngine } from '../useCitofonoEngine';
+import VentanaFlotanteCitofono from './VentanaFlotanteCitofono';
 
 export default function ConsolaUnificadaPorteria({
   visitasQrShared = [],
@@ -57,6 +59,14 @@ export default function ConsolaUnificadaPorteria({
   const [submoduloPorteriaActivo, setSubmoduloPorteriaActivo] = useState<number>(1);
   const [alertaPanicoCabecera, setAlertaPanicoCabecera] = useState(false);
   const [celdasGarita, setCeldasGarita] = useState<CeldaParqueadero[]>(INITIAL_CELDAS_GARITA);
+
+  // Motor global de Citofonía WebRTC + Timbre de Celular siempre activo en todos los submódulos del Vigilante (1 al 7)
+  const citofonoGuardEngine = useCitofonoEngine({
+    miRol: 'vigilante',
+    miUnidad: 'Garita',
+    miNombre: userProfile?.full_name || 'Guarda en Turno (Portería Principal)',
+    miCargo: 'Seguridad & Control de Accesos'
+  });
 
   const handleActivarPanicoCabecera = () => {
     const horaActual = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -278,6 +288,15 @@ export default function ConsolaUnificadaPorteria({
   return (
     <div className="min-h-screen bg-[#07090e] text-slate-100 font-sans p-3 sm:p-5 md:p-6 space-y-4 sm:space-y-6 flex flex-col">
 
+      {/* NOTIFICACIÓN FLOTANTE GLOBAL DESDE LA PARTE SUPERIOR PARA LLAMADAS ENTRANTES DE CITÓFONO */}
+      <VentanaFlotanteCitofono
+        engine={citofonoGuardEngine}
+        rolVista="vigilante"
+        submoduloActualLabel={porteriaModules.find((m) => m.id === submoduloPorteriaActivo)?.label}
+        onIrAlModuloCitofono={() => setSubmoduloPorteriaActivo(6)}
+        onShowToast={onShowToast}
+      />
+
       {/* 1. CABECERA SIEMPRE ARRIBA */}
       <header className="w-full shrink-0">
         <div className="bg-[#141416] border border-[#262629] p-4 sm:p-6 rounded-2xl shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -399,13 +418,27 @@ export default function ConsolaUnificadaPorteria({
 
         <button
           onClick={() => setSubmoduloPorteriaActivo(6)}
-          className={`px-4 py-2.5 rounded-xl text-xs font-bold font-mono transition cursor-pointer shrink-0 ${
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold font-mono transition cursor-pointer shrink-0 flex items-center gap-2 ${
             submoduloPorteriaActivo === 6
               ? 'bg-gradient-to-r from-cyan-500 to-teal-400 text-slate-950 font-black shadow-[0_0_15px_rgba(34,211,238,0.35)]'
+              : citofonoGuardEngine.estado === 'entrante'
+              ? 'bg-amber-500/20 text-amber-300 border-2 border-amber-400 animate-pulse shadow-[0_0_15px_rgba(245,158,11,0.4)]'
+              : citofonoGuardEngine.estado === 'conectado'
+              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400'
               : 'bg-[#0b0f17] text-slate-400 hover:text-white border border-slate-800'
           }`}
         >
-          📞 6. Citófono Virtual
+          <span>📞 6. Citófono Virtual</span>
+          {citofonoGuardEngine.estado === 'entrante' && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 animate-bounce">
+              🔔 {citofonoGuardEngine.llamadaActiva?.unidad || 'LLAMANDO'}
+            </span>
+          )}
+          {citofonoGuardEngine.estado === 'conectado' && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-400 text-slate-950">
+              🟢 {citofonoGuardEngine.tiempoFormateado}
+            </span>
+          )}
         </button>
 
         {/* NUEVA PESTAÑA #7: PARQUEADEROS DE VISITANTES */}
@@ -670,6 +703,7 @@ export default function ConsolaUnificadaPorteria({
             unidadResidenteActual="Torre 2 - 301"
             rolUsuario="vigilante"
             onShowToast={onShowToast}
+            engineExternal={citofonoGuardEngine}
           />
         )}
 

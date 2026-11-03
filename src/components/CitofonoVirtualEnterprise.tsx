@@ -12,41 +12,52 @@ import {
   CheckCircle2,
   Building2,
   BellRing,
-  MessageSquare
+  MessageSquare,
+  Volume2
 } from 'lucide-react';
-import { useCitofonoEngine } from '../useCitofonoEngine';
+import { useCitofonoEngine, RetornoUseCitofonoEngine } from '../useCitofonoEngine';
 import { PanelNotasVigilante } from './PanelNotasVigilante';
 
 export interface CitofonoVirtualEnterpriseProps {
   unidadResidenteActual?: string;
   rolUsuario?: 'residente' | 'vigilante' | string;
   onShowToast?: (msg: string) => void;
+  engineExternal?: RetornoUseCitofonoEngine;
 }
 
 export default function CitofonoVirtualEnterprise({
   unidadResidenteActual = 'Torre 2 - 301',
   rolUsuario = 'vigilante',
-  onShowToast
+  onShowToast,
+  engineExternal
 }: CitofonoVirtualEnterpriseProps) {
   const esVigilante = rolUsuario === 'vigilante';
+
+  const internalEngine = useCitofonoEngine({
+    miRol: esVigilante ? 'vigilante' : 'residente',
+    miUnidad: unidadResidenteActual,
+    miNombre: esVigilante ? 'Guarda en Turno (Portería)' : 'Esteban Ochoa Mesa'
+  });
+
+  const activeEngine = engineExternal || internalEngine;
 
   const {
     estado,
     tiempoFormateado,
+    tiempoTimbrandoFormateado,
     llamadaActiva,
     colaLlamadas,
     estaSilenciado,
+    timbreSilenciado,
     diagnosticoIce,
     alternarSilencio,
+    silenciarTimbreYPonerEnEspera,
     iniciarLlamada,
     contestarLlamada,
     colgarLlamada,
-    forzarReinicioIce
-  } = useCitofonoEngine({
-    miRol: esVigilante ? 'vigilante' : 'residente',
-    miUnidad: unidadResidenteActual,
-    miNombre: 'Esteban Ochoa Mesa'
-  });
+    forzarReinicioIce,
+    probarTimbreCelular
+  } = activeEngine;
 
   const [audioActivo, setAudioActivo] = useState(true);
   const [mensajeTexto, setMensajeTexto] = useState('');
@@ -64,12 +75,12 @@ export default function CitofonoVirtualEnterprise({
     tiempoEspera: string;
   }>>([]);
 
-  // Directorio rápido de unidades para marcado directo desde Garita
+  // Directorio rápido de unidades para marcado directo desde Garita (sincronizado con los 3 Residentes Demo)
   const directorioUnidades = [
-    { unidad: 'Torre 2 - 301', propietario: 'Esteban Ochoa Mesa', estado: 'En línea' },
-    { unidad: 'Torre 1 - 502', propietario: 'Martha Lucía Gómez', estado: 'En línea' },
-    { unidad: 'Torre 1 - 202', propietario: 'María Fernanda Gómez', estado: 'En línea' },
-    { unidad: 'Torre 2 - 404', propietario: 'Dr. Mauricio Restrepo', estado: 'En línea' }
+    { unidad: 'Torre 2 - 301', propietario: 'Martha Lucía Gómez (Demo 1)', estado: 'En línea' },
+    { unidad: 'Torre 1 - 302', propietario: 'Dr. Mauricio Restrepo (Demo 2)', estado: 'En línea' },
+    { unidad: 'Torre 1 - 201', propietario: 'Andrés Gómez (Demo 3)', estado: 'En línea' },
+    { unidad: 'Torre 1 - 502', propietario: 'Esteban Ochoa Mesa', estado: 'En línea' }
   ];
 
   // Notas prioritarias recibidas en garita
@@ -213,8 +224,21 @@ export default function CitofonoVirtualEnterprise({
           </div>
         </div>
 
-        {/* SIMULADOR DE ESTADO DE LÍNEA */}
-        <div className="flex items-center gap-3 font-mono text-xs flex-wrap">
+        {/* SIMULADOR DE ESTADO DE LÍNEA Y PRUEBA DE TIMBRE SONORO */}
+        <div className="flex items-center gap-2 font-mono text-xs flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              probarTimbreCelular();
+              onShowToast?.('🔔 Reproduciendo timbre sonoro de celular del Citófono...');
+            }}
+            className="px-3 py-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 flex items-center gap-1.5 cursor-pointer transition font-bold"
+            title="Escuchar el timbre de celular que suena cuando entra una llamada"
+          >
+            <Volume2 className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Probar Timbre Celular</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setEstadoGarita(estadoGarita === 'disponible' ? 'ocupado' : 'disponible')}
@@ -242,11 +266,15 @@ export default function CitofonoVirtualEnterprise({
           <div className="absolute top-4 left-4 text-xs font-mono text-slate-400">
             {enLlamada ? (
               <>
-                Canal Activo: <strong className="text-emerald-400">{unidadConectada}</strong>
+                Canal Activo: <strong className="text-emerald-400">{llamadaActiva?.unidad || unidadConectada}</strong>
               </>
-            ) : esVigilante && colaLlamadasGarita.length > 0 ? (
+            ) : estado === 'entrante' ? (
               <>
-                Llamada Entrante: <strong className="text-amber-400">{colaLlamadasGarita[0].unidad}</strong>
+                Llamada Entrante: <strong className="text-amber-400">{llamadaActiva?.unidad || 'Torre 2 - 301'}</strong>
+              </>
+            ) : estado === 'llamando' ? (
+              <>
+                Marcando a: <strong className="text-cyan-400">{llamadaActiva?.unidad || unidadConectada}</strong>
               </>
             ) : (
               <>
@@ -266,45 +294,93 @@ export default function CitofonoVirtualEnterprise({
                   </div>
                   <div>
                     <h4 className="text-base font-bold text-slate-300 font-mono">
-                      Línea en Espera
+                      Línea en Espera (Notificación Flotante Global Activa)
                     </h4>
-                    <p className="text-xs text-slate-500 font-mono mt-1">
-                      Esperando llamadas entrantes de residentes o marca desde el directorio.
+                    <p className="text-xs text-slate-400 font-mono mt-1 max-w-md mx-auto">
+                      Cuando un residente llame, sonará el timbre de celular y bajará una ventana flotante en la parte superior de cualquier pantalla o submódulo donde te encuentres.
                     </p>
                   </div>
                   <span className="inline-block px-3 py-1 rounded-full text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    ● Garita Lista para Recibir
+                    ● Garita Lista para Recibir en Cualquier Submódulo
                   </span>
+                </div>
+              )}
+
+              {/* 1B. ESTADO LLAMANDO (CUANDO EL VIGILANTE MARCA A UN APARTAMENTO DESDE EL DIRECTORIO) */}
+              {estado === 'llamando' && (
+                <div className="space-y-4 py-4">
+                  <div className="w-20 h-20 mx-auto rounded-full bg-amber-950/60 border-2 border-amber-400 flex items-center justify-center text-amber-300 shadow-[0_0_25px_rgba(245,158,11,0.35)] animate-pulse">
+                    <PhoneCall className="w-9 h-9 animate-bounce text-amber-400" />
+                  </div>
+                  <div>
+                    <span className="text-[11px] font-mono uppercase bg-amber-500/15 text-amber-300 border border-amber-500/30 px-3 py-0.5 rounded-full font-bold">
+                      🔊 Timbrando Tono Celular ({tiempoTimbrandoFormateado})
+                    </span>
+                    <h3 className="text-lg font-black text-white font-mono mt-2">
+                      Llamando a {llamadaActiva?.unidad || unidadConectada}
+                    </h3>
+                    <p className="text-xs text-slate-400 font-mono mt-1">
+                      Esperando a que el residente conteste en su dispositivo...
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={colgarLlamadaAccion}
+                    className="bg-rose-600 hover:bg-rose-500 text-white font-black py-3 px-6 rounded-2xl text-xs font-mono uppercase tracking-wider transition cursor-pointer inline-flex items-center gap-2"
+                  >
+                    <PhoneOff className="w-4 h-4" /> Cancelar Llamada
+                  </button>
                 </div>
               )}
 
               {/* 2. ESTADO ENTRANTE (CUANDO EL RESIDENTE MARCA EN VIVO) */}
               {estado === 'entrante' && (
-                <div className="space-y-4 py-4 animate-pulse">
+                <div className="space-y-4 py-4">
                   <div className="w-20 h-20 mx-auto rounded-full bg-cyan-950/60 border-2 border-cyan-400 flex items-center justify-center text-cyan-300 shadow-[0_0_25px_rgba(0,242,254,0.4)]">
                     <PhoneCall className="w-9 h-9 animate-bounce text-cyan-400" />
                   </div>
 
                   <div>
-                    <span className="text-[11px] font-mono uppercase bg-amber-500/10 text-amber-300 border border-amber-500/30 px-3 py-0.5 rounded-full font-bold">
-                      🔔 Llamada Entrante: {llamadaActiva?.unidad || 'Torre 2 - 301'}
+                    <span className="text-[11px] font-mono uppercase bg-amber-500/15 text-amber-300 border border-amber-500/40 px-3 py-0.5 rounded-full font-bold">
+                      🔔 Llamada Entrante: {llamadaActiva?.unidad || 'Torre 2 - 301'} ({tiempoTimbrandoFormateado})
                     </span>
                     <h3 className="text-lg font-black text-white font-mono mt-2">
                       {llamadaActiva?.nombre || 'Residente'}
+                      {llamadaActiva?.cargo ? (
+                        <span className="text-xs text-cyan-400 font-normal ml-2">({llamadaActiva.cargo})</span>
+                      ) : null}
                     </h3>
-                    <p className="text-xs text-slate-400 font-mono mt-1">
+                    <p className="text-xs text-slate-300 font-mono mt-1">
                       Motivo: &ldquo;{llamadaActiva?.motivo || 'Llamada a portería'}&rdquo;
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={contestarLlamada}
-                    className="w-full max-w-xs mx-auto bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3.5 px-6 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(16,185,129,0.4)] flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <PhoneCall className="w-4 h-4" />
-                    Contestar a {llamadaActiva?.unidad || 'Torre 2 - 301'}
-                  </button>
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={contestarLlamada}
+                      className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3.5 px-6 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(16,185,129,0.4)] flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <PhoneCall className="w-4 h-4" />
+                      Contestar a {llamadaActiva?.unidad || 'Torre 2 - 301'}
+                    </button>
+                    {!timbreSilenciado && (
+                      <button
+                        type="button"
+                        onClick={silenciarTimbreYPonerEnEspera}
+                        className="bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold py-3.5 px-5 rounded-2xl text-xs font-mono transition cursor-pointer"
+                      >
+                        🔕 Silenciar Timbre (En Espera)
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={colgarLlamadaAccion}
+                      className="bg-rose-600 hover:bg-rose-500 text-white font-bold py-3.5 px-5 rounded-2xl text-xs font-mono transition cursor-pointer"
+                    >
+                      Rechazar
+                    </button>
+                  </div>
                 </div>
               )}
 
