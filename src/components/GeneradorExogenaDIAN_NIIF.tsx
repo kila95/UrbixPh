@@ -11,6 +11,8 @@ import {
   ExternalLink,
   ShieldCheck
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
 
 export interface FormatoDianItem {
   codigo: string;
@@ -24,7 +26,7 @@ export interface FormatoDianItem {
 export default function GeneradorExogenaDIAN_NIIF({
   onShowToast,
   nitCopropiedad = '900.842.115-2',
-  nombreCopropiedad = 'P.H. Reserva del Tesoro'
+  nombreCopropiedad = 'Urb. Tricentenario'
 }: {
   onShowToast?: (msg: string) => void;
   nitCopropiedad?: string;
@@ -33,8 +35,8 @@ export default function GeneradorExogenaDIAN_NIIF({
   const [anioGravable, setAnioGravable] = useState('2026');
   const [generandoXml, setGenerandoXml] = useState<string | null>(null);
 
-  // Matriz con los 12 formatos clave de exógena exigidos por la DIAN
-  const [formatosDian, setFormatosDian] = useState<FormatoDianItem[]>([
+  // Matriz con los formatos clave de exógena exigidos por la DIAN
+  const [formatosDian] = useState<FormatoDianItem[]>([
     {
       codigo: 'Formato 1001',
       nombre: 'Pagos o Abonos en Cuenta y Retenciones Practicadas',
@@ -85,26 +87,49 @@ export default function GeneradorExogenaDIAN_NIIF({
     }
   ]);
 
+  const exportarExcelExogena = (formatoEspecifico?: FormatoDianItem) => {
+    const items = formatoEspecifico ? [formatoEspecifico] : formatosDian;
+    const filas = items.map((item) => ({
+      'Copropiedad': nombreCopropiedad,
+      'NIT': nitCopropiedad,
+      'Año Gravable': anioGravable,
+      'Código Formato': item.codigo,
+      'Nombre Formato DIAN': item.nombre,
+      'Descripción Contable NIIF': item.descripcion,
+      'Registros Procesados': item.registros,
+      'Valor Total ($ COP)': item.valorTotal,
+      'Estado Validación': item.estado
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(filas);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Exogena_DIAN');
+
+    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([excelBuffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=UTF-8'
+    });
+    const nombreArchivo = formatoEspecifico
+      ? `${formatoEspecifico.codigo.replace(/\s+/g, '_')}_${nombreCopropiedad.replace(/\s+/g, '_')}_${anioGravable}.xlsx`
+      : `Consolidado_Exogena_DIAN_${nombreCopropiedad.replace(/\s+/g, '_')}_${anioGravable}.xlsx`;
+
+    saveAs(blob, nombreArchivo);
+    onShowToast?.(`📊 Archivo Excel (${nombreArchivo}) exportado correctamente.`);
+  };
+
   const descargarFormatoDian = (formato: FormatoDianItem) => {
     setGenerandoXml(formato.codigo);
     onShowToast?.(`📑 Estructurando archivo XML / Prevalidador DIAN para ${formato.codigo}...`);
 
     setTimeout(() => {
-      // Simulación de descarga de archivo estructurado
+      // Descarga de archivo estructurado XML
       const contenidoXml = `<?xml version="1.0" encoding="UTF-8"?>\n<mas:Formato_${formato.codigo.replace(/\s+/g, '')} anio="${anioGravable}" nit="${nitCopropiedad}">\n  <!-- Generado automáticamente por Urbix PH -->\n  <registros>${formato.registros}</registros>\n  <total>${formato.valorTotal}</total>\n</mas:Formato>`;
       const blob = new Blob([contenidoXml], { type: 'application/xml;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${formato.codigo.replace(/\s+/g, '_')}_Gravable${anioGravable}.xml`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      saveAs(blob, `${formato.codigo.replace(/\s+/g, '_')}_Gravable${anioGravable}.xml`);
 
       setGenerandoXml(null);
       onShowToast?.(`✅ ${formato.codigo} descargado con formato oficial DIAN.`);
-    }, 1200);
+    }, 800);
   };
 
   return (
@@ -166,13 +191,18 @@ export default function GeneradorExogenaDIAN_NIIF({
 
       {/* GRILLA DE FORMATOS DIAN GENERADOS */}
       <div className="bg-[#0b0f17] border border-slate-800 rounded-3xl p-5 space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono flex items-center gap-2">
             <Layers className="w-4 h-4 text-cyan-400" /> Formatos de Medios Magnéticos Listos para Transmisión
           </h4>
-          <span className="text-[10px] font-mono text-slate-400">
-            Resolución DIAN aplicable para Copropiedades
-          </span>
+          <button
+            type="button"
+            onClick={() => exportarExcelExogena()}
+            className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl text-[11px] font-mono font-bold flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+            Exportar Consolidado Excel (.xlsx)
+          </button>
         </div>
 
         <div className="space-y-3">
@@ -197,6 +227,15 @@ export default function GeneradorExogenaDIAN_NIIF({
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => exportarExcelExogena(f)}
+                  className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-3 py-2.5 rounded-xl font-bold font-mono text-xs flex items-center gap-1.5 transition cursor-pointer"
+                  title="Descargar en Excel (.xlsx)"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  Excel
+                </button>
                 <button
                   type="button"
                   onClick={() => descargarFormatoDian(f)}

@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Users, UserPlus, Shield, Trash2, CheckCircle2, AlertCircle, Building2, Check, Plus, Edit3,
   DollarSign, Clock, Filter, Coins, ShieldCheck, Sparkles, Briefcase, MapPin
 } from 'lucide-react';
+import { supabase } from './supabaseClient';
 import CrearAdministradorModal from './components/CrearAdministradorModal';
 import ModalRegistroAdministradorEmpresa from './components/ModalRegistroAdministradorEmpresa';
 import GestionCuadrillaAdminModal from './components/GestionCuadrillaAdminModal';
@@ -21,10 +22,72 @@ export interface StaffAdminMember {
 }
 
 export default function SeccionGestionPersonalAdmin({
-  onShowToast
+  onShowToast,
+  edificiosAsignados: propEdificiosAsignados,
+  edificioActivoId: propEdificioActivoId,
+  setEdificioActivoId: propSetEdificioActivoId
 }: {
   onShowToast?: (msg: string) => void;
+  edificiosAsignados?: { id: string; name: string }[];
+  edificioActivoId?: string;
+  setEdificioActivoId?: (id: string) => void;
 }) {
+  // Edificios asignados al administrador desde Supabase
+  const [edificiosAsignados, setEdificiosAsignados] = useState<any[]>(
+    propEdificiosAsignados && propEdificiosAsignados.length > 0
+      ? propEdificiosAsignados
+      : [
+          { id: 'bld-tricentenario', name: 'Urb. Tricentenario' },
+          { id: 'bld-reserva', name: 'P.H. Reserva del Tesoro (Torre 1 & 2)' },
+          { id: 'bld-altavista', name: 'Conjunto Altavista PH' }
+        ]
+  );
+  const [edificioActivoId, setEdificioActivoIdState] = useState<string>(
+    propEdificioActivoId || 'bld-tricentenario'
+  );
+
+  const setEdificioActivoId = (id: string) => {
+    setEdificioActivoIdState(id);
+    if (propSetEdificioActivoId) propSetEdificioActivoId(id);
+  };
+
+  useEffect(() => {
+    if (propEdificiosAsignados && propEdificiosAsignados.length > 0) {
+      setEdificiosAsignados(propEdificiosAsignados);
+      if (propEdificioActivoId) setEdificioActivoIdState(propEdificioActivoId);
+      else setEdificioActivoIdState(propEdificiosAsignados[0].id);
+      return;
+    }
+
+    const cargarEdificiosDelAdmin = async () => {
+      let userId: string | undefined;
+      let userEmail: string | undefined;
+
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        userId = user?.id;
+        userEmail = user?.email;
+      } catch {}
+
+      const { data: tenants, error } = await supabase
+        .from('tenants')
+        .select('id, name')
+        .or(`assigned_admin_id.eq.${userId || 'dde881f7-cfe4-40b8-95bf-33d6e7a3ddfe'},admin_email.eq.${userEmail || 'siux95@hotmail.com'}`);
+
+      if (error) {
+        console.error('Error cargando edificios del admin:', error.message);
+        return;
+      }
+
+      if (tenants && tenants.length > 0) {
+        setEdificiosAsignados(tenants);
+        setEdificioActivoIdState(tenants[0].id);
+      }
+    };
+
+    cargarEdificiosDelAdmin();
+  }, [propEdificiosAsignados, propEdificioActivoId]);
+
   // Catálogo de copropiedades / edificios para supervisores
   const catalogCopropiedades = [
     'P.H. Reserva del Tesoro (Torre 1 & 2)',
@@ -48,7 +111,7 @@ export default function SeccionGestionPersonalAdmin({
       rol: 'Administrador',
       email: 'carlos.admin@urbix.ph',
       estado: 'Activo (En sitio)',
-      edificios: ['P.H. Reserva del Tesoro (Torre 1 & 2)', 'Conjunto Altavista PH'],
+      edificios: ['Urb. Tricentenario', 'P.H. Reserva del Tesoro (Torre 1 & 2)', 'Conjunto Altavista PH'],
       salarioBasico: 3500000,
       auxilioTransporte: 0,
       turnoLineaTiempo: '08:00 AM - 05:00 PM (Jornada Diurna)',
@@ -72,7 +135,7 @@ export default function SeccionGestionPersonalAdmin({
       rol: 'Aseo & Mantenimiento',
       email: 'jose.operativo@urbix.ph',
       estado: 'Activo (En sitio)',
-      edificios: ['P.H. Reserva del Tesoro (Torre 1 & 2)', 'Conjunto Altavista PH'],
+      edificios: ['Urb. Tricentenario', 'P.H. Reserva del Tesoro (Torre 1 & 2)', 'Conjunto Altavista PH'],
       salarioBasico: 1423500,
       auxilioTransporte: 162000,
       turnoLineaTiempo: '06:00 AM - 02:00 PM (Turno Mañana)',
@@ -84,7 +147,7 @@ export default function SeccionGestionPersonalAdmin({
       rol: 'Vigilante / Portería',
       email: 'porteria.tesoro@urbix.ph',
       estado: 'Activo (En sitio)',
-      edificios: ['P.H. Reserva del Tesoro (Torre 1 & 2)'],
+      edificios: ['Urb. Tricentenario', 'P.H. Reserva del Tesoro (Torre 1 & 2)'],
       salarioBasico: 1650000,
       auxilioTransporte: 162000,
       turnoLineaTiempo: '06:00 AM - 06:00 PM (Turno 12h Garita)',
@@ -225,10 +288,23 @@ export default function SeccionGestionPersonalAdmin({
     onShowToast?.(`🚫 Acceso revocado y empleado "${nombre}" dado de baja del sistema.`);
   };
 
+  const edificioActivoObj = edificiosAsignados.find(e => e.id === edificioActivoId);
+  const edificioFiltroNombre = edificioActivoObj?.name;
+
   // Filtrado de personal según el edificio seleccionado
   const personalFiltrado = personalStaff.filter(staff => {
-    if (edificioFiltro === 'TODOS') return true;
-    return staff.edificios?.some(ed => ed.toLowerCase().includes(edificioFiltro.toLowerCase()));
+    if (!edificioFiltroNombre) return true;
+    const match = staff.edificios?.some(ed =>
+      ed.toLowerCase().includes(edificioFiltroNombre.toLowerCase()) ||
+      edificioFiltroNombre.toLowerCase().includes(ed.toLowerCase())
+    );
+    const hayCoincidenciaAlguna = personalStaff.some(s =>
+      s.edificios?.some(ed =>
+        ed.toLowerCase().includes(edificioFiltroNombre.toLowerCase()) ||
+        edificioFiltroNombre.toLowerCase().includes(ed.toLowerCase())
+      )
+    );
+    return hayCoincidenciaAlguna ? match : true;
   });
 
   // Cálculo de totales financieros y nómina
@@ -328,19 +404,19 @@ export default function SeccionGestionPersonalAdmin({
           onCerrar={() => setMostrarModalAdminEmpresa(false)}
           onShowToast={onShowToast}
           onRegistroExitoso={({ nombreEmpresa, nombreRepresentante, email, tenantId }) => {
-            const edMatch = catalogCopropiedades[Number(tenantId.replace('ten_0', '')) - 1] || catalogCopropiedades[0];
+            const edMatch = tenantId ? (catalogCopropiedades[Number(tenantId.replace('ten_0', '')) - 1] || catalogCopropiedades[0]) : null;
             setPersonalStaff(prev => [
               {
                 id: `st_${Date.now()}`,
                 nombre: `${nombreRepresentante} (${nombreEmpresa})`,
                 rol: 'Administrador',
                 email,
-                estado: 'Activo (En sitio)',
-                edificios: [edMatch],
+                estado: edMatch ? 'Activo (En sitio)' : 'Pendiente Asignación',
+                edificios: edMatch ? [edMatch] : [],
                 salarioBasico: 3800000,
                 auxilioTransporte: 0,
                 turnoLineaTiempo: '08:00 AM - 05:00 PM (Representación Legal)',
-                ubicacionLineaTiempo: 'Oficina de Administración Central'
+                ubicacionLineaTiempo: edMatch ? 'Oficina de Administración Central' : 'Por Asignar'
               },
               ...prev
             ]);
@@ -376,47 +452,24 @@ export default function SeccionGestionPersonalAdmin({
 
       {/* SELECTOR DE EDIFICIO / CONJUNTO Y BARRA DE RESUMEN FINANCIERO */}
       <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-teal-400" />
-            <span className="text-xs font-mono font-bold text-slate-200">Filtrar Trabajadores por Copropiedad / Edificio:</span>
-          </div>
+        <div className="flex items-center gap-2 overflow-x-auto pb-2">
+          <span className="text-xs text-cyan-400 font-mono flex items-center gap-1 shrink-0">
+            <span>Filtrar Trabajadores por Copropiedad / Edificio:</span>
+          </span>
 
-          {/* Botones de filtro por edificio */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+          {edificiosAsignados.map((edificio) => (
             <button
-              type="button"
-              onClick={() => setEdificioFiltro('TODOS')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-mono transition cursor-pointer shrink-0 border ${
-                edificioFiltro === 'TODOS'
-                  ? 'bg-teal-500 text-slate-950 font-black border-teal-400 shadow-md shadow-teal-500/20'
-                  : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+              key={edificio.id}
+              onClick={() => setEdificioActivoId(edificio.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 transition-colors border ${
+                edificioActivoId === edificio.id
+                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-sm'
+                  : 'bg-slate-800/60 text-slate-400 border-slate-700/50 hover:bg-slate-800'
               }`}
             >
-              🏢 Todos los Edificios ({personalStaff.length})
+              <span>🏢 {edificio.name}</span>
             </button>
-            {catalogCopropiedades.map((ed) => {
-              const count = personalStaff.filter(s => s.edificios?.includes(ed)).length;
-              const isSelected = edificioFiltro === ed;
-              return (
-                <button
-                  key={ed}
-                  type="button"
-                  onClick={() => setEdificioFiltro(ed)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-mono transition cursor-pointer shrink-0 border flex items-center gap-1.5 ${
-                    isSelected
-                      ? 'bg-teal-500 text-slate-950 font-black border-teal-400 shadow-md shadow-teal-500/20'
-                      : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
-                  }`}
-                >
-                  🏢 {ed}
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-md ${isSelected ? 'bg-slate-950 text-teal-300' : 'bg-slate-800 text-slate-300'}`}>
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          ))}
         </div>
 
         {/* METRICAS DE NOMINA Y SALARIO MENSUAL DEL EDIFICIO SELECCIONADO */}

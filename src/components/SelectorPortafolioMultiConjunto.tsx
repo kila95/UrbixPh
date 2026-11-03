@@ -1,34 +1,87 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Building2, Users, ShieldCheck, ChevronDown, DollarSign, AlertTriangle, CheckCircle2, Filter } from 'lucide-react';
+import { supabase } from '../supabaseClient';
+import { cargarMetricasTenant, MetricasTenant } from '../lib/metricasTenant';
 
 export interface SelectorPortafolioMultiConjuntoProps {
   onShowToast?: (msg: string) => void;
   onSelectCopropiedad?: (copropiedad: string) => void;
+  edificiosAsignados?: { id: string; name: string }[];
+  edificioActivoId?: string;
+  onSelectEdificioId?: (id: string) => void;
+  metricas?: MetricasTenant;
 }
 
 export default function SelectorPortafolioMultiConjunto({
   onShowToast,
-  onSelectCopropiedad
+  onSelectCopropiedad,
+  edificiosAsignados = [],
+  edificioActivoId,
+  onSelectEdificioId,
+  metricas: propMetricas
 }: SelectorPortafolioMultiConjuntoProps) {
-  // Estado para la copropiedad seleccionada en el portafolio
-  const [copropiedadSeleccionada, setCopropiedadSeleccionada] = useState('P.H. Reserva del Tesoro');
+  // Estado para la copropiedad seleccionada en el portafolio (Tricentenario activa)
+  const [copropiedadSeleccionada, setCopropiedadSeleccionada] = useState(
+    edificiosAsignados[0]?.name || 'urb Tricentenario'
+  );
   const [supervisorFiltro, setSupervisorFiltro] = useState('Todos');
+  const [metricasLocal, setMetricasLocal] = useState<MetricasTenant>({
+    recaudo: '0.0%',
+    unidadesMora: '0 Aptos',
+    totalUnidades: 100,
+    alDia: 0,
+    enMora: 0,
+    unidadesPagadas: 0,
+    unidadesEnMora: 0,
+    porcentajeRecaudo: '0.0%'
+  });
 
-  // Listado de copropiedades del empresario
+  // Listado de copropiedades del empresario (incorporando las asignadas desde Supabase)
   const misCopropiedades = [
-    { id: '1', nombre: 'P.H. Reserva del Tesoro', nit: '900.412.889-1', supervisor: 'Julián Arango', recaudo: '94.5%', morosos: 2, pqrs: 1 },
-    { id: '2', nombre: 'Conjunto Residencial Bosques del Poblado', nit: '900.823.112-4', supervisor: 'Carlos Mario Pineda', recaudo: '88.2%', morosos: 5, pqrs: 3 },
-    { id: '3', nombre: 'Edificio Altos de El Poblado', nit: '811.345.990-2', supervisor: 'Julián Arango', recaudo: '97.0%', morosos: 1, pqrs: 0 },
+    ...edificiosAsignados.map(e => ({
+      id: e.id,
+      nombre: e.name,
+      nit: '900.781.234-5',
+      supervisor: 'Eloina / Administración Directa',
+      recaudo: propMetricas?.recaudo || '0.0%',
+      morosos: propMetricas?.enMora ?? 0,
+      pqrs: 1
+    })),
+    ...(edificiosAsignados.length === 0 ? [
+      { id: '22079bb5-6ac7-4a15-be89-c53d14e4221b', nombre: 'urb Tricentenario', nit: '900.781.234-5', supervisor: 'Eloina / Administración Directa', recaudo: '0.0%', morosos: 0, pqrs: 1 },
+    ] : [])
   ];
 
   const copropiedadesFiltradas = supervisorFiltro === 'Todos'
     ? misCopropiedades
     : misCopropiedades.filter(c => c.supervisor === supervisorFiltro);
 
-  const datosActuales = misCopropiedades.find(c => c.nombre === copropiedadSeleccionada) || copropiedadesFiltradas[0] || misCopropiedades[0];
+  const datosActuales =
+    (edificioActivoId && misCopropiedades.find(c => c.id === edificioActivoId)) ||
+    misCopropiedades.find(c => c.nombre === copropiedadSeleccionada) ||
+    copropiedadesFiltradas[0] ||
+    misCopropiedades[0];
+
+  useEffect(() => {
+    const currentId = edificioActivoId || datosActuales?.id;
+    if (currentId && !propMetricas) {
+      cargarMetricasTenant(currentId).then((res) => {
+        if (res) setMetricasLocal(res);
+      });
+    }
+  }, [edificioActivoId, datosActuales?.id, propMetricas]);
+
+  const metricasActivas = propMetricas || metricasLocal;
+  const unidadesPendientes = metricasActivas.unidadesEnMora !== undefined 
+    ? metricasActivas.unidadesEnMora 
+    : (parseInt(metricasActivas.unidadesMora, 10) || 0);
 
   const handleCambioCopropiedad = (nombre: string) => {
     setCopropiedadSeleccionada(nombre);
+    const match = misCopropiedades.find(c => c.nombre === nombre);
+    if (match && onSelectEdificioId) {
+      onSelectEdificioId(match.id);
+    }
     onSelectCopropiedad?.(nombre);
     onShowToast?.(`🏢 Cambiando vista activa a: ${nombre}`);
   };
@@ -97,21 +150,36 @@ export default function SelectorPortafolioMultiConjunto({
         
         <div className="bg-[#07090e] border border-slate-800 p-5 rounded-2xl space-y-1 hover:border-cyan-500/30 transition">
           <span className="text-[11px] font-mono text-slate-400 uppercase">Recaudo Copropiedad</span>
-          <p className="text-2xl font-black text-cyan-400">{datosActuales.recaudo}</p>
-          <p className="text-[11px] text-slate-500 font-mono">NIT: {datosActuales.nit}</p>
+          <div className="flex items-baseline gap-2">
+            <p className="text-2xl font-black text-cyan-400">{metricasActivas.recaudo}</p>
+            <span className="text-xs font-mono font-bold text-emerald-400">
+              (${(metricasActivas.totalRecaudadoCalculado ?? ((metricasActivas.alDia || 0) * 300000)).toLocaleString('es-CO')} COP)
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500 font-mono">Total {metricasActivas.totalUnidades} unidades censadas ({metricasActivas.alDia || 0} al día)</p>
         </div>
 
-        <div className="bg-[#07090e] border border-slate-800 p-5 rounded-2xl space-y-1 hover:border-rose-500/30 transition">
-          <span className="text-[11px] font-mono text-slate-400 uppercase">Unidades en Mora (Cartera)</span>
-          <p className="text-2xl font-black text-rose-400">{datosActuales.morosos} Aptos</p>
-          <p className="text-[11px] text-slate-500 font-mono">Requiere gestión de cobro jurídica</p>
+        {/* Tarjeta Central Corregida */}
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 shadow-lg">
+          <p className="text-xs uppercase tracking-wider text-slate-400 font-mono">
+            Unidades Pendientes por Cobro
+          </p>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-3xl font-extrabold text-amber-400">
+              {unidadesPendientes} Aptos
+            </span>
+            <span className="text-xs text-slate-500">de 100</span>
+          </div>
+          <p className="text-xs text-slate-500 mt-2 font-mono">
+            Gestión preventiva & cobro Ley 675
+          </p>
         </div>
 
         <div className="bg-[#07090e] border border-slate-800 p-5 rounded-2xl space-y-1 hover:border-amber-500/30 transition">
-          <span className="text-[11px] font-mono text-slate-400 uppercase">PQRS Ley 1755 Abiertas</span>
-          <p className="text-2xl font-black text-amber-400">{datosActuales.pqrs} Casos</p>
+          <span className="text-[11px] font-mono text-slate-400 uppercase">Censo Activo / Supervisor</span>
+          <p className="text-2xl font-black text-amber-400">{metricasActivas.totalUnidades} Aptos</p>
           <p className="text-[11px] text-slate-500">
-            Supervisor a cargo: <strong className="text-slate-300">{datosActuales.supervisor}</strong>
+            Responsable: <strong className="text-slate-300">{datosActuales.supervisor}</strong>
           </p>
         </div>
 

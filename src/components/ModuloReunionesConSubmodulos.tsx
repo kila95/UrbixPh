@@ -34,6 +34,7 @@ import SubmoduloConvocatoriasLey675 from './SubmoduloConvocatoriasLey675';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
 import { exportActaToLegalPDF } from '../ActaCardWithPDF';
 import ResilientMeetingRecorder from '../ResilientMeetingRecorder';
+import { EditorActaLegal } from './EditorActaLegal';
 
 export interface ModuloReunionesConSubmodulosProps {
   unidadResidenteActual?: string;
@@ -71,7 +72,7 @@ export default function ModuloReunionesConSubmodulos({
   unidadResidenteActual = 'Torre 2 - 301',
   esConsejero = true,
   rolUsuario = 'residente',
-  copropiedadNombre = 'P.H. Reserva del Tesoro',
+  copropiedadNombre = 'Urb. Tricentenario',
   onShowToast
 }: ModuloReunionesConSubmodulosProps) {
   const [submoduloActivo, setSubmoduloActivo] = useState<'video' | 'convocatorias' | 'quorum' | 'votaciones' | 'acta'>('video');
@@ -3517,118 +3518,38 @@ export default function ModuloReunionesConSubmodulos({
       {/* SUBMÓDULO 5: ACTA OFICIAL GENERADA DESDE LA GRABACIÓN */}
       {submoduloActivo === 'acta' && (
         <div className="space-y-6">
-          <div className="bg-[#0b0f17] border border-blue-500/30 p-6 rounded-3xl space-y-6 shadow-xl">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          {grabacionUrl && (
+            <div className="p-4 bg-[#07090e] border border-cyan-500/30 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
               <div>
-                <span className="text-xs font-mono uppercase tracking-wider text-blue-400 font-bold">
-                  Transcripción legal conforme al Art. 47 de la Ley 675
+                <span className="text-[10px] font-mono uppercase text-cyan-400 font-bold block">
+                  Evidencia Magnetofónica y de Video Adjunta al Acta
                 </span>
-                <h4 className="text-lg font-black text-white mt-0.5 font-mono">
-                  {rolUsuario === 'admin' ? 'Generación y Foliado del Acta de Asamblea' : 'Consultar Actas Aprobadas'}
-                </h4>
-              </div>
-              {rolUsuario === 'admin' && (
-                <button
-                  type="button"
-                  onClick={handleProcesarGrabacionYGenerarActa}
-                  disabled={generandoActa}
-                  className="px-4 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-400 text-white font-bold text-xs rounded-xl shadow-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
-                >
-                  <Sparkles className="w-4 h-4 text-amber-300" />
-                  {generandoActa ? 'Redactando con IA...' : 'Actualizar Acta con IA desde Grabación'}
-                </button>
-              )}
-            </div>
-
-            {grabacionUrl && (
-              <div className="p-4 bg-[#07090e] border border-cyan-500/30 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div>
-                  <span className="text-[10px] font-mono uppercase text-cyan-400 font-bold block">
-                    Evidencia Magnetofónica y de Video Adjunta al Acta
-                  </span>
-                  <p className="text-xs text-slate-300 mt-0.5">
-                    Grabación registrada durante la sesión ({grabacionTamanoKB} KB).
-                  </p>
-                </div>
-                <audio src={grabacionUrl} controls className="h-9" />
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#07090e] p-4 rounded-2xl border border-slate-800">
-              <div>
-                <span className="text-[10px] font-mono uppercase text-slate-400 block font-bold">Comisión Verificadora del Acta 1</span>
-                <input
-                  type="text"
-                  readOnly={rolUsuario !== 'admin'}
-                  value={comisionVerificadora.persona1}
-                  onChange={(e) => setComisionVerificadora({ ...comisionVerificadora, persona1: e.target.value })}
-                  className="w-full bg-[#0b0f17] border border-slate-800 text-white text-xs p-2 rounded-xl mt-1 focus:border-blue-400 outline-none read-only:opacity-80"
-                />
-              </div>
-              <div>
-                <span className="text-[10px] font-mono uppercase text-slate-400 block font-bold">Comisión Verificadora del Acta 2</span>
-                <input
-                  type="text"
-                  readOnly={rolUsuario !== 'admin'}
-                  value={comisionVerificadora.persona2}
-                  onChange={(e) => setComisionVerificadora({ ...comisionVerificadora, persona2: e.target.value })}
-                  className="w-full bg-[#0b0f17] border border-slate-800 text-white text-xs p-2 rounded-xl mt-1 focus:border-blue-400 outline-none read-only:opacity-80"
-                />
-              </div>
-            </div>
-
-            <div className="bg-[#07090e] p-5 rounded-2xl border border-slate-800 space-y-4 font-mono text-xs">
-              <div className="text-center pb-3 border-b border-slate-800 text-slate-300">
-                <p className="font-bold text-white text-sm">
-                  ACTA OFICIAL • {(invitacionEntrante?.titulo || tituloConvocatoriaInput).toUpperCase()}
+                <p className="text-xs text-slate-300 mt-0.5">
+                  Grabación registrada durante la sesión ({grabacionTamanoKB} KB).
                 </p>
-                <p className="text-[11px] text-slate-400">P.H. RESERVA DEL TESORO • NIT 900.412.889-1 • LEY 675 DE 2001</p>
               </div>
-              <div className="space-y-2 text-slate-300 leading-relaxed text-xs whitespace-pre-line">
-                {resumenActaIa}
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800">
-                <span className="text-[11px] text-slate-400">
-                  Verificadores: <strong className="text-slate-200">{comisionVerificadora.persona1}</strong> y <strong className="text-slate-200">{comisionVerificadora.persona2}</strong>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    exportActaToLegalPDF(
-                      {
-                        minute_number: `ACT-ASAM-${new Date().getFullYear()}-024`,
-                        meeting_type:
-                          invitacionEntrante?.tipo === 'consejo'
-                            ? 'Sesión del Consejo de Administración'
-                            : 'Asamblea General Ordinaria',
-                        status: 'Firmada / Aprobada',
-                        meeting_date: new Date().toLocaleDateString('es-CO'),
-                        start_time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                        quorum_percentage: quorumRegistrado,
-                        president_name: comisionVerificadora.persona1,
-                        secretary_name: 'Administración Central Urbix PH',
-                        summary: resumenActaIa,
-                        commitments: compromisosActa
-                      },
-                      {
-                        name: 'P.H. Reserva del Tesoro',
-                        nit: '900.412.889-1',
-                        zone: 'El Poblado, Medellín'
-                      },
-                      onShowToast
-                    );
-                  }}
-                  className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-teal-400 text-slate-950 font-black rounded-xl transition flex items-center gap-2 cursor-pointer shadow-[0_0_20px_rgba(34,211,238,0.3)]"
-                >
-                  <Download className="w-4 h-4" /> Descargar Acta Foliada (PDF Legal)
-                </button>
-              </div>
+              <audio src={grabacionUrl} controls className="h-9" />
             </div>
-          </div>
+          )}
+
+          <EditorActaLegal
+            tenantId="22079bb5-6ac7-4a15-be89-c53d14e4221b"
+            audioBlobOrUrl={grabacionUrl}
+            contextNotes={`Órgano: ${
+              invitacionEntrante?.tipo === 'consejo' ? 'Consejo de Administración' : 'Asamblea General Ordinaria'
+            }. Título: ${invitacionEntrante?.titulo || tituloConvocatoriaInput}. Quórum verificado: ${quorumRegistrado}%. Moción sometida a votación: ${
+              mociónActual.titulo
+            } (A favor: ${mociónActual.coefFavor}%, En contra: ${mociónActual.coefContra}%, En blanco: ${
+              mociónActual.coefBlanco
+            }%). Intervenciones registradas en sala: ${chatLog
+              .map((c) => `[${c.hora}] ${c.autor}: ${c.texto}`)
+              .join(' | ')}`}
+            onShowToast={onShowToast}
+          />
 
           <div className="mt-6">
             <ResilientMeetingRecorder
-              tenantId="t1"
+              tenantId="22079bb5-6ac7-4a15-be89-c53d14e4221b"
               tenantName={copropiedadNombre}
               onShowToast={onShowToast}
             />

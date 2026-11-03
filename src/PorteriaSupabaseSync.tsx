@@ -67,6 +67,22 @@ export default function PorteriaSupabaseSync({
   const [locationNov, setLocationNov] = useState('');
   const [descNov, setDescNov] = useState('');
   const [loading, setLoading] = useState(false);
+  const [comunicados, setComunicados] = useState<any[]>([]);
+
+  const cargarComunicados = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('announcements')
+        .select('*')
+        .order('is_pinned', { ascending: false })
+        .order('created_at', { ascending: false });
+      if (!error && data) {
+        setComunicados(data);
+      }
+    } catch (err) {
+      console.error('Error cargando comunicados en PorteriaSupabaseSync:', err);
+    }
+  };
 
   const notifTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -140,8 +156,21 @@ export default function PorteriaSupabaseSync({
         }
       });
 
+    cargarComunicados();
+    const channelAnnouncements = supabase
+      .channel(`announcements_porteria_sync_${tenantId}_${Date.now()}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'announcements' },
+        () => {
+          cargarComunicados();
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(channelAnnouncements);
       if (notifTimerRef.current) clearTimeout(notifTimerRef.current);
     };
   }, [tenantId]);
@@ -349,6 +378,20 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.maintenance_reports;
               <Database className="w-3.5 h-3.5" />
               <span>SQL RLS</span>
             </button>
+          </div>
+        </div>
+
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 mt-4">
+          <div className="text-[11px] font-mono text-cyan-400 uppercase font-semibold mb-2">
+            📌 Circulares Activas de Administración
+          </div>
+          <div className="space-y-2">
+            {comunicados.slice(0, 2).map((c) => (
+              <div key={c.id} className="text-xs text-slate-300 border-l-2 border-cyan-500 pl-2">
+                <p className="font-bold text-white">{c.title}</p>
+                <p className="text-[11px] text-slate-400 line-clamp-1">{c.content}</p>
+              </div>
+            ))}
           </div>
         </div>
 

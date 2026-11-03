@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient';
 import { ShieldCheck, Sliders, Wrench, Radio, Clock, AlertTriangle, Users, FileCheck, CheckCircle2, PlusCircle, Bell, ArrowRight, ShieldAlert, Sparkles, LogOut } from 'lucide-react';
 
 export interface ConsolaSupervisorAnalisisCompletoProps {
@@ -33,6 +34,41 @@ export default function ConsolaSupervisorAnalisisCompleto({
   userProfile
 }: ConsolaSupervisorAnalisisCompletoProps) {
   const [subTab, setSubTab] = useState<'rondas' | 'frecuencias' | 'ordenes' | 'alertas'>('rondas');
+  const [comunicados, setComunicados] = useState<any[]>([]);
+
+  useEffect(() => {
+    const cargarComunicados = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('announcements')
+          .select('*')
+          .order('is_pinned', { ascending: false })
+          .order('created_at', { ascending: false });
+        if (!error && data) {
+          setComunicados(data);
+        }
+      } catch (err) {
+        console.error('Error cargando comunicados en supervisor:', err);
+      }
+    };
+
+    cargarComunicados();
+
+    const channel = supabase
+      .channel('announcements-supervisor-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'announcements' },
+        () => {
+          cargarComunicados();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // Fallback data for rondas NFC if empty
   const defaultRondas = [
@@ -221,6 +257,20 @@ export default function ConsolaSupervisorAnalisisCompleto({
                 <span>Cerrar Sesión</span>
               </button>
             )}
+          </div>
+        </div>
+
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 mt-4">
+          <div className="text-[11px] font-mono text-cyan-400 uppercase font-semibold mb-2">
+            📌 Circulares Activas de Administración
+          </div>
+          <div className="space-y-2">
+            {comunicados.slice(0, 2).map((c) => (
+              <div key={c.id} className="text-xs text-slate-300 border-l-2 border-cyan-500 pl-2">
+                <p className="font-bold text-white">{c.title}</p>
+                <p className="text-[11px] text-slate-400 line-clamp-1">{c.content}</p>
+              </div>
+            ))}
           </div>
         </div>
       </header>

@@ -19,10 +19,11 @@ import {
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
 import { exportActaToLegalPDF } from '../ActaCardWithPDF';
 import ResilientMeetingRecorder from '../ResilientMeetingRecorder';
+import { EditorActaLegal } from './EditorActaLegal';
 
 export default function AsambleasActasLegalesHub({
   onShowToast,
-  copropiedadNombre = 'P.H. Reserva del Tesoro'
+  copropiedadNombre = 'Urb. Tricentenario'
 }: {
   onShowToast?: (msg: string) => void;
   copropiedadNombre?: string;
@@ -804,31 +805,10 @@ export default function AsambleasActasLegalesHub({
           ========================================================================= */}
       {tabActiva === 2 && (
         <div className="space-y-6">
-          <div className="bg-[#0b0f17] border border-cyan-500/20 rounded-3xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5" /> Motor Jurídico IA • Gemini 2.5 Flash
-                </span>
-                <h4 className="text-sm font-bold text-white mt-1">
-                  Redacción Legal del Acta de Asamblea (Art. 47 Ley 675 de 2001)
-                </h4>
-              </div>
-              <button
-                type="button"
-                onClick={handleProcesarGrabacionIa}
-                disabled={procesandoIa}
-                className="bg-purple-600 hover:bg-purple-500 text-white font-mono text-xs font-bold px-4 py-2 rounded-xl transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                {procesandoIa ? 'Sintetizando Sesión...' : 'Ejecutar Redacción IA'}
-              </button>
-            </div>
-
-            <div className="p-4 bg-[#07090e] border border-slate-800 rounded-2xl font-mono text-xs text-slate-300 leading-relaxed whitespace-pre-line">
-              {resumenGenerado}
-            </div>
-          </div>
+          <EditorActaLegal
+            tenantId="22079bb5-6ac7-4a15-be89-c53d14e4221b"
+            onShowToast={onShowToast}
+          />
         </div>
       )}
 
@@ -858,7 +838,7 @@ export default function AsambleasActasLegalesHub({
 
       <div className="mt-6">
         <ResilientMeetingRecorder
-          tenantId="t1"
+          tenantId="22079bb5-6ac7-4a15-be89-c53d14e4221b"
           tenantName={copropiedadNombre}
           onShowToast={onShowToast}
         />

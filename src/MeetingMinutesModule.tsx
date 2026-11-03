@@ -146,6 +146,7 @@ export default function MeetingMinutesModule({
     secretary_name: acta.secretary,
     summary: acta.topics,
     raw_transcript: acta.rawTranscript,
+    balanceFinanciero: (acta as any).balanceFinanciero || [],
     commitments: acta.commitments,
     audio_segments: acta.audioSegments
   });

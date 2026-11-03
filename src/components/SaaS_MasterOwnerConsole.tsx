@@ -8,6 +8,8 @@ import ModalInscribirCopropiedadConIA from './ModalInscribirCopropiedadConIA';
 import { MatrizGlobalTenantsSoporte } from './MatrizGlobalTenantsSoporte';
 import SoporteTecnicoImpersonacion from './SoporteTecnicoImpersonacion';
 import TarjetasKpiInteractivas from './TarjetasKpiInteractivas';
+import { supabase, isSupabaseConfigured } from '../supabaseClient';
+import { desactivarUsuarioSeguro } from '../authService';
 
 interface SaaS_MasterOwnerConsoleProps {
   onImpersonateAdmin?: (copropiedadName: string) => void;
@@ -48,7 +50,18 @@ export interface ClientTenantNode {
     residente: boolean;
     boveda: boolean;
   };
-  assignedAdminId?: string;
+  assignedAdminId?: string | null;
+}
+
+export interface AdministradorGestor {
+  id: string;
+  full_name?: string;
+  nombreRepresentante?: string;
+  company_name?: string;
+  nombreEmpresa?: string;
+  email: string;
+  phone?: string;
+  nit?: string;
 }
 
 export interface ImpersonationAuditLog {
@@ -136,7 +149,7 @@ export default function SaaS_MasterOwnerConsole({
   onShowToast = () => {},
   themeConfig = DEFAULT_THEME_CONFIG,
   onUpdateTheme = () => {},
-  tenants = INITIAL_TENANTS,
+  tenants: propTenants = INITIAL_TENANTS,
   onUpdateTenants = () => {},
   selectedTenantId = 'ten_01',
   onSelectTenantId = () => {},
@@ -144,6 +157,237 @@ export default function SaaS_MasterOwnerConsole({
   onAppendAuditLog = () => {},
   onCerrarSesion
 }: SaaS_MasterOwnerConsoleProps) {
+  const [tenants, setTenantsState] = useState<any[]>(propTenants);
+  const [cargandoTenants, setCargandoTenants] = useState(false);
+
+  // Lista de Administradores & Firmas Gestoras B2B
+  const [administradoresLista, setAdministradoresLista] = useState<AdministradorGestor[]>([
+    {
+      id: 'adm_01',
+      full_name: 'Carlos Mario Pineda',
+      nombreRepresentante: 'Carlos Mario Pineda',
+      company_name: 'Pineda Gestión Inmobiliaria S.A.S.',
+      nombreEmpresa: 'Pineda Gestión Inmobiliaria S.A.S.',
+      email: 'carlos.admin@reservatesoro.com',
+      phone: '310 450 8899',
+      nit: '900.554.321-4'
+    },
+    {
+      id: 'adm_02',
+      full_name: 'Julián Arango',
+      nombreRepresentante: 'Julián Arango',
+      company_name: 'Arango PH Consultores',
+      nombreEmpresa: 'Arango PH Consultores',
+      email: 'julian.admin@torrepoblado.com',
+      phone: '311 889 0012',
+      nit: '901.223.445-1'
+    },
+    {
+      id: 'adm_03',
+      full_name: 'Dra. Patricia Restrepo',
+      nombreRepresentante: 'Dra. Patricia Restrepo',
+      company_name: 'Soluciones Integrales PH',
+      nombreEmpresa: 'Soluciones Integrales PH',
+      email: 'patricia.restrepo@solucionesph.com',
+      phone: '314 776 5544',
+      nit: '900.887.654-9'
+    }
+  ]);
+
+  const setTenants = (updater: any) => {
+    setTenantsState((prev: any[]) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (onUpdateTenants) {
+        try {
+          onUpdateTenants(next);
+        } catch {
+          // ignore
+        }
+      }
+      return next;
+    });
+  };
+
+  const [tenantsReales, setTenantsReales] = useState<any[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [metricas, setMetricas] = useState({
+    saludFinanciera: '100.0%',
+    recaudoMes: '100.0%',
+    totalUnidades: 100,
+    mrrPlataforma: 200000,
+    instanciasActivas: 1
+  });
+
+  const cargarFacturacionReal = async () => {
+    try {
+      setCargando(true);
+
+      // 1. Consultar tenants reales existentes en la base de datos
+      const { data: tenantsData, error: errTenants } = await supabase
+        .from('tenants')
+        .select('id, name, plan, total_monthly_budget, units_count, status')
+        .order('created_at', { ascending: false });
+
+      if (errTenants) throw errTenants;
+
+      // 2. Consultar unidades reales de Tricentenario
+      const { data: unitsData, error: errUnits } = await supabase
+        .from('units')
+        .select('debt_status, pending_balance');
+
+      if (errUnits) throw errUnits;
+
+      const units = unitsData || [];
+      // Cálculo real derivado de la tabla units
+      const totalUnidades = units.length; // 100
+      const unidadesEnMora = units.filter(u => Number(u.pending_balance) > 0 || u.debt_status === 'En mora').length;
+      const unidadesPagadas = units.filter(u => u.debt_status === 'Al día' && Number(u.pending_balance) === 0).length;
+
+      // Si nadie ha pagado el mes que recién inicia, dará 0.0%
+      const porcentajeRecaudo = totalUnidades > 0 
+        ? ((unidadesPagadas / totalUnidades) * 100).toFixed(1) 
+        : '0.0';
+
+      setTenantsReales(tenantsData || []);
+      setMetricas({
+        saludFinanciera: `${porcentajeRecaudo}%`,
+        recaudoMes: `${porcentajeRecaudo}%`,
+        totalUnidades: totalUnidades,
+        // Si cobras por ejemplo $2.000 COP por unidad en tu SaaS:
+        mrrPlataforma: totalUnidades * 2000, 
+        instanciasActivas: tenantsData?.length || 1
+      });
+
+    } catch (error: any) {
+      console.error('Error cargando facturación real:', error.message);
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  useEffect(() => {
+    cargarFacturacionReal();
+  }, []);
+
+  const cargarDirectorioCompleto = async () => {
+    if (!isSupabaseConfigured) return;
+    setCargandoTenants(true);
+
+    try {
+      // 1. Consultar Administradores activos
+      let admins: any[] | null = null;
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .in('role', ['admin', 'admin_ph'])
+          .is('deleted_at', null)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        admins = data;
+      } catch (errAdmins: any) {
+        try {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .in('role', ['admin', 'admin_ph']);
+          if (!error) admins = data;
+        } catch {}
+      }
+
+      if (admins && admins.length > 0) {
+        setAdministradoresLista(prev => {
+          const map = new Map<string, AdministradorGestor>();
+          admins!.forEach((p: any) => {
+            map.set(p.email, {
+              id: p.id,
+              full_name: p.full_name || p.nombre || '',
+              nombreRepresentante: p.full_name || p.nombre || '',
+              company_name: p.company_name || p.empresa || '',
+              nombreEmpresa: p.company_name || p.empresa || '',
+              email: p.email,
+              phone: p.phone,
+              nit: p.company_nit || p.nit
+            });
+          });
+          prev.forEach(a => {
+            if (!map.has(a.email)) map.set(a.email, a);
+          });
+          return Array.from(map.values());
+        });
+      }
+
+      // 2. Consultar Copropiedades activas
+      let edificios: any[] | null = null;
+      try {
+        const { data, error } = await supabase
+          .from('tenants')
+          .select('*')
+          .is('deleted_at', null)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        edificios = data;
+      } catch (errTenants: any) {
+        try {
+          const { data, error } = await supabase
+            .from('tenants')
+            .select('*')
+            .order('created_at', { ascending: false });
+          if (!error) edificios = data;
+          else {
+            const fallback = await supabase.from('tenants').select('*');
+            if (!fallback.error) edificios = fallback.data;
+          }
+        } catch {}
+      }
+
+      if (edificios && edificios.length > 0) {
+        const tenantsFormateados = edificios.map((t: any) => ({
+          id: t.id,
+          name: t.name,
+          nit: t.nit || 'NIT en trámite',
+          city: t.city || 'Medellín',
+          address: t.address || '',
+          adminName: t.admin_name || t.adminName || 'Pendiente por asignar',
+          adminEmail: t.admin_email || t.adminEmail || 'Sin correo',
+          plan: t.plan || 'Plan Pro',
+          status: t.status === 'active' || t.status === 'Activo' ? 'Activa 🟢' : (t.status || 'Activa 🟢'),
+          unitsCount: t.units_count || t.unitsCount || 0,
+          monthlyFee: Number(t.mrr || t.monthlyFee || (t.plan === 'Enterprise' ? 1800000 : t.plan === 'Pro' ? 1200000 : 750000)),
+          financialStatus: t.financialStatus || 'Al Día',
+          cutOffDate: t.cutOffDate || '2026-12-01',
+          lastBillingDate: t.lastBillingDate || new Date().toISOString().split('T')[0],
+          cufeDian: t.cufeDian || `CUFE: ${String(t.id).slice(0, 8)}...`,
+          featureFlags: t.featureFlags || {
+            contable: true,
+            nomina: true,
+            porteria: true,
+            aseo: true,
+            reservas: true,
+            residente: true,
+            boveda: true
+          },
+          assignedAdminId: t.assigned_admin_id || t.assignedAdminId || null
+        }));
+
+        setTenants(tenantsFormateados);
+      }
+    } catch (error: any) {
+      console.error('Error sincronizando directorio:', error.message);
+    } finally {
+      setCargandoTenants(false);
+    }
+  };
+
+  const cargarTenantsDesdeDB = cargarDirectorioCompleto;
+
+  // Cargar al iniciar el componente
+  useEffect(() => {
+    cargarDirectorioCompleto();
+  }, []);
+
   // ÚNICOS 7 SUBMÓDULOS DEL DUEÑO DEL SOFTWARE
   const [activeTab, setActiveTab] = useState<'tenants' | 'pricing_tiers' | 'feature_flags' | 'support_impersonate' | 'gateway' | 'billing_dunning' | 'infrastructure'>('tenants');
   const [gatewayProvider, setGatewayProvider] = useState<'Wompi Bancolombia' | 'Stripe Global' | 'PayU Latam' | 'PSE Corporativo'>('Wompi Bancolombia');
@@ -164,7 +408,69 @@ export default function SaaS_MasterOwnerConsole({
   const [modalCrearAdminTenantId, setModalCrearAdminTenantId] = useState<string | null>(null);
   const [modalEmpresaAdminTenantId, setModalEmpresaAdminTenantId] = useState<string | null>(null);
   const [modalInscribirAbierto, setModalInscribirAbierto] = useState(false);
-  const setTenants = onUpdateTenants;
+  const [modalVincularTenantId, setModalVincularTenantId] = useState<string | null>(null);
+
+  const abrirModalVincular = (tenantId: string) => {
+    setModalVincularTenantId(tenantId);
+  };
+
+  const handleVincularAdminATenant = async (tenantId: string, admin: AdministradorGestor) => {
+    const adminFullName = admin.full_name || admin.nombreRepresentante || 'Administrador Asignado';
+    const adminCompany = admin.company_name || admin.nombreEmpresa ? ` (${admin.company_name || admin.nombreEmpresa})` : '';
+    const adminDisplay = `${adminFullName}${adminCompany}`;
+
+    onUpdateTenants(prev =>
+      prev.map(t =>
+        t.id === tenantId
+          ? {
+              ...t,
+              assignedAdminId: admin.id,
+              adminName: adminDisplay,
+              adminEmail: admin.email
+            }
+          : t
+      )
+    );
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('admin_tenant_assignments').insert({
+          admin_id: admin.id,
+          tenant_id: tenantId,
+          created_at: new Date().toISOString()
+        });
+        await supabase.from('tenants').update({
+          assigned_admin_id: admin.id,
+          admin_name: adminDisplay,
+          admin_email: admin.email
+        }).eq('id', tenantId);
+      } catch (err) {
+        console.warn('Error vinculando admin en Supabase:', err);
+      }
+    }
+
+    onShowToast?.(`¡Administrador ${adminFullName} vinculado con éxito a la copropiedad!`);
+    onAppendAuditLog?.(
+      'ASSIGN_ADMIN_TO_TENANT',
+      `Vinculó a ${adminFullName} (${admin.email}) como Administrador de la copropiedad ID ${tenantId}`
+    );
+    setModalVincularTenantId(null);
+  };
+
+  const handleDesactivarAdmin = async (admin: AdministradorGestor) => {
+    const adminNombre = admin.full_name || admin.nombreRepresentante || admin.email;
+    try {
+      if (isSupabaseConfigured) {
+        await desactivarUsuarioSeguro(admin.id);
+      }
+      setAdministradoresLista(prev => prev.filter(a => a.id !== admin.id));
+      onShowToast?.(`✓ Administrador "${adminNombre}" desactivado de forma segura.`);
+      onAppendAuditLog?.('DEACTIVATE_USER_SAFE', `Desactivó al administrador ${admin.email} (ID: ${admin.id})`);
+    } catch (err: any) {
+      onShowToast?.(`Error al desactivar administrador: ${err.message}`);
+    }
+  };
+
   const setActiveTenant = (nuevoTenant: ClientTenantNode) => onSelectTenantId(nuevoTenant.id);
 
   // Control de scroll horizontal de sub-pestañas
@@ -353,9 +659,9 @@ export default function SaaS_MasterOwnerConsole({
             </span>
             <span className="text-xs text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity font-mono">🔍 Ver analítica</span>
           </div>
-          <div className="text-xl font-black font-mono text-white mt-2">$1.380.000 COP/mes</div>
-          <div className="text-xs font-mono text-purple-400 mt-1 font-bold">ARR Anual: $16.560.000 COP</div>
-          <span className="text-[11px] font-mono text-slate-400 mt-3 block">Ingresos Recurrentes Activos (SaaS B2B)</span>
+          <div className="text-xl font-black font-mono text-white mt-2">${metricas.mrrPlataforma.toLocaleString('es-CO')} COP/mes</div>
+          <div className="text-xs font-mono text-purple-400 mt-1 font-bold">ARR Anual: ${(metricas.mrrPlataforma * 12).toLocaleString('es-CO')} COP</div>
+          <span className="text-[11px] font-mono text-slate-400 mt-3 block">MRR Plataforma ($2.000 COP × {metricas.totalUnidades} unidades)</span>
         </div>
 
         <div
@@ -368,9 +674,9 @@ export default function SaaS_MasterOwnerConsole({
             </span>
             <span className="text-xs text-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity font-mono">🔍 Ver directorio</span>
           </div>
-          <div className="text-xl font-black font-mono text-white mt-2">3 Clientes SaaS</div>
-          <div className="text-xs font-mono text-emerald-400 mt-1 font-bold">3 Al día • 0 Suspendidos</div>
-          <span className="text-[11px] font-mono text-slate-400 mt-3 block">Copropiedades Activas Conectadas</span>
+          <div className="text-xl font-black font-mono text-white mt-2">{metricas.instanciasActivas} Copropiedades SaaS</div>
+          <div className="text-xs font-mono text-emerald-400 mt-1 font-bold">Salud Financiera: {metricas.saludFinanciera}</div>
+          <span className="text-[11px] font-mono text-slate-400 mt-3 block">Copropiedades Activas en Supabase</span>
         </div>
 
         <div
@@ -383,8 +689,8 @@ export default function SaaS_MasterOwnerConsole({
             </span>
             <span className="text-xs text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity font-mono">🔍 Ver centro DIAN</span>
           </div>
-          <div className="text-xl font-black font-mono text-white mt-2">2/3 Emitidas</div>
-          <div className="text-xs font-mono text-cyan-400 mt-1 font-bold">Estándar UBL 2.1 • CUFE Activo</div>
+          <div className="text-xl font-black font-mono text-white mt-2">{metricas.recaudoMes} Recaudo</div>
+          <div className="text-xs font-mono text-cyan-400 mt-1 font-bold">Total: {metricas.totalUnidades} Unidades Registradas</div>
           <span className="text-[11px] font-mono text-slate-400 mt-3 block">Centro de Control y Transmisión DIAN</span>
         </div>
       </div>
@@ -492,117 +798,277 @@ export default function SaaS_MasterOwnerConsole({
         </div>
       </div>
 
-      {/* SUBMÓDULO 1: TENANTS */}
+      {/* =========================================================================
+          DIRECTORIO DUAL: ADMINISTRADORES (IZQUIERDA) vs COPROPIEDADES (DERECHA)
+         ========================================================================= */}
       {activeTab === 'tenants' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl">
-          <div className="flex justify-between items-center flex-wrap gap-4">
+        <div className="space-y-6">
+          
+          {/* Barra Superior de Control de Licencias */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <span className="text-[10px] font-mono bg-purple-950 text-purple-300 border border-purple-500/30 px-2.5 py-1 rounded">
-                [ B2B MULTI-TENANT REGISTRY ]
+              <span className="text-[10px] font-mono bg-purple-950 text-purple-300 border border-purple-500/30 px-2.5 py-1 rounded uppercase tracking-widest">
+                [ B2B MULTI-TENANT &amp; ADMIN REGISTRY ]
               </span>
-              <h2 className="text-lg font-bold text-white mt-2">Edificios y Urbanizaciones Clientes del Software</h2>
-              <p className="text-xs text-slate-400">Control maestro de licencias, planes comerciales, suspensión remota e impersonación técnica.</p>
+              <h2 className="text-xl font-black text-white mt-2">Gestión de Copropiedades y Empresas Administradoras</h2>
+              <p className="text-xs text-slate-400">
+                Crea administradores independientes o edificios sin ataduras, y vincúlalos libremente cuando lo requieras.
+              </p>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
+
+            <div className="flex flex-wrap items-center gap-2.5">
               <button
                 type="button"
                 onClick={() => setModalInscribirAbierto(true)}
-                className="bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:opacity-90 text-white font-black px-5 py-2.5 rounded-2xl text-xs transition cursor-pointer flex items-center gap-2 shadow-[0_0_15px_rgba(217,70,239,0.3)]"
+                className="bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:opacity-90 text-white font-black px-4 py-2.5 rounded-xl text-xs transition cursor-pointer flex items-center gap-2 shadow-[0_0_15px_rgba(217,70,239,0.3)]"
               >
-                + Inscribir Nueva Copropiedad Cliente
+                + Inscribir Nueva Copropiedad
               </button>
               <button
-                onClick={() => setModalEmpresaAdminTenantId(selectedTenantId || tenants[0]?.id || 'ten_01')}
-                className="bg-gradient-to-r from-cyan-500 to-teal-400 hover:opacity-90 text-slate-950 font-black px-4 py-2.5 rounded-xl font-mono text-xs transition-colors shadow-lg cursor-pointer"
+                type="button"
+                onClick={() => setModalEmpresaAdminTenantId('libre')}
+                className="bg-gradient-to-r from-cyan-500 to-teal-400 hover:opacity-90 text-slate-950 font-black px-4 py-2.5 rounded-xl text-xs transition shadow-lg cursor-pointer flex items-center gap-2"
               >
                 🏢 + Registrar Administrador &amp; Empresa
-              </button>
-              <button
-                onClick={() => setModalCrearAdminTenantId(selectedTenantId || tenants[0]?.id || 'ten_01')}
-                className="bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 font-bold px-3.5 py-2.5 rounded-xl font-mono text-xs transition-colors shadow-lg cursor-pointer"
-              >
-                👤 + Acceso Rápido Rol
               </button>
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left text-xs font-mono">
-              <thead>
-                <tr className="bg-slate-950 text-slate-400 border-b border-slate-800">
-                  <th className="p-3.5">Copropiedad / NIT</th>
-                  <th className="p-3.5">Ubicación</th>
-                  <th className="p-3.5">Administrador Legal</th>
-                  <th className="p-3.5">Plan SaaS</th>
-                  <th className="p-3.5">Canon Mensual</th>
-                  <th className="p-3.5">Estado Licencia</th>
-                  <th className="p-3.5 text-right">Acciones de Dueño SaaS</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {tenants.map(t => (
-                  <tr key={t.id} className="hover:bg-slate-950/40 transition-colors">
-                    <td className="p-3.5">
-                      <div className="font-bold text-white text-sm">{t.name}</div>
-                      <div className="text-[10px] text-slate-500">NIT: {t.nit}</div>
-                    </td>
-                    <td className="p-3.5 text-slate-300">{t.city}</td>
-                    <td className="p-3.5">
-                      <div className="text-slate-200">{t.adminName}</div>
-                      <div className="text-[10px] text-purple-400">{t.adminEmail}</div>
-                    </td>
-                    <td className="p-3.5">
-                      <select
-                        value={t.plan}
-                        onChange={(e) => handleUpdatePlan(t.id, e.target.value as any)}
-                        className="bg-slate-950 border border-slate-800 text-emerald-400 font-bold p-1.5 rounded text-xs"
-                      >
-                        <option value="Plan Esencial">Plan Esencial ($250k)</option>
-                        <option value="Plan Profesional">Plan Profesional ($650k)</option>
-                        <option value="Plan Enterprise">Plan Enterprise ($1.2M)</option>
-                      </select>
-                    </td>
-                    <td className="p-3.5 text-emerald-400 font-bold">${t.monthlyFee.toLocaleString()} COP</td>
-                    <td className="p-3.5">
-                      <span className={`px-2 py-1 rounded text-[10px] font-bold ${
-                        t.status.includes('Activa') ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-500/40' :
-                        t.status.includes('En Gracia') ? 'bg-amber-950/80 text-amber-400 border border-amber-500/40' :
-                        'bg-red-950/80 text-red-400 border border-red-500/40'
-                      }`}>
-                        {t.status}
-                      </span>
-                    </td>
-                    <td className="p-3.5 text-right space-x-2 whitespace-nowrap">
-                      <button
-                        onClick={() => setModalCrearAdminTenantId(t.id)}
-                        className="bg-teal-950/80 hover:bg-teal-900 text-teal-300 border border-teal-500/40 px-2.5 py-1.5 rounded text-[10px] font-bold transition-colors cursor-pointer"
-                        title="Registrar nuevo administrador o usuario en Supabase para esta copropiedad"
-                      >
-                        👤 + Crear Admin
-                      </button>
-                      <button
-                        onClick={() => handleExecuteImpersonate(t)}
-                        className="bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/40 px-2.5 py-1.5 rounded text-[10px] font-bold transition-colors cursor-pointer"
-                        title="Impersonar y ver como administrador de este edificio"
-                      >
-                        🔍 Impersonar Admin
-                      </button>
-                      <button
-                        onClick={() => handleToggleSuspendTenant(t.id)}
-                        className={`px-2.5 py-1.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
-                          t.status.includes('Suspendida')
-                            ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
-                            : 'bg-red-950 text-red-300 border border-red-500/40'
-                        }`}
-                      >
-                        {t.status.includes('Suspendida') ? '▶ Reactivar' : '⏸ Suspender'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {/* GRID DUAL: DOS COLUMNAS */}
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+
+            {/* COLUMNA 1 (5 columnas): DIRECTORIO DE ADMINISTRADORES / FIRMAS */}
+            <div className="xl:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-4 shadow-xl">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-sm font-black text-white flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                    Administradores &amp; Firmas Gestoras
+                  </h3>
+                  <p className="text-[11px] text-slate-400 font-mono">Usuarios con credenciales de gestión B2B</p>
+                </div>
+                <span className="text-xs font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-md">
+                  {administradoresLista.length} Registrados
+                </span>
+              </div>
+
+              {/* Listado de Administradores */}
+              <div className="space-y-2.5 max-h-[600px] overflow-y-auto pr-1">
+                {administradoresLista.map((admin) => {
+                  const conjuntosAsociados = tenants.filter(t => t.assignedAdminId === admin.id || t.adminEmail === admin.email);
+                  const tieneConjuntos = conjuntosAsociados.length > 0;
+
+                  return (
+                    <div 
+                      key={admin.id} 
+                      className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-2xl hover:border-cyan-500/40 transition space-y-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <h4 className="text-xs font-black text-white">{admin.full_name || admin.nombreRepresentante}</h4>
+                          <p className="text-[11px] text-cyan-300 font-mono">{admin.company_name || admin.nombreEmpresa}</p>
+                          <p className="text-[10px] text-slate-400 font-mono">{admin.email}</p>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                            tieneConjuntos 
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                              : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                          }`}>
+                            {tieneConjuntos ? `${conjuntosAsociados.length} Edificio(s)` : 'Sin Conjuntos'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleDesactivarAdmin(admin)}
+                            title="Desactivar administrador de forma segura"
+                            className="px-1.5 py-0.5 text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 border border-transparent hover:border-rose-500/30 rounded-lg transition text-[10px] font-mono cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Lista de edificios que administra actualmente */}
+                      <div className="pt-2 border-t border-slate-900 text-[11px] flex flex-wrap gap-1.5 items-center">
+                        <span className="text-[10px] text-slate-500 font-mono">Inmuebles:</span>
+                        {tieneConjuntos ? (
+                          conjuntosAsociados.map(c => (
+                            <span key={c.id} className="bg-slate-900 text-slate-300 px-2 py-0.5 rounded text-[10px] border border-slate-800">
+                              {c.name}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-[10px] text-amber-400/80 italic font-mono">
+                            Listo para asignar a una copropiedad
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* COLUMNA 2 (7 columnas): TABLA DE COPROPIEDADES / EDIFICIOS */}
+            <div className="xl:col-span-7 bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-4 shadow-xl">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-sm font-black text-white flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+                    Copropiedades &amp; Urbanizaciones
+                  </h3>
+                  <p className="text-[11px] text-slate-400 font-mono">Inmuebles con base de datos y censo activo</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {cargandoTenants && (
+                    <span className="text-[10px] font-mono text-cyan-400 animate-pulse flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                      Cargando DB...
+                    </span>
+                  )}
+                  <span className="text-xs font-mono font-bold bg-purple-500/10 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded-md">
+                    {tenants.length} Inmuebles
+                  </span>
+                </div>
+              </div>
+
+              {/* Tabla compacta de Copropiedades */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs font-mono">
+                  <thead>
+                    <tr className="bg-slate-950 text-slate-400 border-b border-slate-800 text-[10px] uppercase">
+                      <th className="p-3">Inmueble / NIT</th>
+                      <th className="p-3">Administrador Asignado</th>
+                      <th className="p-3">Plan / Estado</th>
+                      <th className="p-3 text-right">Vincular</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {cargandoTenants && tenants.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="p-6 text-center text-slate-400 font-mono text-xs">
+                          Cargando copropiedades desde la base de datos...
+                        </td>
+                      </tr>
+                    ) : (
+                      tenants.map((t) => (
+                      <tr key={t.id} className="hover:bg-slate-950/40 transition">
+                        <td className="p-3">
+                          <p className="font-bold text-white text-xs">{t.name}</p>
+                          <p className="text-[10px] text-slate-500">{t.city} • NIT: {t.nit}</p>
+                        </td>
+
+                        <td className="p-3">
+                          {t.adminName ? (
+                            <div>
+                              <span className="font-bold text-slate-200">{t.adminName}</span>
+                              <p className="text-[10px] text-purple-400">{t.adminEmail}</p>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded font-bold">
+                              ⚠️ Sin Administrador
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="p-3">
+                          <span className="text-emerald-400 font-bold block">{t.plan}</span>
+                          <span className="text-[10px] text-slate-400">{t.status || 'Activo'}</span>
+                        </td>
+
+                        <td className="p-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => abrirModalVincular(t.id)}
+                            className="px-2.5 py-1.5 bg-slate-800 hover:bg-cyan-500 hover:text-slate-950 text-cyan-300 border border-cyan-500/30 rounded-xl text-[10px] font-black transition cursor-pointer"
+                          >
+                            Asignar Admin
+                          </button>
+                        </td>
+                      </tr>
+                    )))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
           </div>
+
+          {/* Modal para Vincular Administrador a Inmueble */}
+          {modalVincularTenantId && (() => {
+            const tenantEnVincular = tenants.find(t => t.id === modalVincularTenantId);
+            return (
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 font-sans text-slate-100">
+                <div className="bg-[#0b0f17] border border-cyan-500/40 rounded-3xl p-6 w-full max-w-lg space-y-5 shadow-2xl">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div>
+                      <span className="text-[10px] font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded">
+                        VINCULACIÓN B2B
+                      </span>
+                      <h4 className="text-base font-black text-white mt-1">
+                        Asignar Administrador a {tenantEnVincular?.name}
+                      </h4>
+                    </div>
+                    <button
+                      onClick={() => setModalVincularTenantId(null)}
+                      className="text-slate-400 hover:text-white text-xs font-mono px-2 py-1"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-slate-400 font-mono">
+                    Selecciona la firma gestora o administrador registrado que tendrá acceso y control operativo de este inmueble:
+                  </p>
+
+                  <div className="space-y-2.5 max-h-[340px] overflow-y-auto pr-1">
+                    {administradoresLista.map((admin) => {
+                      const yaAsignado = tenantEnVincular?.assignedAdminId === admin.id || tenantEnVincular?.adminEmail === admin.email;
+                      return (
+                        <div
+                          key={admin.id}
+                          className={`p-3.5 rounded-2xl border transition flex items-center justify-between gap-3 ${
+                            yaAsignado
+                              ? 'bg-cyan-950/30 border-cyan-500/50'
+                              : 'bg-slate-950/80 border-slate-800 hover:border-slate-700'
+                          }`}
+                        >
+                          <div>
+                            <h5 className="text-xs font-bold text-white">{admin.full_name || admin.nombreRepresentante}</h5>
+                            <p className="text-[11px] text-cyan-300 font-mono">{admin.company_name || admin.nombreEmpresa}</p>
+                            <p className="text-[10px] text-slate-400 font-mono">{admin.email}</p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleVincularAdminATenant(modalVincularTenantId, admin)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-black font-mono transition cursor-pointer ${
+                              yaAsignado
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : 'bg-gradient-to-r from-cyan-500 to-teal-400 hover:opacity-90 text-slate-950 shadow-md'
+                            }`}
+                          >
+                            {yaAsignado ? '✓ Asignado' : 'Seleccionar'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex justify-end pt-2 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setModalVincularTenantId(null)}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-mono font-bold transition cursor-pointer"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {modalCrearAdminTenantId && (
             <CrearAdministradorModal
@@ -621,24 +1087,42 @@ export default function SaaS_MasterOwnerConsole({
           {modalEmpresaAdminTenantId && (
             <ModalRegistroAdministradorEmpresa
               tenantsDisponibles={tenants.map(t => ({ id: t.id, name: t.name }))}
-              tenantPreseleccionadoId={modalEmpresaAdminTenantId}
+              tenantPreseleccionadoId={modalEmpresaAdminTenantId === 'libre' ? undefined : modalEmpresaAdminTenantId}
               onCerrar={() => setModalEmpresaAdminTenantId(null)}
               onShowToast={onShowToast}
-              onRegistroExitoso={({ nombreEmpresa, nitCompleto, nombreRepresentante, email, tenantId }) => {
-                onUpdateTenants(prev =>
-                  prev.map(t =>
-                    t.id === tenantId
-                      ? {
-                          ...t,
-                          adminName: `${nombreRepresentante} (${nombreEmpresa})`,
-                          adminEmail: email
-                        }
-                      : t
-                  )
-                );
+              onRegistroExitoso={({ nombreEmpresa, nitCompleto, nombreRepresentante, email, tenantId, telefono }) => {
+                const nuevoAdminId = `adm_${Date.now()}`;
+                setAdministradoresLista(prev => [
+                  {
+                    id: nuevoAdminId,
+                    full_name: nombreRepresentante,
+                    nombreRepresentante,
+                    company_name: nombreEmpresa,
+                    nombreEmpresa,
+                    email,
+                    nit: nitCompleto,
+                    phone: telefono
+                  },
+                  ...prev
+                ]);
+
+                if (tenantId) {
+                  onUpdateTenants(prev =>
+                    prev.map(t =>
+                      t.id === tenantId
+                        ? {
+                            ...t,
+                            assignedAdminId: nuevoAdminId,
+                            adminName: `${nombreRepresentante} (${nombreEmpresa})`,
+                            adminEmail: email
+                          }
+                        : t
+                    )
+                  );
+                }
                 onAppendAuditLog?.(
                   'REGISTER_ADMIN_COMPANY_SUPABASE',
-                  `Registró Administrador "${nombreRepresentante}" y Empresa "${nombreEmpresa}" (NIT: ${nitCompleto}) asignado a tenant ${tenantId}`
+                  `Registró Administrador "${nombreRepresentante}" y Empresa "${nombreEmpresa}" (NIT: ${nitCompleto})${tenantId ? ` asignado a tenant ${tenantId}` : ' (Sin copropiedad asignada)'}`
                 );
               }}
             />
@@ -646,10 +1130,51 @@ export default function SaaS_MasterOwnerConsole({
 
           {modalInscribirAbierto && (
             <ModalInscribirCopropiedadConIA
+              administradoresRegistrados={administradoresLista.map(a => ({
+                id: a.id,
+                nombre: a.full_name || a.nombreRepresentante || '',
+                empresa: a.company_name || a.nombreEmpresa || '',
+                email: a.email
+              }))}
               onCerrar={() => setModalInscribirAbierto(false)}
-              onTenantCreado={(nuevoTenant) => {
-                setTenants((prev) => [nuevoTenant, ...prev]);
+              onTenantCreado={(nuevoTenant: any) => {
+                // Opción A: Recargar directamente de Supabase
+                cargarTenantsDesdeDB();
+                cargarFacturacionReal();
+
+                // Opción B: Inserción reactiva inmediata en la tabla local
+                setTenants((prev: any[]) => [
+                  {
+                    id: nuevoTenant.id,
+                    name: nuevoTenant.name,
+                    nit: nuevoTenant.nit,
+                    city: nuevoTenant.city,
+                    adminName: nuevoTenant.adminName || 'Pendiente por asignar',
+                    adminEmail: nuevoTenant.adminEmail || 'Sin correo',
+                    plan: nuevoTenant.plan || 'Plan Pro',
+                    status: 'Activa 🟢',
+                    unitsCount: nuevoTenant.unitsCount || nuevoTenant.units_count || 100,
+                    monthlyFee: nuevoTenant.monthlyFee || (nuevoTenant.plan === 'Plan Enterprise' ? 1800000 : 1200000),
+                    financialStatus: 'Al Día',
+                    cutOffDate: '2026-12-01',
+                    lastBillingDate: new Date().toISOString().split('T')[0],
+                    cufeDian: `CUFE: ${nuevoTenant.id?.slice(0, 8)}...`,
+                    featureFlags: nuevoTenant.featureFlags || {
+                      contable: true,
+                      nomina: true,
+                      porteria: true,
+                      aseo: true,
+                      reservas: true,
+                      residente: true,
+                      boveda: true
+                    },
+                    assignedAdminId: nuevoTenant.assignedAdminId || null
+                  },
+                  ...prev
+                ]);
+
                 setActiveTenant(nuevoTenant);
+                setModalInscribirAbierto(false);
               }}
               onShowToast={onShowToast}
             />
@@ -1091,19 +1616,64 @@ export default function SaaS_MasterOwnerConsole({
             <p className="text-xs text-slate-400">Gestión de suscripciones B2B, automatización de avisos de cobro y bloqueo reactivo de módulos operativos.</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-               <span className="text-[10px] text-slate-400">MRR COBRADO (AL DÍA)</span>
-               <div className="text-xl font-black text-emerald-400">${tenants.filter(t => t.financialStatus === 'Al Día').reduce((sum, t) => sum + t.monthlyFee, 0).toLocaleString()}</div>
+               <span className="text-[10px] text-slate-400">MRR PLATAFORMA SAAS</span>
+               <div className="text-xl font-black text-emerald-400">${metricas.mrrPlataforma.toLocaleString('es-CO')} COP</div>
+               <span className="text-[10px] text-slate-500 font-mono">$2.000 × {metricas.totalUnidades} Unidades</span>
             </div>
             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-               <span className="text-[10px] text-slate-400">MRR EN MORA</span>
-               <div className="text-xl font-black text-red-400">${tenants.filter(t => t.financialStatus === 'En Mora').reduce((sum, t) => sum + t.monthlyFee, 0).toLocaleString()}</div>
+               <span className="text-[10px] text-slate-400">SALUD FINANCIERA RECAUDO</span>
+               <div className="text-xl font-black text-cyan-400">{metricas.saludFinanciera}</div>
+               <span className="text-[10px] text-slate-500 font-mono">Recaudo Mes: {metricas.recaudoMes}</span>
             </div>
             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-               <span className="text-[10px] text-slate-400">TOTAL TENANTS</span>
-               <div className="text-xl font-black text-white">{tenants.length}</div>
+               <span className="text-[10px] text-slate-400">UNIDADES REGISTRADAS</span>
+               <div className="text-xl font-black text-purple-400">{metricas.totalUnidades} Aptos</div>
+               <span className="text-[10px] text-slate-500 font-mono">Tricentenario &amp; Red PH</span>
             </div>
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+               <span className="text-[10px] text-slate-400">INSTANCIAS / TENANTS ACTIVOS</span>
+               <div className="text-xl font-black text-white">{metricas.instanciasActivas} Copropiedades</div>
+               <span className="text-[10px] text-slate-500 font-mono">{tenantsReales.length > 0 ? `${tenantsReales.length} en Supabase` : 'Cargando...'}</span>
+            </div>
+          </div>
+
+          <div className="space-y-3 mt-4">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-xs font-mono uppercase text-slate-400">
+                Copropiedades Conectadas & Facturación DIAN
+              </span>
+              <span className="text-xs px-2.5 py-1 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-full font-mono">
+                {tenantsReales.length} Instancia(s) Activa(s)
+              </span>
+            </div>
+
+            {tenantsReales.map((tenant) => (
+              <div 
+                key={tenant.id}
+                className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex items-center justify-between hover:border-slate-700 transition-colors"
+              >
+                <div>
+                  <h4 className="font-bold text-slate-200 text-sm">{tenant.name}</h4>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[10px] bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded font-mono">
+                      Plan {tenant.plan || 'Pro'}
+                    </span>
+                    <span className="text-[11px] text-slate-500 font-mono">
+                      {tenant.units_count || 100} Unidades
+                    </span>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <div className="font-bold font-mono text-slate-100 text-sm">
+                    ${(Number(tenant.total_monthly_budget) || 30000000).toLocaleString('es-CO')} / mes
+                  </div>
+                  <span className="text-[11px] text-emerald-400 font-medium">Al día ✓</span>
+                </div>
+              </div>
+            ))}
           </div>
 
           <div className="overflow-x-auto">
@@ -1265,12 +1835,41 @@ export default function SaaS_MasterOwnerConsole({
                   <button onClick={() => setActiveModalCard(null)} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded border border-slate-700 font-bold cursor-pointer">✕ Cerrar</button>
                 </div>
                 <div className="p-6 space-y-4 overflow-y-auto max-h-[70vh] text-slate-200">
-                  <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex justify-between items-center">
-                    <div>
-                      <div className="font-bold text-white">Factura Mensual • P.H. Reserva del Tesoro</div>
-                      <div className="text-[10px] text-slate-400 font-mono">Plan Enterprise • $1.200.000 COP</div>
+                  <div className="space-y-3 mt-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs font-mono uppercase text-slate-400">
+                        Copropiedades Conectadas & Facturación DIAN
+                      </span>
+                      <span className="text-xs px-2.5 py-1 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-full font-mono">
+                        {tenantsReales.length} Instancia(s) Activa(s)
+                      </span>
                     </div>
-                    <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 rounded text-[10px] font-bold">Pagada 🟢</span>
+
+                    {tenantsReales.map((tenant) => (
+                      <div 
+                        key={tenant.id}
+                        className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex items-center justify-between hover:border-slate-700 transition-colors"
+                      >
+                        <div>
+                          <h4 className="font-bold text-slate-200 text-sm">{tenant.name}</h4>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded font-mono">
+                              Plan {tenant.plan || 'Pro'}
+                            </span>
+                            <span className="text-[11px] text-slate-500 font-mono">
+                              {tenant.units_count || 100} Unidades
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="font-bold font-mono text-slate-100 text-sm">
+                            ${(Number(tenant.total_monthly_budget) || 30000000).toLocaleString('es-CO')} / mes
+                          </div>
+                          <span className="text-[11px] text-emerald-400 font-medium">Al día ✓</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </>

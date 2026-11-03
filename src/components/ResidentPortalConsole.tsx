@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient';
 import { 
   Building2, Home, QrCode, Package, Send, Sparkles, Camera, Bot, User, Calendar, MessageSquare, Download, Store, Globe, Tag, Clock, Flame, MapPin, CheckCircle2, Share2, Copy, Car, Shield, AlertCircle, PhoneCall, LogOut
 } from 'lucide-react';
@@ -203,6 +204,41 @@ export default function ResidentPortalConsole({
   const [tipoPqrsdInput, setTipoPqrsdInput] = useState<CasoPqrsdLey1755['tipo']>('Reclamo Técnico: Filtración / Humedad Bienes Comunes (10 días hábiles)');
   const [asuntoPqrsdInput, setAsuntoPqrsdInput] = useState('');
   const [descPqrsdInput, setDescPqrsdInput] = useState(''); 
+  const [comunicados, setComunicados] = useState<any[]>([]);
+
+  useEffect(() => {
+    const cargarComunicados = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('announcements')
+          .select('*')
+          .order('is_pinned', { ascending: false })
+          .order('created_at', { ascending: false });
+        if (!error && data) {
+          setComunicados(data);
+        }
+      } catch (err) {
+        console.error('Error cargando comunicados para residente:', err);
+      }
+    };
+
+    cargarComunicados();
+
+    const channel = supabase
+      .channel('announcements-residente-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'announcements' },
+        () => {
+          cargarComunicados();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // Catálogo oficial de los 3 Residentes Demo para ensayar Videoconferencia, Control de Palabra y Citofonía
   const RESIDENTES_DEMO_CATALOGO = [
@@ -732,6 +768,20 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
                 </button>
               );
             })}
+          </div>
+        </div>
+
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 mt-4">
+          <div className="text-[11px] font-mono text-cyan-400 uppercase font-semibold mb-2">
+            📌 Circulares Activas de Administración
+          </div>
+          <div className="space-y-2">
+            {comunicados.slice(0, 2).map((c) => (
+              <div key={c.id} className="text-xs text-slate-300 border-l-2 border-cyan-500 pl-2">
+                <p className="font-bold text-white">{c.title}</p>
+                <p className="text-[11px] text-slate-400 line-clamp-1">{c.content}</p>
+              </div>
+            ))}
           </div>
         </div>
       </header>

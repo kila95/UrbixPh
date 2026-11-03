@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Building2, FileText, HardHat, DollarSign,
-  Wrench, Calendar, MessageSquare, ShieldCheck, Plus, Camera, AlertCircle, Search, Users, UserPlus, Trash2, Radio, Check, Edit3, Scan, FileSpreadsheet, LogOut
+  Wrench, Calendar, MessageSquare, ShieldCheck, Plus, Camera, AlertCircle, Search, Users, UserPlus, Trash2, Radio, Check, Edit3, Scan, FileSpreadsheet, LogOut, Calculator
 } from 'lucide-react';
 import type { GuardIncidentReport, CommonAreaReservation } from './App';
-import type { UserProfile } from './supabaseClient';
+import { supabase, type UserProfile } from './supabaseClient';
 import ContractorsModule from './ContractorsModule';
 import MeetingMinutesModule from './MeetingMinutesModule';
 import AdminGeneralInteractive from './components/AdminGeneralInteractive';
@@ -18,7 +18,13 @@ import GeneradorExogenaDIAN_NIIF from './components/GeneradorExogenaDIAN_NIIF';
 import SeccionTesoreriaConDIAN from './components/SeccionTesoreriaConDIAN';
 import SeccionGestionPersonalAdmin from './SeccionGestionPersonalAdmin';
 import GestionCuadrillaAdminModal from './components/GestionCuadrillaAdminModal';
+import ConfiguracionFacturacionModal from './components/ConfiguracionFacturacionModal';
+import { ModalPresupuestoAdmin } from './components/ModalPresupuestoAdmin';
+import DetalleRecaudoModal from './components/DetalleRecaudoModal';
+import DetalleCajaMenorModal from './components/DetalleCajaMenorModal';
 import PorteriaSupabaseSync from './PorteriaSupabaseSync';
+import { TableroComunicados } from './components/TableroComunicados';
+import { cargarMetricasTenant, MetricasTenant } from './lib/metricasTenant';
 
 
 export interface StaffMember {
@@ -56,13 +62,151 @@ export default function ConsolaGerencialUrbixPH({
   onCerrarSesion,
   onShowToast
 }: ConsolaGerencialUrbixPHProps) {
-  const [activeTab, setActiveTab] = useState<'general' | 'asamblea' | 'actas' | 'contractors' | 'cartera' | 'facturas_ocr' | 'exogena_dian' | 'mantenimiento' | 'personal' | 'reservas' | 'pqrs' | 'porteria'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'comunicados' | 'asamblea' | 'actas' | 'contractors' | 'cartera' | 'facturas_ocr' | 'exogena_dian' | 'mantenimiento' | 'personal' | 'reservas' | 'pqrs' | 'porteria'>('general');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [mostrarModalCuadrilla, setMostrarModalCuadrilla] = useState(false);
+  const [modalCobroAbierto, setModalCobroAbierto] = useState(false);
+  const [modalPresupuestoAbierto, setModalPresupuestoAbierto] = useState(false);
+  const [modalRecaudoAbierto, setModalRecaudoAbierto] = useState(false);
+  const [modalCajaMenorAbierto, setModalCajaMenorAbierto] = useState(false);
+  const setAbrirModalRecaudo = setModalRecaudoAbierto;
+  const setAbrirModalCajaMenor = setModalCajaMenorAbierto;
 
-  const resolvedTenantName = currentTenant?.name || tenantName || 'P.H. Reserva del Tesoro';
+  // Edificios asignados al administrador desde Supabase (Tricentenario por defecto)
+  const TRICENTENARIO_ID = '22079bb5-6ac7-4a15-be89-c53d14e4221b';
+  const [edificiosAsignados, setEdificiosAsignados] = useState<any[]>([
+    { id: TRICENTENARIO_ID, name: 'urb Tricentenario' }
+  ]);
+  const [edificioActivoId, setEdificioActivoId] = useState<string>(TRICENTENARIO_ID);
+
+  useEffect(() => {
+    const cargarEdificiosDelAdmin = async () => {
+      let userId = userProfile?.id;
+      let userEmail = userProfile?.email;
+
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          userId = userId || user.id;
+          userEmail = userEmail || user.email;
+        }
+      } catch (authErr) {
+        console.warn('Aviso obteniendo usuario actual de auth:', authErr);
+      }
+      
+      // Traer los tenants donde ella es la administradora asignada o Tricentenario
+      try {
+        const adminIdFiltro = userId || 'dde881f7-cfe4-40b8-95bf-33d6e7a3ddfe';
+        const adminEmailFiltro = userEmail || 'siux95@hotmail.com';
+
+        const { data: tenants, error } = await supabase
+          .from('tenants')
+          .select('id, name')
+          .or(`assigned_admin_id.eq.${adminIdFiltro},admin_email.eq.${adminEmailFiltro},id.eq.${TRICENTENARIO_ID}`);
+
+        if (error) {
+          console.error('Error cargando edificios del admin:', error.message);
+          return;
+        }
+
+        if (tenants && tenants.length > 0) {
+          setEdificiosAsignados(tenants);
+          const tricentenarioMatch = tenants.find(t => t.id === TRICENTENARIO_ID);
+          setEdificioActivoId(tricentenarioMatch ? tricentenarioMatch.id : tenants[0].id);
+        }
+      } catch (err: any) {
+        console.error('Error en cargarEdificiosDelAdmin:', err?.message);
+      }
+    };
+
+    cargarEdificiosDelAdmin();
+  }, [userProfile?.id, userProfile?.email]);
+
+  // Métricas reales del tenant activo desde Supabase (tabla units)
+  const [metricas, setMetricas] = useState<MetricasTenant>({
+    recaudo: '0.0%',
+    unidadesMora: '0 Aptos',
+    totalUnidades: 100,
+    alDia: 0,
+    enMora: 0,
+    unidadesPagadas: 0,
+    unidadesEnMora: 0,
+    porcentajeRecaudo: '0.0%'
+  });
+
+  useEffect(() => {
+    if (edificioActivoId) {
+      cargarMetricasTenant(edificioActivoId).then((res) => {
+        if (res) setMetricas(res);
+      });
+    }
+  }, [edificioActivoId]);
+
+  const edificioActivo = edificiosAsignados.find(e => e.id === edificioActivoId) || edificiosAsignados[0];
+  const resolvedTenantName = edificioActivo?.name || currentTenant?.name || tenantName || 'urb Tricentenario';
+  const tenantActivoId = edificioActivoId || currentTenant?.id || TRICENTENARIO_ID;
+  const tenantId = tenantActivoId;
   const resolvedAdminName = userProfile?.full_name || adminName || 'Esteban Ochoa';
+
+  // 1. Estados compartidos o consulta directa a Supabase
+  const [saldoCajaMenor, setSaldoCajaMenor] = useState<number>(0);
+  const [porcentajeRecaudo, setPorcentajeRecaudo] = useState<number>(0);
+
+  const syncMetricasGenerales = async () => {
+    if (!tenantId) return;
+
+    // A. Consultar saldo de caja menor (Ingresos - Gastos)
+    try {
+      const { data: movimientosCaja } = await supabase
+        .from('petty_cash_movements')
+        .select('type, amount')
+        .eq('tenant_id', tenantId);
+
+      if (movimientosCaja && movimientosCaja.length > 0) {
+        const ingresos = movimientosCaja
+          .filter(m => m.type === 'ingreso' || m.type === 'dotacion')
+          .reduce((sum, m) => sum + Number(m.amount), 0);
+        
+        const gastos = movimientosCaja
+          .filter(m => m.type === 'egreso' || m.type === 'gasto')
+          .reduce((sum, m) => sum + Number(m.amount), 0);
+
+        setSaldoCajaMenor(ingresos - gastos);
+      } else if (typeof window !== 'undefined') {
+        const savedLocal = localStorage.getItem('urbix_caja_menor_tricentenario_v1');
+        if (savedLocal) {
+          const parsed = JSON.parse(savedLocal);
+          if (Array.isArray(parsed)) {
+            const ing = parsed.filter((m: any) => m.tipo === 'ingreso').reduce((s: number, m: any) => s + Number(m.monto || 0), 0);
+            const egr = parsed.filter((m: any) => m.tipo === 'egreso').reduce((s: number, m: any) => s + Number(m.monto || 0), 0);
+            setSaldoCajaMenor(ing - egr);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Error sincronizando petty_cash_movements:', err);
+    }
+
+    // B. Consultar porcentaje de recaudo real
+    try {
+      const { data: unidades } = await supabase
+        .from('units')
+        .select('debt_status')
+        .eq('tenant_id', tenantId);
+
+      if (unidades && unidades.length > 0) {
+        const alDia = unidades.filter(u => u.debt_status === 'al_dia' || u.debt_status === 'Al día').length;
+        setPorcentajeRecaudo((alDia / unidades.length) * 100);
+      }
+    } catch (err) {
+      console.warn('Error sincronizando porcentaje de recaudo:', err);
+    }
+  };
+
+  useEffect(() => {
+    syncMetricasGenerales();
+  }, [tenantId]);
 
   // Catálogo de copropiedades / edificios disponibles para asignación a supervisores
   const catalogCopropiedades = [
@@ -121,13 +265,69 @@ export default function ConsolaGerencialUrbixPH({
   const [edificiosEdicionTemp, setEdificiosEdicionTemp] = useState<string[]>([]);
   const [inputCustomEdicion, setInputCustomEdicion] = useState('');
 
-  // Datos consolidados de Cartera (Ley 675)
-  const [apartments, setApartments] = useState([
-    { id: '101', torre: '1', apto: '101', propietario: 'Mateo Zuluaga', saldo: 0, estado: 'Al día', coeficiente: '0.82%' },
-    { id: '102', torre: '1', apto: '102', propietario: 'Carolina Herrera', saldo: 420000, estado: 'En mora', coeficiente: '0.82%' },
-    { id: '201', torre: '1', apto: '201', propietario: 'Andrés Gómez', saldo: 1260000, estado: 'Cobro jurídico', coeficiente: '0.95%' },
-    { id: '302', torre: '1', apto: '302', propietario: 'Esteban Ochoa', saldo: 0, estado: 'Al día', coeficiente: '1.05%' },
-  ]);
+  // Datos consolidados de Cartera (Ley 675) conectados a Supabase units (Tricentenario)
+  const [apartments, setApartments] = useState<any[]>([]);
+
+  const cargarUnidadesReales = async (tId: string) => {
+    try {
+      const { data: units, error } = await supabase
+        .from('units')
+        .select('*')
+        .eq('tenant_id', tId)
+        .order('unit_code', { ascending: true });
+
+      if (error) throw error;
+      if (units && units.length > 0) {
+        setApartments(units.map(u => ({
+          id: u.id,
+          unit_code: u.unit_code,
+          torre: u.tower ? u.tower.replace(/Torre\s*/i, '') : '1',
+          apto: u.apartment || u.unit_code,
+          propietario: u.owner_name || `Propietario ${u.unit_code}`,
+          saldo: Number(u.pending_balance) || 0,
+          cuota: Number(u.monthly_fee) || 300000,
+          estado: u.debt_status || (Number(u.pending_balance) > 0 ? 'En mora' : 'Al día'),
+          coeficiente: `${(Number(u.coefficient || 0.01) * 100).toFixed(2)}%`
+        })));
+      }
+    } catch (err: any) {
+      console.warn('Error cargando unidades en ConsolaGerencialUrbixPH:', err?.message);
+    }
+  };
+
+  useEffect(() => {
+    if (tenantActivoId) {
+      cargarUnidadesReales(tenantActivoId);
+    }
+  }, [tenantActivoId]);
+
+  const handleRegistrarPago = async (aptoId: string, aptoInfo: string, monto: number) => {
+    try {
+      const { error } = await supabase
+        .from('units')
+        .update({
+          pending_balance: 0,
+          debt_status: 'Al día',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', aptoId);
+
+      if (error) throw error;
+
+      setApartments(prev =>
+        prev.map(item => item.id === aptoId ? { ...item, saldo: 0, estado: 'Al día' } : item)
+      );
+
+      cargarMetricasTenant(tenantActivoId).then(res => {
+        if (res) setMetricas(res);
+      });
+
+      onShowToast?.(`💳 Pago de $${monto.toLocaleString('es-CO')} aplicado a ${aptoInfo}. Unidad a Paz y Salvo.`);
+    } catch (err: any) {
+      console.error('Error aplicando pago:', err.message);
+      onShowToast?.(`Error aplicando pago: ${err.message}`);
+    }
+  };
 
   // Datos consolidados de Mantenimiento
   const [reports, setReports] = useState([
@@ -293,13 +493,39 @@ export default function ConsolaGerencialUrbixPH({
                 LEY 675 COLOMBIA
               </span>
             </div>
-            <p className="text-xs text-slate-400 font-medium">
-              {resolvedTenantName} • <span className="text-cyan-400">Admin: {resolvedAdminName}</span>
-            </p>
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              {edificiosAsignados.length > 0 ? (
+                <div className="flex items-center gap-1.5 bg-[#07090e] border border-cyan-500/40 rounded-xl px-2.5 py-1 shadow-sm">
+                  <Building2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                  <select
+                    value={edificioActivoId}
+                    onChange={(e) => {
+                      const selId = e.target.value;
+                      setEdificioActivoId(selId);
+                      const sel = edificiosAsignados.find(t => t.id === selId);
+                      if (sel) onShowToast?.(`🏢 Operando en: ${sel.name}`);
+                    }}
+                    className="bg-transparent text-cyan-300 font-bold outline-none cursor-pointer text-xs font-mono"
+                  >
+                    {edificiosAsignados.map((ed) => (
+                      <option key={ed.id} value={ed.id} className="bg-slate-900 text-white font-mono">
+                        {ed.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <span className="text-xs text-slate-300 font-medium">{resolvedTenantName}</span>
+              )}
+              <span className="text-xs text-slate-600">•</span>
+              <p className="text-xs text-slate-400 font-medium">
+                <span className="text-cyan-400">Admin: {resolvedAdminName}</span>
+              </p>
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           <button
             type="button"
             onClick={() => setMostrarModalCuadrilla(true)}
@@ -307,6 +533,47 @@ export default function ConsolaGerencialUrbixPH({
           >
             <Users className="w-3.5 h-3.5 text-cyan-400" /> Asignar Cuadrilla ({resolvedTenantName})
           </button>
+
+          {/* NUEVO BOTÓN: Configurar Cuotas y Presupuesto */}
+          <button 
+            type="button"
+            onClick={() => setModalPresupuestoAbierto(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-semibold tracking-wide transition-all shadow-sm cursor-pointer shrink-0 min-h-[40px]"
+            title="Configurar presupuesto anual y cuotas de administración según Ley 675"
+          >
+            <span>💰</span>
+            <span>Presupuesto & Cuotas Ley 675</span>
+          </button>
+
+          {/* BOTÓN: Tarifas & Cuota Admin */}
+          <button 
+            type="button"
+            onClick={() => setModalCobroAbierto(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-xl text-xs font-semibold tracking-wide transition-all shadow-sm cursor-pointer shrink-0 min-h-[40px]"
+            title="Configurar cuota de administración y tarifas de recaudo"
+          >
+            <span>⚙️</span>
+            <span>Tarifas & Cuota Admin</span>
+          </button>
+
+          {/* Botón Detalle Recaudo Dinámico */}
+          <button 
+            onClick={() => setAbrirModalRecaudo(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 border border-emerald-500/30 text-emerald-400 rounded-xl text-xs font-mono cursor-pointer shrink-0"
+          >
+            <span>📊</span>
+            <span>Detalle Recaudo ({porcentajeRecaudo.toFixed(1)}%)</span>
+          </button>
+
+          {/* Botón Caja Menor Dinámico */}
+          <button 
+            onClick={() => setAbrirModalCajaMenor(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 border border-amber-500/30 text-amber-400 rounded-xl text-xs font-mono cursor-pointer shrink-0"
+          >
+            <span>💼</span>
+            <span>Caja Menor (${saldoCajaMenor.toLocaleString('es-CO')} COP)</span>
+          </button>
+
           {onOpenCreateTenantModal && (
             <button
               type="button"
@@ -316,6 +583,7 @@ export default function ConsolaGerencialUrbixPH({
               <Plus className="w-3.5 h-3.5" /> Registrar Unidad
             </button>
           )}
+
           {onCerrarSesion && (
             <button
               type="button"
@@ -339,6 +607,49 @@ export default function ConsolaGerencialUrbixPH({
         />
       )}
 
+      {/* MODAL PRESUPUESTO ANUAL & CUOTAS LEY 675 (LIQUIDACIÓN AUTOMÁTICA POR COEFICIENTE) */}
+      <ModalPresupuestoAdmin
+        isOpen={modalPresupuestoAbierto}
+        tenantId={tenantActivoId}
+        onClose={() => setModalPresupuestoAbierto(false)}
+        onShowToast={onShowToast}
+        onActualizado={() => {
+          if (tenantActivoId) {
+            cargarMetricasTenant(tenantActivoId).then(res => { if (res) setMetricas(res); });
+          }
+        }}
+      />
+
+      {/* MODAL CONFIGURACIÓN DE FACTURACIÓN Y TARIFAS ADICIONALES */}
+      {modalCobroAbierto && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="relative w-full max-w-2xl my-auto">
+            <button 
+              type="button"
+              onClick={() => setModalCobroAbierto(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white text-lg font-bold z-20 cursor-pointer"
+              aria-label="Cerrar modal"
+            >
+              ✕
+            </button>
+
+            <ConfiguracionFacturacionModal 
+              tenantId={tenantActivoId}
+              nombreCopropiedad={resolvedTenantName}
+              withoutBackdrop={true}
+              onClose={() => setModalCobroAbierto(false)}
+              onShowToast={onShowToast}
+              onGuardado={() => {
+                setModalCobroAbierto(false);
+                if (tenantActivoId) {
+                  cargarMetricasTenant(tenantActivoId).then(res => { if (res) setMetricas(res); });
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* SELECTOR MÓVIL DIRECTO (PANTALLAS PEQUEÑAS) */}
       <div className="lg:hidden w-full bg-[#0b0f17] border border-cyan-500/20 p-2.5 rounded-2xl flex items-center gap-2 shadow-md">
         <span className="text-xs font-mono text-cyan-400 font-bold shrink-0">Submódulo:</span>
@@ -348,6 +659,7 @@ export default function ConsolaGerencialUrbixPH({
           className="bg-slate-900 text-cyan-300 font-bold text-xs p-2 rounded-xl border border-slate-700 w-full outline-none focus:border-cyan-400 cursor-pointer"
         >
           <option value="general">🏢 General (Portafolio & Macro-Salud)</option>
+          <option value="comunicados">📢 Cartelera Virtual y Circulares Oficiales</option>
           <option value="asamblea">🗳️ Asambleas & Actas Legales (Ley 675)</option>
           <option value="contractors">🛡️ Contratistas & Obras (SG-SST)</option>
           <option value="cartera">💰 Tesorería, OCR & Exógena DIAN</option>
@@ -366,6 +678,7 @@ export default function ConsolaGerencialUrbixPH({
         </span>
         {[
           { id: 'general', label: 'General', icon: Building2, color: 'text-cyan-400' },
+          { id: 'comunicados', label: 'Cartelera & Circulares', icon: MessageSquare, color: 'text-cyan-400' },
           { id: 'porteria', label: 'Portería (Tiempo Real)', icon: Radio, color: 'text-[#00f2fe]' },
           { id: 'asamblea', label: 'Asambleas & Actas Legales', icon: Users, color: 'text-cyan-400' },
           { id: 'contractors', label: 'Contratistas & Obras', icon: HardHat, color: 'text-emerald-400' },
@@ -401,8 +714,34 @@ export default function ConsolaGerencialUrbixPH({
         {/* 1. GENERAL (Control Multi-Copropiedad, Macro-Salud PH y SaaS Interactivo) */}
         {activeTab === 'general' && (
           <div className="space-y-6">
-            <SelectorPortafolioMultiConjunto onShowToast={onShowToast} />
-            <AdminGeneralInteractive onShowToast={onShowToast} />
+            <SelectorPortafolioMultiConjunto
+              onShowToast={onShowToast}
+              edificiosAsignados={edificiosAsignados}
+              edificioActivoId={edificioActivoId}
+              onSelectEdificioId={setEdificioActivoId}
+              onSelectCopropiedad={(nombre) => {
+                const match = edificiosAsignados.find(e => e.name === nombre);
+                if (match) setEdificioActivoId(match.id);
+              }}
+              metricas={metricas}
+            />
+            <AdminGeneralInteractive 
+              onShowToast={onShowToast} 
+              metricas={metricas}
+              saldoCajaMenor={saldoCajaMenor}
+              porcentajeRecaudo={porcentajeRecaudo}
+              morosos={apartments.filter((a) => a.saldo > 0).map((a) => ({
+                id: a.id,
+                torre: a.torre,
+                apto: a.apto,
+                propietario: a.propietario,
+                saldo: a.saldo,
+                dias: 30,
+                estado: a.estado
+              }))}
+              onOpenDetalleRecaudo={() => setModalRecaudoAbierto(true)}
+              onOpenDetalleCajaMenor={() => setModalCajaMenorAbierto(true)}
+            />
 
             {/* Tarjetas de acceso directo gerencial */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -472,7 +811,15 @@ export default function ConsolaGerencialUrbixPH({
                 </div>
               </div>
             </div>
+
+            {/* CARTELERA VIRTUAL Y CIRCULARES OFICIALES (SUPABASE REALTIME) */}
+            <TableroComunicados tenantId={tenantActivoId} />
           </div>
+        )}
+
+        {/* 1B. CARTELERA VIRTUAL Y CIRCULARES OFICIALES */}
+        {activeTab === 'comunicados' && (
+          <TableroComunicados tenantId={tenantActivoId} />
         )}
 
         {/* 2. CENTRO INTEGRAL DE ASAMBLEAS & ACTAS LEGALES (LEY 675 DE 2001) */}
@@ -516,6 +863,31 @@ export default function ConsolaGerencialUrbixPH({
                         className="pl-8 pr-3 py-1.5 bg-[#07090e] border border-slate-800 rounded-xl text-xs text-white outline-none focus:border-cyan-400"
                       />
                     </div>
+                    {/* Botón Detalle Recaudo Dinámico */}
+                    <button 
+                      onClick={() => setAbrirModalRecaudo(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 border border-emerald-500/30 text-emerald-400 rounded-xl text-xs font-mono cursor-pointer"
+                    >
+                      <span>📊</span>
+                      <span>Detalle Recaudo ({porcentajeRecaudo.toFixed(1)}%)</span>
+                    </button>
+
+                    {/* Botón Caja Menor Dinámico */}
+                    <button 
+                      onClick={() => setAbrirModalCajaMenor(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 border border-amber-500/30 text-amber-400 rounded-xl text-xs font-mono cursor-pointer"
+                    >
+                      <span>💼</span>
+                      <span>Caja Menor (${saldoCajaMenor.toLocaleString('es-CO')} COP)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setModalCobroAbierto(true)}
+                      className="px-3 py-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-xs font-bold text-cyan-300 rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      title="Configurar cuotas, presupuesto y pronto pago"
+                    >
+                      <Calculator className="w-3.5 h-3.5 text-cyan-400" /> Tarifas & Cuota Admin
+                    </button>
                     <button
                       type="button"
                       onClick={() => onShowToast?.('📄 Cuentas de cobro mensuales generadas conforme a Ley 675')}
@@ -562,14 +934,7 @@ export default function ConsolaGerencialUrbixPH({
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setApartments((prev) =>
-                                    prev.map((item) =>
-                                      item.id === a.id ? { ...item, saldo: 0, estado: 'Al día' } : item
-                                    )
-                                  );
-                                  onShowToast?.(`💳 Pago aplicado a Torre ${a.torre} - ${a.apto}. Unidad a Paz y Salvo.`);
-                                }}
+                                onClick={() => handleRegistrarPago(a.id, `Torre ${a.torre} - ${a.apto}`, a.saldo || a.cuota || 300000)}
                                 className="text-[11px] font-bold text-amber-400 hover:underline cursor-pointer"
                               >
                                 Registrar Pago
@@ -633,7 +998,12 @@ export default function ConsolaGerencialUrbixPH({
 
         {/* 6. PERSONAL & STAFF (Control Total del Administrador, Edificios, Nómina y Turnos de Línea de Tiempo) */}
         {activeTab === 'personal' && (
-          <SeccionGestionPersonalAdmin onShowToast={onShowToast} />
+          <SeccionGestionPersonalAdmin
+            onShowToast={onShowToast}
+            edificiosAsignados={edificiosAsignados}
+            edificioActivoId={edificioActivoId}
+            setEdificioActivoId={setEdificioActivoId}
+          />
         )}
 
         {/* 7. ÁREAS COMUNES */}
@@ -782,6 +1152,10 @@ export default function ConsolaGerencialUrbixPH({
                 </div>
               ))}
             </div>
+
+            <div className="pt-4">
+              <TableroComunicados tenantId={tenantActivoId} />
+            </div>
           </div>
         )}
 
@@ -795,6 +1169,40 @@ export default function ConsolaGerencialUrbixPH({
         )}
 
       </main>
+
+      {/* MODAL DETALLE DE RECAUDO EN VIVO (100 UNIDADES TRICENTENARIO) */}
+      <DetalleRecaudoModal
+        isOpen={modalRecaudoAbierto}
+        onClose={() => {
+          setModalRecaudoAbierto(false);
+          syncMetricasGenerales();
+        }}
+        tenantId={tenantActivoId}
+        tenantName={resolvedTenantName}
+        onShowToast={onShowToast}
+        onPagoRegistrado={() => {
+          syncMetricasGenerales();
+          if (tenantActivoId) {
+            cargarMetricasTenant(tenantActivoId).then(res => { if (res) setMetricas(res); });
+            cargarUnidadesReales(tenantActivoId);
+          }
+        }}
+      />
+
+      {/* MODAL DETALLE DE CAJA MENOR (FONDO FIJO & ARQUEO EN VIVO DESDE CERO) */}
+      <DetalleCajaMenorModal
+        isOpen={modalCajaMenorAbierto}
+        onClose={() => {
+          setModalCajaMenorAbierto(false);
+          syncMetricasGenerales();
+        }}
+        tenantId={tenantActivoId}
+        tenantName={resolvedTenantName}
+        onShowToast={onShowToast}
+        onMovimientoRegistrado={() => {
+          syncMetricasGenerales();
+        }}
+      />
 
     </div>
   );

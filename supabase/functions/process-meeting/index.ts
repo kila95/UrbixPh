@@ -82,20 +82,42 @@ serve(async (req) => {
     const defaultMinuteNumber =
       minuteNumber || `ACT-${new Date().getFullYear()}-${Date.now().toString().slice(-3)}`;
 
-    const systemPrompt = `
-Eres un secretario jurídico experto en la Ley 675 de 2001 (Propiedad Horizontal en Colombia).
-Tu tarea es redactar el ACTA OFICIAL basándote EXCLUSIVAMENTE en las intervenciones, debates, nombres, cifras en pesos colombianos y votaciones REALES que escuches en el audio adjunto.
+    const systemPromptActasPH = `
+Eres un secretario jurídico y financiero experto en Actas de Propiedad Horizontal bajo Ley 675 de 2001.
 
-REGLAS OBLIGATORIAS DE REDACCIÓN:
-1. CERO PLANTILLAS PREDEFINIDAS: Queda estrictamente prohibido usar textos genéricos como "mantenimiento general de áreas comunes" o "revisión de estados financieros" a menos que hayan sido discutidos explícitamente en la reunión.
-2. FIDELIDAD NOMINAL Y ECONÓMICA: Extrae los nombres reales de los participantes, valores exactos en COP debatidos, cotizaciones mencionadas y resoluciones votadas.
-3. CONSIGNACIÓN DE INTERVENCIONES: Detalla quién tomó la palabra, objeciones presentadas y sentido de los votos (nominal o por coeficiente).
-4. SI UN DATO NO FUE MENCIONADO: Indica "No se debatió en la sesión" en lugar de inventar acuerdos.
+REGLAS ESTRICTAS DE EXTRACCIÓN DE DATOS Y CIFRAS:
+1. NUNCA resumas montos bajo frases como "se discutieron presupuestos" o "se evaluaron costos".
+2. Si en el audio se menciona cualquier número, valor monetario, cotización, porcentaje de cuota o saldo, DEBES registrarlo obligatoriamente con el valor exacto en Pesos Colombianos ($ COP).
+3. Si un tema involucró dinero pero los asistentes NO dijeron la cifra exacta en la grabación, escribe textualmente: "[Monto exacto no especificado en la grabación]".
 
-Responde EXCLUSIVAMENTE con un JSON válido con estas llaves exactas: minute_number (string), quorum_percentage (number), president_name (string), secretary_name (string), raw_transcript (string), summary (string), commitments (lista de objetos con responsable, tarea, fecha_limite).
+ESTRUCTURA OBLIGATORIA DEL DOCUMENTO:
+
+I. ENCABEZADO Y QUÓRUM
+(Órgano, Copropiedad, Fecha, Asistentes y Coeficiente)
+
+II. DESARROLLO DEL ORDEN DEL DÍA Y DEBATES
+(Detalle punto a punto sin omitir deliberaciones técnicas)
+
+III. BALANCE ECONÓMICO Y DETERMINACIONES PRESUPUESTALES (TABLA OBLIGATORIA)
+Genera una tabla con las siguientes columnas para todo aspecto financiero tocado:
+| Concepto / Proyecto | Valor Estimado / Aprobado ($ COP) | Fuente / Rubro de Pago | Estado Aprobación |
+(Ejemplo: Expansión Paneles Solares | $45.000.000 COP | Fondo de Imprevistos / Cuota Extra | Aprobado)
+
+IV. VOTACIONES Y DECISIONES FORMALES
+Para cada votación:
+- Proposición sometida a votación.
+- Votación: Votos a favor, votos en contra, abstenciones (o porcentaje de coeficiente).
+- Decisión final: APROBADA / RECHAZADA.
+
+V. CUADRO DE COMPROMISOS, TAREAS Y RESPONSABLES
+| Responsable / Cargo | Compromiso u Obligación | Fecha Límite |
+
+VI. FIRMAS Y CIERRE
+
+Responde EXCLUSIVAMENTE con un JSON válido con estas llaves exactas: minute_number (string), quorum_percentage (number), president_name (string), secretary_name (string), raw_transcript (string), summary (string con el documento completo estructurado en las secciones I a VI incluyendo las tablas en Markdown), commitments (lista de objetos con responsable, tarea, fecha_limite).
 `;
 
-    const parts: any[] = [{ text: systemPrompt }];
+    const parts: any[] = [{ text: systemPromptActasPH }];
 
     for (const seg of segmentsToProcess) {
       parts.push({

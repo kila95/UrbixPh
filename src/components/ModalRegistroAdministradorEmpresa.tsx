@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
+import { registrarAdministradorPermanente } from '../authService';
 import { 
   Building2, 
   UserPlus, 
@@ -14,13 +15,15 @@ import {
 } from 'lucide-react';
 
 export default function ModalRegistroAdministradorEmpresa({
-  tenantsDisponibles,
+  tenantsDisponibles = [],
+  copropiedadesDisponibles: copropiedadesDisponiblesProp,
   tenantPreseleccionadoId,
   onCerrar,
   onShowToast,
   onRegistroExitoso
 }: {
-  tenantsDisponibles: { id: string; name: string }[];
+  tenantsDisponibles?: { id: string; name: string }[];
+  copropiedadesDisponibles?: { id: string; name: string }[];
   tenantPreseleccionadoId?: string;
   onCerrar: () => void;
   onShowToast?: (msg: string) => void;
@@ -35,6 +38,8 @@ export default function ModalRegistroAdministradorEmpresa({
     tenantId: string;
   }) => void;
 }) {
+  const copropiedadesDisponibles = copropiedadesDisponiblesProp || tenantsDisponibles;
+
   // Datos de la Empresa Administradora
   const [tipoPersona, setTipoPersona] = useState<'juridica' | 'natural'>('juridica');
   const [nombreEmpresa, setNombreEmpresa] = useState('');
@@ -48,7 +53,7 @@ export default function ModalRegistroAdministradorEmpresa({
   const [emailLogin, setEmailLogin] = useState('');
   const [passwordLogin, setPasswordLogin] = useState('');
   const [copropiedadAsignada, setCopropiedadAsignada] = useState(
-    tenantPreseleccionadoId || tenantsDisponibles[0]?.id || ''
+    tenantPreseleccionadoId || ''
   );
   
   const [guardando, setGuardando] = useState(false);
@@ -63,24 +68,43 @@ export default function ModalRegistroAdministradorEmpresa({
       const nitCompleto = `${nitEmpresa.trim()}-${dv}`;
 
       if (isSupabaseConfigured) {
-        // 1. Registro en Supabase Auth
-        const { data: authData, error: authError } = await supabase.auth.signUp({
+        // Registro permanente sin desloguear la sesión Master Owner
+        const perfilGuardado = await registrarAdministradorPermanente({
+          nombre: nombreRepresentante.trim(),
           email: emailLogin.trim(),
-          password: passwordLogin,
-          options: {
-            data: {
-              full_name: nombreRepresentante.trim(),
-              company_name: companyNameResolved,
-              company_nit: nitCompleto,
-              phone: telefonoCorporativo.trim(),
-              identification: cedulaRepresentante.trim(),
-              role: 'admin_ph',
-              tenant_id: copropiedadAsignada
-            }
-          }
+          telefono: telefonoCorporativo.trim(),
+          cedula: cedulaRepresentante.trim(),
+          empresa: companyNameResolved,
+          nitEmpresa: nitCompleto,
+          tenantId: copropiedadAsignada || null
         });
 
-        if (authError) throw authError;
+        const adminId = perfilGuardado?.id;
+
+        // Si se asignó una copropiedad, crear la asignación formal
+        if (copropiedadAsignada) {
+          if (adminId) {
+            try {
+              await supabase.from('admin_tenant_assignments').insert({
+                admin_id: adminId,
+                tenant_id: copropiedadAsignada,
+                created_at: new Date().toISOString()
+              });
+            } catch (assignErr) {
+              console.warn('Aviso en admin_tenant_assignments:', assignErr);
+            }
+          }
+
+          try {
+            await supabase.from('tenants').update({
+              assigned_admin_id: adminId || null,
+              admin_name: `${nombreRepresentante.trim()} (${companyNameResolved})`,
+              admin_email: emailLogin.trim()
+            }).eq('id', copropiedadAsignada);
+          } catch (tenantErr) {
+            console.warn('Aviso actualizando tenant con admin:', tenantErr);
+          }
+        }
       } else {
         await new Promise((res) => setTimeout(res, 450));
       }
@@ -278,8 +302,9 @@ export default function ModalRegistroAdministradorEmpresa({
                 onChange={(e) => setCopropiedadAsignada(e.target.value)}
                 className="w-full p-2.5 bg-[#0b0f17] border border-slate-700 text-cyan-300 font-mono rounded-xl outline-none cursor-pointer"
               >
-                {tenantsDisponibles.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
+                <option value="">-- Sin copropiedad asignada (Asignar luego) --</option>
+                {copropiedadesDisponibles.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
             </div>

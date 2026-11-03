@@ -1,5 +1,10 @@
-import React, { useState } from 'react';
-import { QrCode, ShieldCheck, ShieldAlert, Compass, UserCheck, HardHat, Package, PlusCircle, CheckCircle2, Clock, AlertTriangle, Paintbrush, Box, Calendar, Droplet, FileText, LogOut } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient';
+import {
+  QrCode, ShieldCheck, ShieldAlert, Compass, UserCheck, HardHat, Package,
+  PlusCircle, CheckCircle2, Clock, AlertTriangle, Paintbrush, Box, Calendar,
+  Droplet, FileText, LogOut, Search, Phone, PhoneCall, Building2, RefreshCw, BookOpen
+} from 'lucide-react';
 import ConsolaVigilanteEnterpriseCompleta from './ConsolaVigilanteEnterpriseCompleta';
 import ModuloMinutaDigitalEnterprise from './ModuloMinutaDigitalEnterprise';
 import ModuloContratistasYVisitasTecnicas from './ModuloContratistasYVisitasTecnicas';
@@ -97,6 +102,97 @@ export default function ConsolaUnificadaPorteria({
   // Estados locales
   const [codigoBusqueda, setCodigoBusqueda] = useState('');
   const [resultadoValidacion, setResultadoValidacion] = useState<any>(null);
+
+  // 1. Estados para el directorio y comunicados activos de administración
+  const [unidades, setUnidades] = useState<any[]>([]);
+  const [busqueda, setBusqueda] = useState('');
+  const [cargando, setCargando] = useState(true);
+  const [comunicados, setComunicados] = useState<any[]>([]);
+
+  const cargarComunicadosActivos = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('announcements')
+        .select('*')
+        .order('is_pinned', { ascending: false })
+        .order('created_at', { ascending: false });
+      if (!error && data) {
+        setComunicados(data);
+      }
+    } catch (err) {
+      console.error('Error cargando comunicados en portería:', err);
+    }
+  };
+
+  // 2. Cargar las 100 unidades reales vinculadas a Tricentenario
+  const cargarDirectorio = async () => {
+    try {
+      setCargando(true);
+
+      // Traer el usuario logueado (Andrés Vesga)
+      let tenantId: string | null = null;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          // Obtener el tenant_id asignado en profiles
+          const { data: perfil } = await supabase
+            .from('profiles')
+            .select('tenant_id')
+            .eq('id', user.id)
+            .single();
+          if (perfil?.tenant_id) {
+            tenantId = perfil.tenant_id;
+          }
+        }
+      } catch (authErr) {
+        console.warn('Auth check fallback:', authErr);
+      }
+
+      // Si no hay sesión directa en auth, usar el perfil activo o el ID de Tricentenario
+      if (!tenantId) {
+        tenantId = userProfile?.tenant_id || '22079bb5-6ac7-4a15-be89-c53d14e4221b';
+      }
+
+      // Consultar el censo real de unidades
+      const { data, error } = await supabase
+        .from('units')
+        .select('id, tower, apartment, owner_name, owner_phone')
+        .eq('tenant_id', tenantId)
+        .order('tower', { ascending: true })
+        .order('apartment', { ascending: true });
+
+      if (error) throw error;
+      setUnidades(data || []);
+    } catch (err: any) {
+      console.error('Error al cargar unidades de portería:', err.message);
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  useEffect(() => {
+    cargarDirectorio();
+    cargarComunicadosActivos();
+
+    const channel = supabase
+      .channel('announcements-porteria-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'announcements' },
+        () => {
+          cargarComunicadosActivos();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userProfile?.tenant_id]);
+
+  const unidadesFiltradas = unidades.filter(u =>
+    `${u.tower} ${u.apartment} ${u.owner_name} ${u.owner_phone || ''}`.toLowerCase().includes(busqueda.toLowerCase())
+  );
 
   // Encomiendas form states
   const [torreApto, setTorreApto] = useState('');
@@ -282,7 +378,8 @@ export default function ConsolaUnificadaPorteria({
     { id: 4, label: '🚶 4. Ronda de Vigilancia' },
     { id: 5, label: '💻 5. Minuta Digital' },
     { id: 6, label: '📞 6. Citófono Virtual' },
-    { id: 7, label: '🚗 7. Parqueaderos de Visitantes & SOS' }
+    { id: 7, label: '🚗 7. Parqueaderos de Visitantes & SOS' },
+    { id: 8, label: '📖 8. Directorio de Unidades (100 Aptos)' }
   ];
 
   return (
@@ -339,6 +436,20 @@ export default function ConsolaUnificadaPorteria({
                 <span>Cerrar Sesión</span>
               </button>
             )}
+          </div>
+        </div>
+
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 mt-4">
+          <div className="text-[11px] font-mono text-cyan-400 uppercase font-semibold mb-2">
+            📌 Circulares Activas de Administración
+          </div>
+          <div className="space-y-2">
+            {comunicados.slice(0, 2).map((c) => (
+              <div key={c.id} className="text-xs text-slate-300 border-l-2 border-cyan-500 pl-2">
+                <p className="font-bold text-white">{c.title}</p>
+                <p className="text-[11px] text-slate-400 line-clamp-1">{c.content}</p>
+              </div>
+            ))}
           </div>
         </div>
       </header>
@@ -451,6 +562,22 @@ export default function ConsolaUnificadaPorteria({
           }`}
         >
           🚗 7. Parqueaderos de Visitantes
+        </button>
+
+        {/* PESTAÑA #8: DIRECTORIO DE UNIDADES */}
+        <button
+          onClick={() => setSubmoduloPorteriaActivo(8)}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold font-mono transition cursor-pointer shrink-0 flex items-center gap-2 ${
+            submoduloPorteriaActivo === 8
+              ? 'bg-gradient-to-r from-cyan-500 to-teal-400 text-slate-950 font-black shadow-[0_0_15px_rgba(34,211,238,0.35)]'
+              : 'bg-[#0b0f17] text-slate-400 hover:text-white border border-slate-800'
+          }`}
+        >
+          <BookOpen className="w-4 h-4 text-cyan-400" />
+          <span>📖 8. Censo &amp; Directorio (100 Aptos)</span>
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+            {unidades.length}
+          </span>
         </button>
       </div>
 
@@ -704,6 +831,7 @@ export default function ConsolaUnificadaPorteria({
             rolUsuario="vigilante"
             onShowToast={onShowToast}
             engineExternal={citofonoGuardEngine}
+            unidadesDirectorio={unidades}
           />
         )}
 
@@ -716,6 +844,171 @@ export default function ConsolaUnificadaPorteria({
             celdasExternal={celdasGarita}
             onActualizarCeldasExternal={setCeldasGarita}
           />
+        )}
+
+        {/* 8. DIRECTORIO Y CENSO DE UNIDADES (100 APTOS REALES TRICENTENARIO) */}
+        {submoduloPorteriaActivo === 8 && (
+          <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-2xl animate-fadeIn space-y-6">
+            {/* Header del Directorio */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 uppercase tracking-widest">
+                    Censo Oficial &amp; Directorio Telefónico
+                  </span>
+                  <span className="text-xs px-2.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full font-mono font-bold">
+                    urb Tricentenario
+                  </span>
+                </div>
+                <h3 className="text-xl font-black text-white mt-1 flex items-center gap-2">
+                  <BookOpen className="w-6 h-6 text-cyan-400" /> Directorio de Copropietarios (100 Unidades)
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Base de datos oficial de unidades para citofonía WebRTC, avisos de correspondencia y contacto de seguridad.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => cargarDirectorio()}
+                  disabled={cargando}
+                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-mono font-bold flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
+                  title="Sincronizar unidades con Supabase"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${cargando ? 'animate-spin' : ''}`} />
+                  <span>Sincronizar</span>
+                </button>
+                <div className="px-3 py-1.5 bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 rounded-xl text-xs font-mono font-bold">
+                  {unidades.length} Aptos Registrados
+                </div>
+              </div>
+            </div>
+
+            {/* Barra de Búsqueda y Filtros */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="md:col-span-2 relative">
+                <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Buscar por apartamento (ej: 101, 302), torre, nombre o teléfono..."
+                  value={busqueda}
+                  onChange={(e) => setBusqueda(e.target.value)}
+                  className="w-full pl-10 pr-10 py-3 bg-slate-950 border border-slate-700 text-white rounded-xl text-xs font-mono outline-none focus:border-cyan-400 shadow-inner"
+                />
+                {busqueda && (
+                  <button
+                    type="button"
+                    onClick={() => setBusqueda('')}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white text-xs font-bold"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center justify-between px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono">
+                <span className="text-slate-400">Resultados:</span>
+                <span className="font-bold text-cyan-400">
+                  {unidadesFiltradas.length} de {unidades.length} unidades
+                </span>
+              </div>
+            </div>
+
+            {/* Estado de carga */}
+            {cargando && (
+              <div className="p-12 text-center space-y-3">
+                <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin mx-auto" />
+                <p className="text-xs text-slate-400 font-mono">Cargando censo de 100 unidades desde Supabase...</p>
+              </div>
+            )}
+
+            {/* Grid de unidades */}
+            {!cargando && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-1">
+                {unidades
+                  .filter(u => 
+                    `${u.tower} ${u.apartment} ${u.owner_name}`.toLowerCase().includes(busqueda.toLowerCase())
+                  )
+                  .map((u) => (
+                    <div 
+                      key={u.id}
+                      className="p-3 bg-slate-900/80 border border-slate-800 hover:border-slate-700 rounded-xl flex items-center justify-between transition-colors"
+                    >
+                      <div>
+                        <div className="font-bold text-slate-100 text-xs font-mono">
+                          Torre {u.tower} - {u.apartment}
+                        </div>
+                        <div className="text-[11px] text-slate-400 truncate max-w-[120px] sm:max-w-[160px]">
+                          {u.owner_name || 'Sin asignar'}
+                        </div>
+                        {u.owner_phone && (
+                          <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                            {u.owner_phone}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button 
+                          type="button"
+                          onClick={async () => {
+                            // Acción de llamada WebRTC o enlace
+                            const destino = `Torre ${u.tower} - ${u.apartment}`;
+                            citofonoGuardEngine.iniciarLlamada(destino);
+                            setSubmoduloPorteriaActivo(6);
+                            onShowToast?.(`📞 Llamando a Torre ${u.tower} - Apto ${u.apartment} (${u.owner_name || 'Copropietario'})`);
+                            try {
+                              await supabase.from('intercom_logs').insert([
+                                {
+                                  tenant_id: userProfile?.tenant_id || '22079bb5-6ac7-4a15-be89-c53d14e4221b',
+                                  event_type: 'Llamada de Voz WebRTC',
+                                  tower: String(u.tower || '1'),
+                                  apartment: String(u.apartment || ''),
+                                  resident_name: u.owner_name || 'Copropietario',
+                                  attendant_name: userProfile?.full_name || 'Andres Vesga',
+                                  status: 'Atendido'
+                                }
+                              ]);
+                            } catch (err) {
+                              console.error('Error registrando llamada en intercom_logs:', err);
+                            }
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+                        >
+                          <span>📞</span>
+                          <span>Llamar</span>
+                        </button>
+
+                        {u.owner_phone && (
+                          <a
+                            href={`tel:${u.owner_phone}`}
+                            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded-lg text-xs flex items-center justify-center transition"
+                            title={`Llamar al celular ${u.owner_phone}`}
+                          >
+                            📱
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                {unidades.filter(u => 
+                  `${u.tower} ${u.apartment} ${u.owner_name}`.toLowerCase().includes(busqueda.toLowerCase())
+                ).length === 0 && (
+                  <div className="col-span-full py-12 text-center space-y-2">
+                    <p className="text-sm font-bold text-slate-400">No se encontraron unidades con la búsqueda "{busqueda}"</p>
+                    <button
+                      type="button"
+                      onClick={() => setBusqueda('')}
+                      className="text-xs text-cyan-400 underline font-mono cursor-pointer"
+                    >
+                      Limpiar búsqueda
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
       </main>

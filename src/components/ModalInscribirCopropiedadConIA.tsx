@@ -11,8 +11,12 @@ import {
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
 import { ClientTenantNode } from './SaaS_MasterOwnerConsole';
+import * as XLSX from 'xlsx';
+import { aprovisionarResidentesCenso } from '../aprovisionarResidentesCenso';
 
 export interface InmuebleDecodificado {
+  id?: string;
+  codigo?: string;
   torreBloque: string;
   unidad: string;
   coeficiente: number;
@@ -20,6 +24,12 @@ export interface InmuebleDecodificado {
   documento: string;
   email: string;
   telefono: string;
+  torre?: string;
+  apto?: string;
+  titular?: string;
+  cedula?: string;
+  coef?: number;
+  estado?: string;
 }
 
 export interface AdminDisponible {
@@ -40,7 +50,7 @@ export default function ModalInscribirCopropiedadConIA({
 }: {
   administradoresRegistrados?: AdminDisponible[];
   onCerrar: () => void;
-  onTenantCreado: (nuevoTenant: ClientTenantNode & { assignedAdminId: string }) => void;
+  onTenantCreado: (nuevoTenant: ClientTenantNode & { assignedAdminId?: string | null }) => void;
   onShowToast?: (msg: string) => void;
 }) {
   // Datos legales del Tenant
@@ -52,99 +62,235 @@ export default function ModalInscribirCopropiedadConIA({
   const [planSaaS, setPlanSaaS] = useState<'Standard' | 'Pro' | 'Enterprise'>('Pro');
 
   // Administrador Asignado (Aislamiento de Seguridad)
-  const [adminSeleccionadoId, setAdminSeleccionadoId] = useState(administradoresRegistrados[0]?.id || '');
+  const [adminSeleccionadoId, setAdminSeleccionadoId] = useState('');
 
   // Procesamiento con IA
   const [analizandoConIA, setAnalizandoConIA] = useState(false);
   const [inmueblesDecodificados, setInmueblesDecodificados] = useState<InmuebleDecodificado[]>([]);
   const [coeficienteTotal, setCoeficienteTotal] = useState<number>(0);
 
-  const procesarBaseDatosConIA = (file: File) => {
+  // Alias para mantener compatibilidad
+  const setUnidadesMapeadas = (unidades: InmuebleDecodificado[]) => setInmueblesDecodificados(unidades);
+  const setTotalCoeficiente = (total: string | number) => setCoeficienteTotal(Number(total));
+
+  const handleProcesarArchivoCenso = async (file: File) => {
+    if (!file) return;
+
     setAnalizandoConIA(true);
-    onShowToast?.(`🧠 Decodificando "${file.name}" y vinculando con el administrador...`);
+    onShowToast?.(`Procesando "${file.name}"...`);
 
-    setTimeout(() => {
-      const mockDecodificado: InmuebleDecodificado[] = [
-        { torreBloque: 'Torre 1', unidad: '101', coeficiente: 1.15, propietario: 'Gabriel Jaime Botero', documento: 'CC 71.240.119', email: 'gabriel.botero@gmail.com', telefono: '3004501234' },
-        { torreBloque: 'Torre 1', unidad: '102', coeficiente: 1.15, propietario: 'Luz Marina Restrepo', documento: 'CC 43.120.985', email: 'luz.restrepo@hotmail.com', telefono: '3128905678' },
-        { torreBloque: 'Torre 1', unidad: '201', coeficiente: 1.25, propietario: 'Inversiones del Poblado S.A.S.', documento: 'NIT 900.589.214-2', email: 'contacto@inversionespoblado.co', telefono: '3104009988' },
-        { torreBloque: 'Torre 2', unidad: '301', coeficiente: 1.25, propietario: 'Esteban Ochoa Mesa', documento: 'CC 1.037.648.291', email: 'esteban.ochoa@gmail.com', telefono: '3157891234' }
-      ];
+    try {
+      let text = '';
+      if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        text = XLSX.utils.sheet_to_csv(worksheet);
+      } else {
+        text = await file.text();
+      }
 
-      setInmueblesDecodificados(mockDecodificado);
-      const sumaCoef = mockDecodificado.reduce((acc, curr) => acc + curr.coeficiente, 0);
-      setCoeficienteTotal(Number(sumaCoef.toFixed(2)));
+      // Dividir en líneas y descartar renglones vacíos
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+      if (lines.length < 2) {
+        throw new Error('El archivo no contiene suficientes registros.');
+      }
+
+      // Identificar el delimitador (coma o punto y coma)
+      const headerLine = lines[0];
+      const delimiter = headerLine.includes(';') ? ';' : ',';
+
+      // Omitir cabecera y extraer las filas de datos
+      const rows = lines.slice(1);
+
+      const unidadesParseadas: InmuebleDecodificado[] = rows.map((line) => {
+        // Regex para respetar comas o puntos y coma dentro de comillas
+        const regex = new RegExp(`(?:^|${delimiter})(?:"([^"]*)"|([^"${delimiter}]*))`, 'g');
+        const cols: string[] = [];
+        let match;
+        while ((match = regex.exec(line)) !== null) {
+          cols.push((match[1] || match[2] || '').trim());
+        }
+
+        // Columnas del CSV:
+        // 0: Torre | 1: Apartamento | 2: Código | 3: Propietario | 4: Cédula | 5: Teléfono | 6: Correo | 7: Coeficiente
+        const torre = cols[0] || 'Torre 1';
+        const apto = cols[1] || '';
+        const propietario = cols[3] || 'Sin Propietario';
+        
+        // Coeficiente: 0.01 se convierte a 1.0%
+        const coefRaw = parseFloat(cols[7] ? cols[7].replace(',', '.') : '0.01');
+        const coefPct = !isNaN(coefRaw) ? (coefRaw <= 1 ? coefRaw * 100 : coefRaw) : 1.0;
+
+        return {
+          id: cols[2] || `${torre}-${apto}`,
+          codigo: cols[2] || `${torre}-${apto}`,
+          torre,
+          apto,
+          titular: propietario,
+          cedula: cols[4] || '',
+          telefono: cols[5] || '',
+          email: cols[6] || '',
+          coef: Number(coefPct.toFixed(2)),
+          torreBloque: torre,
+          unidad: apto,
+          propietario,
+          documento: cols[4] || '',
+          coeficiente: Number(coefPct.toFixed(2)),
+          estado: cols[10] || 'Al día'
+        };
+      }).filter(u => u.apto); // Descartar filas sin número de apartamento
+
+      if (unidadesParseadas.length === 0) {
+        throw new Error('No se encontraron apartamentos válidos en el archivo.');
+      }
+
+      // Calcular la sumatoria de coeficientes
+      const sumaCoef = unidadesParseadas.reduce((acc, curr) => acc + (curr.coef || curr.coeficiente), 0);
+
+      // Actualizar estados de la interfaz
+      setUnidadesMapeadas(unidadesParseadas);
+      setTotalCoeficiente(sumaCoef.toFixed(1)); // Mostrará "100.0%"
+
+      onShowToast?.(`✓ ¡Éxito! Se decodificaron ${unidadesParseadas.length} unidades (Coeficiente: ${sumaCoef.toFixed(1)}%).`);
+    } catch (err: any) {
+      console.error('Error al procesar censo:', err);
+      onShowToast?.(`Error: ${err.message || 'No se pudo leer el archivo'}`);
+    } finally {
       setAnalizandoConIA(false);
-      onShowToast?.('✨ Base de datos decodificada y asociada al administrador seleccionado.');
-    }, 2000);
+    }
+  };
+
+  const procesarBaseDatosConIA = (file: File) => {
+    handleProcesarArchivoCenso(file);
   };
 
   const handleCrearTenantFinal = async () => {
-    if (!nombreLegal.trim() || !nitCopropiedad.trim()) {
+    const nombreCopropiedad = nombreLegal;
+    const direccionFisica = direccion;
+    const unidadesMapeadas = inmueblesDecodificados;
+
+    if (!nombreCopropiedad.trim() || !nitCopropiedad.trim()) {
       onShowToast?.('⚠️ Completa el nombre y el NIT de la copropiedad.');
       return;
     }
 
     try {
-      const unitsCalculated = inmueblesDecodificados.length > 0 ? inmueblesDecodificados.length : 120;
+      const unitsCalculated = unidadesMapeadas.length > 0 ? unidadesMapeadas.length : 120;
       const mrrCalculated = planSaaS === 'Enterprise' ? 1800000 : planSaaS === 'Pro' ? 1200000 : 750000;
-      let tenantData: any = null;
+      let tenantCreado: any = null;
 
       if (isSupabaseConfigured) {
-        // 1. Insertar el nuevo Tenant en Supabase dejando que Postgres genere el UUID
-        const { data, error: tenantError } = await supabase
+        // 1. Crear el tenant (copropiedad)
+        const { data: tenantData, error: tenantError } = await supabase
           .from('tenants')
-          .insert([
-            {
-              name: nombreLegal.trim(),
-              status: 'active',
-              plan: planSaaS,
-              units_count: unitsCalculated,
-              mrr: mrrCalculated,
-              assigned_admin_id: adminSeleccionadoId
-            }
-          ])
+          .insert({
+            name: nombreCopropiedad.trim(),
+            nit: `${nitCopropiedad.trim()}-${dv}`,
+            city: ciudad,
+            address: direccionFisica.trim(),
+            plan: planSaaS,
+            assigned_admin_id: adminSeleccionadoId || null,
+            units_count: unidadesMapeadas.length || unitsCalculated
+          })
           .select()
           .single();
 
-        if (tenantError) throw tenantError;
-        tenantData = data;
+        if (tenantError) {
+          console.warn('Aviso insertando tenant completo, reintentando con esquema base:', tenantError.message);
+          const { data: retryData, error: retryError } = await supabase
+            .from('tenants')
+            .insert({
+              name: nombreCopropiedad.trim(),
+              status: 'active',
+              plan: planSaaS,
+              units_count: unidadesMapeadas.length || unitsCalculated,
+              mrr: mrrCalculated,
+              assigned_admin_id: adminSeleccionadoId || null
+            })
+            .select()
+            .single();
 
-        // 2. Si la IA decodificó inmuebles del archivo, insertarlos en lote vinculados al tenant_id (UUID)
-        if (inmueblesDecodificados.length > 0 && tenantData) {
-          const payloadInmuebles = inmueblesDecodificados.map(inm => ({
-            tenant_id: tenantData.id,
-            torre_bloque: inm.torreBloque,
-            numero_unidad: inm.unidad,
-            coeficiente: inm.coeficiente,
-            propietario_nombre: inm.propietario,
-            propietario_documento: inm.documento,
-            propietario_email: inm.email,
-            propietario_telefono: inm.telefono,
-            saldo_actual: 0
+          if (retryError) throw retryError;
+          tenantCreado = retryData;
+        } else {
+          tenantCreado = tenantData;
+        }
+
+        // 2. Insertar las unidades en lote vinculadas al nuevo tenant
+        if (unidadesMapeadas && unidadesMapeadas.length > 0 && tenantCreado) {
+          const payloadUnits = unidadesMapeadas.map((u) => ({
+            tenant_id: tenantCreado.id,
+            unit_code: u.codigo || `${u.torre}-${u.apto}`,
+            tower: u.torre || u.torreBloque,
+            apartment: String(u.apto || u.unidad),
+            owner_name: u.titular || u.propietario,
+            owner_identification: u.cedula || u.documento,
+            owner_phone: u.telefono,
+            owner_email: u.email,
+            coefficient: (u.coef || u.coeficiente || 1.0) / 100, // Guarda 0.010000 para el 1%
+            debt_status: u.estado || 'Al día'
           }));
 
-          const { error: inmueblesError } = await supabase
-            .from('inmuebles')
-            .insert(payloadInmuebles);
+          const { error: unitsError } = await supabase
+            .from('units')
+            .insert(payloadUnits);
 
-          if (inmueblesError) {
-            console.error('Error insertando inmuebles:', inmueblesError);
-            onShowToast?.('⚠️ Copropiedad creada, pero hubo un detalle al sembrar algunos inmuebles.');
+          if (unitsError) {
+            console.error('Error insertando unidades en units:', unitsError.message);
+            // Fallback a tabla 'inmuebles' si 'units' no está disponible
+            const payloadInmuebles = unidadesMapeadas.map(inm => ({
+              tenant_id: tenantCreado.id,
+              torre_bloque: inm.torre || inm.torreBloque,
+              numero_unidad: inm.apto || inm.unidad,
+              coeficiente: inm.coef || inm.coeficiente,
+              propietario_nombre: inm.titular || inm.propietario,
+              propietario_documento: inm.cedula || inm.documento,
+              propietario_email: inm.email,
+              propietario_telefono: inm.telefono,
+              saldo_actual: 0
+            }));
+            const { error: inmError } = await supabase.from('inmuebles').insert(payloadInmuebles);
+            if (inmError) {
+              onShowToast?.(`Copropiedad creada, pero hubo un detalle guardando las unidades: ${unitsError.message}`);
+            } else {
+              onShowToast?.(`¡Éxito! Copropiedad y las ${unidadesMapeadas.length} unidades registradas en base de datos.`);
+            }
+          } else {
+            onShowToast?.(`¡Éxito! Copropiedad y las ${unidadesMapeadas.length} unidades registradas en base de datos.`);
+          }
+
+          // Aprovisionar accesos y perfiles de residentes con contraseña temporal predecible Ph[Cédula]!
+          try {
+            await aprovisionarResidentesCenso(unidadesMapeadas, tenantCreado.id);
+          } catch (provErr: any) {
+            console.warn('Aviso aprovisionando residentes:', provErr?.message);
           }
         }
       } else {
-        tenantData = {
+        tenantCreado = {
           id: crypto.randomUUID ? crypto.randomUUID() : `tenant-${Date.now()}`,
-          name: nombreLegal.trim(),
+          name: nombreCopropiedad.trim(),
           status: 'active',
           plan: planSaaS,
           units_count: unitsCalculated,
           mrr: mrrCalculated
         };
+
+        if (unidadesMapeadas && unidadesMapeadas.length > 0) {
+          onShowToast?.(`¡Éxito! Copropiedad y las ${unidadesMapeadas.length} unidades registradas en base de datos.`);
+          try {
+            await aprovisionarResidentesCenso(unidadesMapeadas, tenantCreado.id);
+          } catch {
+            // Modo local fallback
+          }
+        }
       }
 
       // 3. Notificar al estado de React
+      const tenantData = tenantCreado;
       const adminAsignado = administradoresRegistrados.find(a => a.id === adminSeleccionadoId);
       const planLabel: ClientTenantNode['plan'] =
         tenantData.plan === 'Enterprise'
@@ -155,22 +301,23 @@ export default function ModalInscribirCopropiedadConIA({
           ? 'Plan Esencial'
           : tenantData.plan;
 
-      onTenantCreado({
+      const nuevoTenant = {
         id: tenantData.id,
         name: tenantData.name,
         nit: `${nitCopropiedad.trim()}-${dv}`,
-        city: direccion.trim() ? `${direccion.trim()}, ${ciudad.trim()}` : ciudad.trim(),
-        adminName: adminAsignado ? `${adminAsignado.nombre} (${adminAsignado.empresa})` : 'Administrador Titular',
-        adminEmail: adminAsignado?.email || 'admin@copropiedad.com',
-        status: tenantData.status,
-        financialStatus: 'Al Día',
+        city: direccionFisica.trim() ? `${direccionFisica.trim()}, ${ciudad.trim()}` : ciudad.trim(),
+        assignedAdminId: adminSeleccionadoId || null,
+        adminName: adminAsignado ? `${adminAsignado.nombre} (${adminAsignado.empresa})` : 'Pendiente por asignar',
+        adminEmail: adminAsignado?.email || 'sin-asignar@urbix.com',
+        status: tenantData.status || 'active',
+        financialStatus: 'Al Día' as const,
         cutOffDate: '2026-12-01',
         lastBillingDate: new Date().toISOString().split('T')[0],
         cufeDian: `CUFE: ${Math.random().toString(16).slice(2, 18)}a3bf4f1b2bnd`,
         plan: planLabel,
-        monthlyFee: Number(tenantData.mrr),
-        unitsCount: tenantData.units_count,
-        mrr: Number(tenantData.mrr),
+        monthlyFee: Number(tenantData.mrr || mrrCalculated),
+        unitsCount: tenantData.units_count || unitsCalculated,
+        mrr: Number(tenantData.mrr || mrrCalculated),
         featureFlags: {
           contable: true,
           nomina: true,
@@ -179,11 +326,10 @@ export default function ModalInscribirCopropiedadConIA({
           reservas: true,
           residente: true,
           boveda: true
-        },
-        assignedAdminId: adminSeleccionadoId
-      });
+        }
+      };
 
-      onShowToast?.(`🔒 Copropiedad blindada: Solo ${adminAsignado?.nombre || 'el admin'} tiene acceso.`);
+      onTenantCreado(nuevoTenant);
       onCerrar();
     } catch (err: any) {
       onShowToast?.(`Error al crear copropiedad: ${err.message}`);
@@ -222,24 +368,29 @@ export default function ModalInscribirCopropiedadConIA({
           <div className="lg:col-span-5 space-y-4">
             
             {/* SELECTOR DE ADMINISTRADOR TITULAR */}
-            <div className="bg-[#07090e] border border-cyan-500/30 p-4 rounded-2xl space-y-2">
-              <label className="text-[10px] font-mono font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
-                <UserCheck className="w-3.5 h-3.5" /> Administrador Titular Exclusivo
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-mono font-bold text-cyan-400 uppercase flex items-center gap-1.5">
+                <UserCheck className="w-3.5 h-3.5" /> Administrador Titular (Opcional)
               </label>
+              
               <select
                 value={adminSeleccionadoId}
                 onChange={(e) => setAdminSeleccionadoId(e.target.value)}
-                className="w-full p-2.5 bg-[#0b0f17] border border-slate-700 text-white font-mono text-xs rounded-xl outline-none focus:border-cyan-400 cursor-pointer"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-white focus:border-cyan-500 outline-none"
               >
+                <option value="">-- Sin asignar (Registrar solo el conjunto) --</option>
                 {administradoresRegistrados.map((admin) => (
                   <option key={admin.id} value={admin.id}>
                     {admin.nombre} • {admin.empresa}
                   </option>
                 ))}
               </select>
-              <span className="text-[10px] text-slate-400 font-mono block">
-                Solo este administrador podrá ver y gestionar la base de datos de este inmueble.
-              </span>
+              
+              <p className="text-[10px] text-slate-500 font-mono">
+                {adminSeleccionadoId 
+                  ? 'Acceso exclusivo asignado al administrador seleccionado.' 
+                  : 'El conjunto quedará disponible en tu panel para asignarle administrador cuando quieras.'}
+              </p>
             </div>
 
             {/* FORMULARIO LEGAL DE LA COPROPIEDAD */}
@@ -320,34 +471,61 @@ export default function ModalInscribirCopropiedadConIA({
 
           {/* LADO DERECHO: ARRASTRE DE ARCHIVO Y DECODIFICADOR IA */}
           <div className="lg:col-span-7 space-y-4">
-            <span className="text-xs font-mono font-bold text-slate-300 uppercase tracking-wider block">
-              2. Censo / Base de Datos Cruda (Excel / CSV)
-            </span>
-
+            {/* 2. CENSO / BASE DE DATOS CRUDA (EXCEL / CSV) */}
             <div
-              onDragOver={(e) => e.preventDefault()}
-              onClick={() => {
-                const fakeFile = new File([''], 'Censo_Propietarios_MontesClaros.xlsx');
-                procesarBaseDatosConIA(fakeFile);
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
               }}
-              className="border-2 border-dashed border-fuchsia-500/30 hover:border-fuchsia-400 bg-[#07090e] rounded-2xl p-6 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-2 group"
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const file = e.dataTransfer.files?.[0];
+                if (file) handleProcesarArchivoCenso(file);
+              }}
+              className="border-2 border-dashed border-purple-500/30 hover:border-purple-500/60 bg-purple-950/10 rounded-2xl p-6 text-center flex flex-col items-center justify-center gap-3 transition-colors min-h-[220px]"
             >
               {analizandoConIA ? (
                 <div className="space-y-2 py-4">
-                  <RefreshCw className="w-8 h-8 text-fuchsia-400 animate-spin mx-auto" />
-                  <p className="text-xs font-mono text-fuchsia-300">Normalizando coeficientes y unidades con IA...</p>
+                  <RefreshCw className="w-8 h-8 text-purple-400 animate-spin mx-auto" />
+                  <p className="text-xs font-mono text-purple-300">Normalizando coeficientes y unidades con IA...</p>
                 </div>
               ) : (
                 <>
-                  <div className="w-12 h-12 bg-fuchsia-500/10 rounded-2xl flex items-center justify-center text-fuchsia-400 group-hover:scale-110 transition border border-fuchsia-500/20">
-                    <UploadCloud className="w-6 h-6" />
+                  <div className="w-12 h-12 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                    <UploadCloud className="w-6 h-6 animate-pulse" />
                   </div>
-                  <strong className="text-xs text-white block">
-                    Arrastra aquí la base de datos entregada por el Administrador
-                  </strong>
-                  <p className="text-[11px] text-slate-400 max-w-xs">
-                    La IA organizará torres, cédulas, números de teléfono y coeficientes automáticamente.
-                  </p>
+
+                  <div className="space-y-1">
+                    <p className="text-xs font-black text-white">
+                      Arrastra aquí la base de datos entregada por el Administrador
+                    </p>
+                    <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
+                      La IA organizará torres, cédulas, números de teléfono y coeficientes automáticamente.
+                    </p>
+                  </div>
+
+                  {/* Botón de selección manual */}
+                  <input
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    id="input-censo-file"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleProcesarArchivoCenso(f);
+                    }}
+                  />
+                  <label
+                    htmlFor="input-censo-file"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-purple-500/40 text-purple-300 rounded-xl text-xs font-mono font-bold cursor-pointer transition"
+                  >
+                    Seleccionar desde mi equipo
+                  </label>
+
+                  <span className="text-[10px] font-mono text-slate-500">
+                    Formatos admitidos: .xlsx, .xls, .csv
+                  </span>
                 </>
               )}
             </div>

@@ -14,6 +14,18 @@ export interface LegalActaSegment {
   duration_sec?: number;
 }
 
+export interface LegalActaFinancialItem {
+  concepto: string;
+  valorPresupuestado?: string;
+  valorCotizadoReal?: string;
+  variacionDescuento?: string;
+  proveedorContratista?: string;
+  estadoDecision?: string;
+  valorCOP?: string;
+  origen?: string;
+  estado?: string;
+}
+
 export interface LegalActaData {
   id?: string;
   minute_number: string;
@@ -21,11 +33,42 @@ export interface LegalActaData {
   status: string;
   meeting_date: string;
   start_time?: string;
+  end_time?: string;
   quorum_percentage: string | number;
   president_name: string;
   secretary_name: string;
   summary?: string;
   raw_transcript?: string;
+  encabezado?: {
+    copropiedad?: string;
+    organo?: string;
+    fecha?: string;
+    horaInicio?: string;
+    horaFin?: string;
+    presidente?: string;
+    secretario?: string;
+    quorum?: string;
+  };
+  ordenDelDia?: string[];
+  desarrolloDetallado?: Array<{
+    punto: string;
+    intervencionesClave: string;
+    nombresMencionados?: string[];
+  }>;
+  balanceFinanciero?: LegalActaFinancialItem[];
+  decisionesYVotaciones?: Array<{
+    proposicion: string;
+    votosFavor: string;
+    votosContra: string;
+    abstenciones: string;
+    resultado: string;
+  }>;
+  compromisos?: Array<{
+    responsable: string;
+    tarea: string;
+    fechaLimite?: string;
+    fecha_limite?: string;
+  }>;
   commitments?: LegalActaCommitment[];
   audio_segments?: Array<{ part: number; date: string; path?: string; duration_sec?: number }>;
   digital_stamp?: {
@@ -39,6 +82,7 @@ export interface LegalTenantInfo {
   name: string;
   nit: string;
   zone: string;
+  logoUrl?: string; // Logotipo institucional de la copropiedad
 }
 
 export const DEFAULT_TENANT_INFO: LegalTenantInfo = {
@@ -47,15 +91,53 @@ export const DEFAULT_TENANT_INFO: LegalTenantInfo = {
   zone: 'El Poblado, Medellín'
 };
 
+// Constructor de definición pdfmake para la Sección III y documento completo
+export function buildActaPdfMakeSectionIII(actaData: LegalActaData) {
+  const balanceFinanciero = Array.isArray(actaData.balanceFinanciero) ? actaData.balanceFinanciero : [];
+  return [
+    {
+      text: 'III. BALANCE ECONÓMICO Y DETERMINACIONES FINANCIERAS',
+      style: 'sectionHeader',
+      margin: [0, 15, 0, 8]
+    },
+    {
+      table: {
+        headerRows: 1,
+        widths: ['*', 'auto', 'auto', 'auto'],
+        body: [
+          [
+            { text: 'CONCEPTO / PARTIDA', style: 'tableHeader' },
+            { text: 'VALOR ($ COP)', style: 'tableHeader' },
+            { text: 'ORIGEN DE RECURSOS', style: 'tableHeader' },
+            { text: 'ESTADO', style: 'tableHeader' }
+          ],
+          // Mapeo dinámico de las partidas extraídas por la IA
+          ...balanceFinanciero.map(item => [
+            item.concepto,
+            item.valorCotizadoReal || item.valorPresupuestado || item.valorCOP || '[Monto omitido en deliberación oral]',
+            item.proveedorContratista || item.origen || 'Presupuesto PH',
+            item.estadoDecision || item.estado || 'En evaluación'
+          ])
+        ]
+      },
+      layout: 'lightHorizontalLines'
+    }
+  ];
+}
+
 // 3. GENERADOR DE ACTA FOLIADA CON COMPROBACIÓN DIGITAL Y QUÓRUM LEY 675
 export function buildActaLegalHTML(
   acta: LegalActaData,
   tenantInfo: LegalTenantInfo = DEFAULT_TENANT_INFO,
   includeAutoPrintScript = false
 ): string {
-  const commitmentsList = Array.isArray(acta.commitments) ? acta.commitments : [];
+  const commitmentsList = Array.isArray(acta.compromisos) && acta.compromisos.length > 0
+    ? acta.compromisos
+    : (Array.isArray(acta.commitments) ? acta.commitments : []);
+  const balanceList = Array.isArray(acta.balanceFinanciero) ? acta.balanceFinanciero : [];
+  const votacionesList = Array.isArray(acta.decisionesYVotaciones) ? acta.decisionesYVotaciones : [];
   const segmentsList = Array.isArray(acta.audio_segments) ? acta.audio_segments : [];
-  const cleanQuorum = String(acta.quorum_percentage ?? '100').replace('%', '');
+  const cleanQuorum = String(acta.encabezado?.quorum || acta.quorum_percentage || '100').replace('%', '');
   const verificationHash = acta.digital_stamp?.hash || `URBIX-PH-${acta.minute_number}-SEC-${Date.now().toString(16).toUpperCase()}`;
   const nowFormatted = new Date().toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -70,7 +152,9 @@ export function buildActaLegalHTML(
     .no-print-bar { background: #0f172a; color: #f8fafc; padding: 12px 24px; font-family: system-ui, sans-serif; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; margin: -24px -24px 24px -24px; border-bottom: 2px solid #10b981; }
     .btn-download { background: #10b981; color: #022c22; border: none; padding: 8px 18px; border-radius: 8px; font-weight: 800; font-size: 13px; cursor: pointer; }
     @media print { body { padding: 0; } .no-print-bar { display: none !important; } }
-    .header-box { border: 2px solid #0f172a; padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; }
+    .header-box { border: 2px solid #0f172a; padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; gap: 16px; }
+    .header-brand { display: flex; align-items: center; gap: 14px; }
+    .header-logo { width: 58px; height: 58px; object-fit: contain; border-radius: 8px; border: 1px solid #cbd5e1; background: #ffffff; padding: 4px; flex-shrink: 0; }
     .header-title h1 { margin: 0; font-size: 15pt; text-transform: uppercase; letter-spacing: 0.5px; }
     .header-title p { margin: 2px 0 0 0; font-size: 9pt; color: #334155; }
     .header-meta { text-align: right; font-size: 9.5pt; border-left: 1.5px solid #cbd5e1; padding-left: 16px; }
@@ -80,9 +164,9 @@ export function buildActaLegalHTML(
     .legal-grid .label { background-color: #f1f5f9; font-weight: bold; width: 22%; text-transform: uppercase; font-size: 8.5pt; }
     h2.section-title { font-size: 11pt; text-transform: uppercase; border-bottom: 1.5px solid #0f172a; padding-bottom: 4px; margin-top: 22px; margin-bottom: 10px; letter-spacing: 0.5px; }
     .content-block { text-align: justify; white-space: pre-line; margin-bottom: 16px; }
-    .commitments-table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; font-size: 10pt; }
-    .commitments-table th { background-color: #0f172a; color: #ffffff; text-align: left; padding: 8px 10px; font-size: 9pt; text-transform: uppercase; }
-    .commitments-table td { border: 1px solid #cbd5e1; padding: 8px 10px; }
+    .commitments-table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; font-size: 9.5pt; }
+    .commitments-table th { background-color: #0f172a; color: #ffffff; text-align: left; padding: 7px 9px; font-size: 8.5pt; text-transform: uppercase; }
+    .commitments-table td { border: 1px solid #cbd5e1; padding: 7px 9px; }
     .signatures-wrapper { margin-top: 45px; page-break-inside: avoid; }
     .signatures-grid { display: flex; justify-content: space-between; gap: 40px; margin-top: 45px; }
     .signature-box { flex: 1; border-top: 1.5px solid #0f172a; padding-top: 8px; text-align: center; }
@@ -101,37 +185,50 @@ export function buildActaLegalHTML(
     <button class="btn-download" onclick="window.print()">Guardar como PDF / Imprimir</button>
   </div>
 
+  <!-- Membrete Oficial con Soporte de Logotipo del Conjunto -->
   <div class="header-box">
-    <div class="header-title">
-      <h1>${tenantInfo.name}</h1>
-      <p>NIT: ${tenantInfo.nit} • Ubicación: ${tenantInfo.zone}</p>
-      <p>Régimen de Propiedad Horizontal - Ley 675 de 2001 (Art. 47)</p>
+    <div style="display: flex; align-items: center; gap: 18px;">
+      ${tenantInfo.logoUrl ? `
+        <div style="width: 72px; height: 72px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 8px; border: 1px solid #cbd5e1; background: #ffffff; padding: 4px;">
+          <img src="${tenantInfo.logoUrl}" alt="Logo ${tenantInfo.name}" style="max-width: 100%; max-height: 100%; object-fit: contain;" />
+        </div>
+      ` : `
+        <div style="width: 58px; height: 58px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: #0f172a; color: #10b981; font-weight: 900; font-size: 22px;">
+          PH
+        </div>
+      `}
+      <div class="header-title">
+        <h1>${acta.encabezado?.copropiedad || tenantInfo.name}</h1>
+        <p>NIT: ${tenantInfo.nit} • Ubicación: ${tenantInfo.zone}</p>
+        <p>Régimen de Propiedad Horizontal - Ley 675 de 2001 (Art. 47)</p>
+      </div>
     </div>
+
     <div class="header-meta">
-      <strong>ACTA OFICIAL ${acta.minute_number}</strong>
-      <span>Estado: ${acta.status}</span><br/>
-      <span>Fecha: ${acta.meeting_date}</span>
+      <strong>${acta.minute_number}</strong>
+      <span>Estado: <strong>${acta.status}</strong></span><br/>
+      <span>Fecha: ${acta.encabezado?.fecha || acta.meeting_date}</span>
     </div>
   </div>
 
   <table class="legal-grid">
     <tr>
       <td class="label">Órgano Colegiado</td>
-      <td>${acta.meeting_type}</td>
+      <td>${acta.encabezado?.organo || acta.meeting_type}</td>
       <td class="label">Quórum Verificado</td>
       <td><strong>${cleanQuorum}%</strong> del Coeficiente Total (Ley 675 Art. 45)</td>
     </tr>
     <tr>
       <td class="label">Fecha de Sesión</td>
-      <td>${acta.meeting_date}</td>
-      <td class="label">Hora de Instalación</td>
-      <td>${acta.start_time || '18:00:00'}</td>
+      <td>${acta.encabezado?.fecha || acta.meeting_date}</td>
+      <td class="label">Horario (Inicio / Fin)</td>
+      <td>${acta.encabezado?.horaInicio || acta.start_time || '18:00'}${acta.encabezado?.horaFin || acta.end_time ? ` — ${acta.encabezado?.horaFin || acta.end_time}` : ''}</td>
     </tr>
     <tr>
       <td class="label">Presidente Designado</td>
-      <td>${acta.president_name}</td>
+      <td>${acta.encabezado?.presidente || acta.president_name}</td>
       <td class="label">Secretario(a)</td>
-      <td>${acta.secretary_name}</td>
+      <td>${acta.encabezado?.secretario || acta.secretary_name}</td>
     </tr>
   </table>
 
@@ -142,30 +239,81 @@ export function buildActaLegalHTML(
     </p>
   ` : ''}
 
-  <h2 class="section-title">${segmentsList.length > 0 ? 'II.' : 'I.'} Desarrollo del Orden del Día, Deliberaciones y Decisiones</h2>
+  <h2 class="section-title">II. Orden del Día y Desarrollo Detallado de Intervenciones</h2>
   <div class="content-block">${acta.summary || 'Sin resumen registrado.'}</div>
 
-  ${acta.raw_transcript ? `
-    <h2 class="section-title">${segmentsList.length > 0 ? 'III.' : 'II.'} Síntesis Cronológica de Intervenciones y Votaciones</h2>
-    <div class="content-block">${acta.raw_transcript}</div>
-  ` : ''}
+  <h2 class="section-title">III. BALANCE ECONÓMICO Y DETERMINACIONES FINANCIERAS</h2>
+  ${balanceList.length > 0 ? `
+    <table class="commitments-table">
+      <thead>
+        <tr>
+          <th style="width: 24%;">CONCEPTO / PARTIDA</th>
+          <th style="width: 16%;">PRESUPUESTADO ($ COP)</th>
+          <th style="width: 16%;">COTIZADO / REAL ($ COP)</th>
+          <th style="width: 14%;">VARIACIÓN / DESC.</th>
+          <th style="width: 16%;">PROVEEDOR / ORIGEN</th>
+          <th style="width: 14%;">ESTADO</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${balanceList.map(item => `
+          <tr>
+            <td><strong>${item.concepto || ''}</strong></td>
+            <td>${item.valorPresupuestado || item.valorCOP || '[Monto omitido en deliberación oral]'}</td>
+            <td>${item.valorCotizadoReal || item.valorCOP || '[Monto omitido en deliberación oral]'}</td>
+            <td>${item.variacionDescuento || '0%'}</td>
+            <td>${item.proveedorContratista || item.origen || 'Presupuesto General'}</td>
+            <td><strong>${item.estadoDecision || item.estado || 'En evaluación'}</strong></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  ` : `<p class="content-block">No se registraron determinaciones financieras o partidas presupuestales en esta sesión.</p>`}
 
-  <h2 class="section-title">${segmentsList.length > 0 ? 'IV.' : 'III.'} Cuadro de Compromisos, Tareas y Responsables</h2>
+  <h2 class="section-title">IV. Decisiones Formales y Relación de Votaciones</h2>
+  ${votacionesList.length > 0 ? `
+    <table class="commitments-table">
+      <thead>
+        <tr>
+          <th style="width: 42%;">PROPOSICIÓN SOMETIDA A VOTACIÓN</th>
+          <th style="width: 14%;">A FAVOR</th>
+          <th style="width: 14%;">EN CONTRA</th>
+          <th style="width: 14%;">ABSTENCIONES</th>
+          <th style="width: 16%;">RESULTADO</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${votacionesList.map(v => `
+          <tr>
+            <td><strong>${v.proposicion || ''}</strong></td>
+            <td>${v.votosFavor || '0'}</td>
+            <td>${v.votosContra || '0'}</td>
+            <td>${v.abstenciones || '0'}</td>
+            <td><strong>${v.resultado || 'APROBADO'}</strong></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  ` : acta.raw_transcript ? `
+    <div class="content-block">${acta.raw_transcript}</div>
+  ` : `<p class="content-block">No se registraron proposiciones formales sometidas a votación nominal en esta sesión.</p>`}
+
+  <h2 class="section-title">V. Cuadro de Compromisos, Tareas y Responsables</h2>
   ${commitmentsList.length > 0 ? `
     <table class="commitments-table">
       <thead>
         <tr>
           <th style="width: 25%;">Responsable / Cargo</th>
           <th style="width: 55%;">Compromiso u Obligación Aprobada</th>
-          <th style="width: 20%;">Fecha / Plazo</th>
+          <th style="width: 20%;">Fecha Límite</th>
         </tr>
       </thead>
       <tbody>
-        ${commitmentsList.map(c => `
+        ${commitmentsList.map((c: any) => `
           <tr>
             <td><strong>${c.responsable || 'Administración'}</strong></td>
             <td>${c.tarea || ''}</td>
-            <td>${c.fecha_limite || 'Inmediato'}</td>
+            <td>${c.fechaLimite || c.fecha_limite || 'Inmediato'}</td>
           </tr>
         `).join('')}
       </tbody>

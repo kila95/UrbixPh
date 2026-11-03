@@ -8,8 +8,10 @@ import {
   Lock, 
   ShieldAlert,
   ArrowUpRight,
-  RefreshCw
+  RefreshCw,
+  Settings
 } from 'lucide-react';
+import ConfiguracionFacturacionModal from './ConfiguracionFacturacionModal';
 
 interface UnidadCartera {
   id: string;
@@ -23,7 +25,18 @@ interface UnidadCartera {
   estado: 'Al día' | 'En Mora' | 'Bloqueado (Dunning)';
 }
 
-export default function CarteraYLiquidacionPH() {
+export interface CarteraYLiquidacionPHProps {
+  tenantId?: string;
+  nombreCopropiedad?: string;
+  onShowToast?: (msg: string) => void;
+}
+
+export default function CarteraYLiquidacionPH({
+  tenantId = 'dde881f7-cfe4-40b8-95bf-33d6e7a3ddfe',
+  nombreCopropiedad = 'P.H. Reserva del Tesoro',
+  onShowToast
+}: CarteraYLiquidacionPHProps = {}) {
+  const [modalConfigAbierto, setModalConfigAbierto] = useState(false);
   // Estado inicial simulado de unidades inmobiliarias (Multi-Tenant / Copropiedad Activa)
   const [unidades, setUnidades] = useState<UnidadCartera[]>([
     { id: '1', torreApartamento: 'Torre 1 - 101', propietario: 'Carlos Mendoza', cuotaOrdinaria: 350000, cuotaExtraordinaria: 50000, mesesVencidos: 0, diasRetraso: 0, tasaInteresAnual: 28.5, estado: 'Al día' },
@@ -70,8 +83,19 @@ export default function CarteraYLiquidacionPH() {
             Gestión de Cartera y Liquidación de Mora
           </h1>
         </div>
-        <div className="mt-4 md:mt-0 flex space-x-3">
-          <button className="bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 px-4 py-2 rounded-lg text-sm font-medium flex items-center transition">
+        <div className="mt-4 md:mt-0 flex flex-wrap gap-2.5">
+          <button 
+            type="button"
+            onClick={() => setModalConfigAbierto(true)}
+            className="bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 px-4 py-2 rounded-lg text-sm font-semibold flex items-center transition cursor-pointer shadow-[0_0_15px_rgba(34,211,238,0.15)]"
+          >
+            <Settings className="w-4 h-4 mr-2 text-cyan-400" /> Parámetros Cobro Ley 675
+          </button>
+          <button 
+            type="button"
+            onClick={() => onShowToast?.('📊 Tasas de usura de la Superfinanciera sincronizadas al 28.5% E.A.')}
+            className="bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 px-4 py-2 rounded-lg text-sm font-medium flex items-center transition cursor-pointer"
+          >
             <RefreshCw className="w-4 h-4 mr-2" /> Sincronizar Tasas Superfinanciera
           </button>
         </div>
@@ -203,6 +227,18 @@ export default function CarteraYLiquidacionPH() {
         </div>
 
       </div>
+
+      {modalConfigAbierto && (
+        <ConfiguracionFacturacionModal
+          tenantId={tenantId}
+          nombreCopropiedad={nombreCopropiedad}
+          onClose={() => setModalConfigAbierto(false)}
+          onShowToast={onShowToast}
+          onGuardado={() => {
+            onShowToast?.('✅ Parámetros de facturación actualizados en la copropiedad.');
+          }}
+        />
+      )}
     </div>
   );
 }

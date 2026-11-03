@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient';
 import {
   Phone,
   PhoneCall,
@@ -23,13 +24,15 @@ export interface CitofonoVirtualEnterpriseProps {
   rolUsuario?: 'residente' | 'vigilante' | string;
   onShowToast?: (msg: string) => void;
   engineExternal?: RetornoUseCitofonoEngine;
+  unidadesDirectorio?: any[];
 }
 
 export default function CitofonoVirtualEnterprise({
   unidadResidenteActual = 'Torre 2 - 301',
   rolUsuario = 'vigilante',
   onShowToast,
-  engineExternal
+  engineExternal,
+  unidadesDirectorio
 }: CitofonoVirtualEnterpriseProps) {
   const esVigilante = rolUsuario === 'vigilante';
 
@@ -75,13 +78,28 @@ export default function CitofonoVirtualEnterprise({
     tiempoEspera: string;
   }>>([]);
 
-  // Directorio rápido de unidades para marcado directo desde Garita (sincronizado con los 3 Residentes Demo)
-  const directorioUnidades = [
-    { unidad: 'Torre 2 - 301', propietario: 'Martha Lucía Gómez (Demo 1)', estado: 'En línea' },
-    { unidad: 'Torre 1 - 302', propietario: 'Dr. Mauricio Restrepo (Demo 2)', estado: 'En línea' },
-    { unidad: 'Torre 1 - 201', propietario: 'Andrés Gómez (Demo 3)', estado: 'En línea' },
-    { unidad: 'Torre 1 - 502', propietario: 'Esteban Ochoa Mesa', estado: 'En línea' }
-  ];
+  const [busquedaDirectorio, setBusquedaDirectorio] = useState('');
+
+  // Directorio rápido de unidades para marcado directo desde Garita
+  const listaUnidadesBase = (unidadesDirectorio && unidadesDirectorio.length > 0)
+    ? unidadesDirectorio.map(u => ({
+        unidad: `${u.tower ? `${u.tower} - ` : ''}Apto ${u.apartment}`,
+        propietario: u.owner_name || 'Sin asignar',
+        telefono: u.owner_phone || '',
+        estado: 'En línea'
+      }))
+    : [
+        { unidad: 'Torre 2 - 301', propietario: 'Martha Lucía Gómez (Demo 1)', telefono: '', estado: 'En línea' },
+        { unidad: 'Torre 1 - 302', propietario: 'Dr. Mauricio Restrepo (Demo 2)', telefono: '', estado: 'En línea' },
+        { unidad: 'Torre 1 - 201', propietario: 'Andrés Gómez (Demo 3)', telefono: '', estado: 'En línea' },
+        { unidad: 'Torre 1 - 502', propietario: 'Esteban Ochoa Mesa', telefono: '', estado: 'En línea' }
+      ];
+
+  const directorioUnidades = listaUnidadesBase.filter(item => {
+    if (!busquedaDirectorio.trim()) return true;
+    const term = busquedaDirectorio.trim().toLowerCase();
+    return item.unidad.toLowerCase().includes(term) || item.propietario.toLowerCase().includes(term);
+  });
 
   // Notas prioritarias recibidas en garita
   const [notasPrioritarias, setNotasPrioritarias] = useState([
@@ -101,22 +119,72 @@ export default function CitofonoVirtualEnterprise({
     }
   ]);
 
-  const [historialLlamadas, setHistorialLlamadas] = useState([
-    {
-      id: 1,
-      tipo: 'Llamada de Voz WebRTC',
-      destino: esVigilante ? 'Torre 2 - 301 (Esteban Ochoa)' : 'Portería Principal',
-      hora: '08:30 AM',
-      estado: 'Atendido (Guarda Carlos)'
-    },
-    {
-      id: 2,
-      tipo: 'Nota Prioritaria',
-      destino: esVigilante ? 'Torre 1 - 502 (Martha Gómez)' : 'Portería Principal',
-      hora: 'Ayer 04:15 PM',
-      estado: 'Resuelto'
+  const [intercomLogs, setIntercomLogs] = useState<any[]>([]);
+  const [cargandoLogs, setCargandoLogs] = useState(true);
+
+  useEffect(() => {
+    const cargarLogs = async () => {
+      try {
+        setCargandoLogs(true);
+        const { data, error } = await supabase
+          .from('intercom_logs')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (error) throw error;
+        setIntercomLogs(data || []);
+      } catch (err: any) {
+        console.error('Error cargando intercom logs:', err.message);
+      } finally {
+        setCargandoLogs(false);
+      }
+    };
+
+    cargarLogs();
+
+    // Escuchar nuevas llamadas o notas en vivo
+    const channel = supabase
+      .channel('logs-en-vivo')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'intercom_logs' },
+        (payload) => setIntercomLogs((prev) => [payload.new, ...prev])
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const registrarLogSupabase = async (
+    eventType: string,
+    unidadTarget: string,
+    statusText: string
+  ) => {
+    try {
+      const matchTorre = unidadTarget.match(/Torre\s*([^\s-]+)/i);
+      const matchApto = unidadTarget.match(/(?:Apto\s*|-\s*)(\d+[A-Za-z]?)/i);
+      const tower = matchTorre ? matchTorre[1] : '1';
+      const apartment = matchApto ? matchApto[1] : unidadTarget;
+      const unidadEncontrada = listaUnidadesBase.find(u => u.unidad === unidadTarget);
+
+      await supabase.from('intercom_logs').insert([
+        {
+          tenant_id: '22079bb5-6ac7-4a15-be89-c53d14e4221b',
+          event_type: eventType,
+          tower,
+          apartment,
+          resident_name: unidadEncontrada?.propietario || 'Copropietario',
+          attendant_name: 'Andres Vesga',
+          status: statusText
+        }
+      ]);
+    } catch (err: any) {
+      console.error('Error registrando intercom log:', err.message);
     }
-  ]);
+  };
 
   const enLlamada = estado === 'conectado';
   const enLlamando = estado === 'llamando';
@@ -148,16 +216,11 @@ export default function CitofonoVirtualEnterprise({
 
   const colgarLlamadaAccion = () => {
     colgarLlamada();
-    setHistorialLlamadas(prev => [
-      {
-        id: Date.now(),
-        tipo: 'Llamada de Voz WebRTC',
-        destino: esVigilante ? unidadConectada : 'Portería Principal',
-        hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        estado: 'Finalizada OK'
-      },
-      ...prev
-    ]);
+    registrarLogSupabase(
+      'Llamada de Voz WebRTC',
+      esVigilante ? unidadConectada : unidadResidenteActual,
+      'Atendido'
+    );
     onShowToast?.('📴 Llamada de citófono finalizada. Línea disponible.');
   };
 
@@ -165,18 +228,11 @@ export default function CitofonoVirtualEnterprise({
     e.preventDefault();
     if (!mensajeTexto.trim()) return;
 
-    const nuevoDestino = esVigilante ? unidadConectada : 'Portería Principal';
-
-    setHistorialLlamadas(prev => [
-      {
-        id: Date.now(),
-        tipo: esVigilante ? 'Aviso de Portería' : 'Nota Prioritaria',
-        destino: nuevoDestino,
-        hora: 'Hace un momento',
-        estado: esVigilante ? 'Notificado al Residente' : 'Enviado a Bandeja de Garita'
-      },
-      ...prev
-    ]);
+    registrarLogSupabase(
+      esVigilante ? 'Aviso de Portería' : 'Nota Prioritaria',
+      esVigilante ? unidadConectada : unidadResidenteActual,
+      esVigilante ? 'Notificado al Residente' : 'Resuelto'
+    );
 
     if (!esVigilante) {
       setNotasPrioritarias(prev => [
@@ -594,29 +650,55 @@ export default function CitofonoVirtualEnterprise({
             <h4 className="text-xs font-bold uppercase tracking-wider text-teal-400 font-mono flex items-center gap-2">
               <Building2 className="w-4 h-4 text-teal-400" /> Directorio Rápido de Unidades (Marcar desde Garita)
             </h4>
-            <span className="text-[10px] font-mono text-slate-400">WebRTC Directo</span>
+            <span className="text-[10px] font-mono text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
+              {directorioUnidades.length} Disponibles
+            </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Filtrar por torre, apto o copropietario..."
+              value={busquedaDirectorio}
+              onChange={(e) => setBusquedaDirectorio(e.target.value)}
+              className="w-full px-3 py-2 bg-[#07090e] border border-slate-800 text-white rounded-xl text-xs font-mono outline-none focus:border-cyan-400"
+            />
+            {busquedaDirectorio && (
+              <button
+                type="button"
+                onClick={() => setBusquedaDirectorio('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white text-xs"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto pr-1">
             {directorioUnidades.map((item) => (
               <div
                 key={item.unidad}
-                className="p-3 bg-[#07090e] border border-slate-800 rounded-2xl flex items-center justify-between gap-2 text-xs"
+                className="p-3 bg-[#07090e] border border-slate-800 hover:border-slate-700 rounded-2xl flex items-center justify-between gap-2 text-xs transition"
               >
-                <div>
-                  <div className="font-bold text-white">{item.unidad}</div>
+                <div className="min-w-0">
+                  <div className="font-bold text-white truncate">{item.unidad}</div>
                   <div className="text-[11px] text-slate-400 truncate max-w-[140px]">{item.propietario}</div>
                 </div>
                 <button
                   type="button"
                   onClick={() => estado === 'conectado' ? colgarLlamada() : intentarLlamada(item.unidad)}
-                  className="px-3.5 py-1.5 rounded-xl border border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10 text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer"
+                  className="px-3 py-1.5 rounded-xl border border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10 text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer shrink-0"
                 >
                   <Phone className="w-3.5 h-3.5 text-cyan-400" />
                   {estado === 'conectado' && llamadaActiva?.unidad === item.unidad ? 'Colgar' : 'Llamar'}
                 </button>
               </div>
             ))}
+            {directorioUnidades.length === 0 && (
+              <div className="col-span-full py-6 text-center text-xs text-slate-500 font-mono">
+                No se encontraron unidades con "{busquedaDirectorio}"
+              </div>
+            )}
           </div>
         </div>
 
@@ -627,44 +709,49 @@ export default function CitofonoVirtualEnterprise({
       </div>
 
       {/* HISTORIAL DE LLAMADAS Y REPORTES CON GARITA */}
-      <div className="bg-[#0b0f17] border border-slate-800 rounded-3xl p-5 space-y-3">
-        <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono flex items-center gap-2">
-            <Clock className="w-4 h-4 text-cyan-400" /> Registro de Intercomunicación Reciente
-          </h4>
-          <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
-            {historialLlamadas.length} Eventos Registrados
+      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 mt-6">
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center gap-2 text-cyan-400 font-mono text-xs uppercase tracking-wider">
+            <span>🕒</span>
+            <span>Registro de Intercomunicación Reciente</span>
+          </div>
+          <span className="text-xs font-mono text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-full border border-slate-700">
+            {intercomLogs.length} Evento(s) Registrado(s)
           </span>
         </div>
 
-        <div className="space-y-2">
-          {historialLlamadas.map((item) => (
-            <div
-              key={item.id}
-              className="p-3 bg-[#07090e] border border-slate-800/80 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shrink-0">
-                  {item.tipo.includes('Voz') || item.tipo.includes('Llamada') ? (
-                    <Phone className="w-4 h-4" />
-                  ) : (
-                    <Send className="w-4 h-4" />
-                  )}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-white text-xs">{item.tipo}</span>
-                    <span className="text-[10px] font-mono text-slate-400">→ {item.destino}</span>
+        {intercomLogs.length === 0 ? (
+          <div className="text-center py-6 text-slate-500 font-mono text-xs">
+            No hay registros de llamadas ni notas en esta jornada.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {intercomLogs.map((log) => (
+              <div 
+                key={log.id}
+                className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="p-2 bg-cyan-500/10 text-cyan-400 rounded-lg text-sm">
+                    {log.event_type?.includes('Nota') ? '✈️' : '📞'}
+                  </span>
+                  <div>
+                    <p className="text-xs font-bold text-slate-200">
+                      {log.event_type} &rarr; {log.tower} - {log.apartment} ({log.resident_name})
+                    </p>
+                    <span className="text-[11px] text-slate-500 font-mono">
+                      {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
                   </div>
-                  <span className="text-[10px] text-slate-400 font-mono">{item.hora}</span>
                 </div>
+
+                <span className="text-xs px-2.5 py-1 rounded-full font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  {log.status} ({log.attendant_name})
+                </span>
               </div>
-              <span className="text-[10px] font-mono px-2.5 py-1 rounded-full border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
-                {item.estado}
-              </span>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,36 +1,67 @@
 import React, { useState } from 'react';
 import { Building2, DollarSign, TrendingUp, AlertTriangle, Send, CheckCircle2, FileText, ChevronRight, ShieldCheck, PieChart, Users } from 'lucide-react';
+import type { MetricasTenant } from '../lib/metricasTenant';
 
 export interface AdminGeneralInteractiveProps {
   onShowToast?: (msg: string) => void;
+  metricas?: MetricasTenant;
+  saldoCajaMenor?: number;
+  porcentajeRecaudo?: number;
+  morosos?: any[];
+  onOpenDetalleRecaudo?: () => void;
+  onOpenDetalleCajaMenor?: () => void;
 }
 
-export default function AdminGeneralInteractive({ onShowToast }: AdminGeneralInteractiveProps) {
+export default function AdminGeneralInteractive({ 
+  onShowToast, 
+  metricas,
+  saldoCajaMenor = 0,
+  porcentajeRecaudo,
+  morosos: propMorosos,
+  onOpenDetalleRecaudo,
+  onOpenDetalleCajaMenor
+}: AdminGeneralInteractiveProps) {
   // Estado para controlar qué tarjeta está expandida con detalle analítico
   const [expandedCard, setExpandedCard] = useState<'salud' | 'recaudo' | 'saas' | null>('recaudo');
 
-  // Datos simulados de morosos para la acción de WhatsApp
-  const [morosos, setMorosos] = useState([
-    { id: '102', torre: '1', apto: '102', propietario: 'Carolina Herrera', saldo: 420000, dias: 45, estado: 'Mora Ordinaria' },
-    { id: '201', torre: '1', apto: '201', propietario: 'Andrés Gómez', saldo: 1260000, dias: 90, estado: 'Cobro Jurídico (Art. 48)' },
+  // Datos de morosos derivados reales o fallback
+  const [morososLocales, setMorososLocales] = useState([
+    { id: '102', torre: '1', apto: '102', propietario: 'Carolina Herrera', saldo: 300000, dias: 30, estado: 'Mora Ordinaria' },
+    { id: '201', torre: '1', apto: '201', propietario: 'Andrés Gómez', saldo: 300000, dias: 30, estado: 'Mora Ordinaria' },
   ]);
 
-  // Datos para el desglose SaaS
+  const morosos = propMorosos && propMorosos.length > 0 ? propMorosos : morososLocales;
+
+  // Datos para el desglose SaaS (Reflejar solo Tricentenario que es la única copropiedad viva)
   const saasTenants = [
-    { name: 'P.H. Reserva del Tesoro', plan: 'Plan Enterprise', mrr: 650000, estado: 'Al día', cufe: 'cufe_9041a' },
-    { name: 'Edificio Torre El Poblado', plan: 'Plan Estándar', mrr: 450000, estado: 'Al día', cufe: 'cufe_8f92b' },
-    { name: 'C.C. San Diego (Locales)', plan: 'Plan Plus', mrr: 280000, estado: 'Al día', cufe: 'cufe_3d71c' },
+    { name: 'urb Tricentenario', plan: 'Plan Pro', mrr: 0, estado: 'Al día', cufe: 'CUFE: dde881f7-cfe4...' }
   ];
 
   const handleEnviarWhatsApp = (propietario: string, apto: string, saldo: number) => {
     onShowToast?.(`📱 Recordatorio de cobro Ley 675 enviado por WhatsApp a ${propietario} (Apto ${apto}) por $${saldo.toLocaleString('es-CO')}.`);
   };
 
+  const totalPagados = metricas?.alDia !== undefined 
+    ? metricas.alDia 
+    : (metricas?.recaudo && parseFloat(metricas.recaudo) > 0 
+        ? Math.round((parseFloat(metricas.recaudo) / 100) * (metricas.totalUnidades || 100)) 
+        : 0);
+
+  const totalRecaudadoCalculado = metricas?.totalRecaudadoCalculado !== undefined
+    ? metricas.totalRecaudadoCalculado
+    : totalPagados * 300000;
+
+  const unidadesEnMora = metricas?.enMora !== undefined 
+    ? metricas.enMora 
+    : (metricas?.unidadesMora 
+        ? parseInt(metricas.unidadesMora, 10) || 0 
+        : Math.max(0, (metricas?.totalUnidades || 100) - totalPagados));
+
   return (
     <div className="space-y-6 font-sans text-slate-100">
       
       {/* TARJETAS MACRO INTERACTIVAS */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         
         {/* Tarjeta 1: Salud Financiera */}
         <div 
@@ -44,8 +75,15 @@ export default function AdminGeneralInteractive({ onShowToast }: AdminGeneralInt
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono">Salud Financiera PH</span>
             <ChevronRight className={`w-4 h-4 text-cyan-400 transition-transform ${expandedCard === 'salud' ? 'rotate-90' : ''}`} />
           </div>
-          <p className="text-3xl font-black text-cyan-400 mt-2">94.5%</p>
-          <p className="text-xs text-slate-400 mt-2">Indicador óptimo bajo Ley 675</p>
+          <div className="mt-2">
+            {/* Si no hay pagos registrados, debe ser 0% */}
+            <span className="text-3xl font-extrabold text-cyan-400">
+              {totalPagados > 0 ? `${((totalPagados / 100) * 100).toFixed(1)}%` : '0.0%'}
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 mt-2">
+            {totalPagados > 0 ? `Recaudado: $${totalRecaudadoCalculado.toLocaleString('es-CO')} COP` : 'Sin pagos registrados este período'}
+          </p>
         </div>
 
         {/* Tarjeta 2: Recaudo del Mes (Expandible con acciones reales) */}
@@ -60,13 +98,60 @@ export default function AdminGeneralInteractive({ onShowToast }: AdminGeneralInt
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono">Recaudo del Mes</span>
             <ChevronRight className={`w-4 h-4 text-teal-400 transition-transform ${expandedCard === 'recaudo' ? 'rotate-90' : ''}`} />
           </div>
-          <p className="text-3xl font-black text-white mt-2">$48.5M <span className="text-sm font-normal text-slate-400">/ $52M</span></p>
-          <div className="w-full bg-slate-900 h-2 rounded-full mt-3 overflow-hidden border border-slate-800">
-            <div className="bg-gradient-to-r from-teal-500 to-cyan-400 h-full rounded-full w-[93%]" />
+          <p className="text-3xl font-black text-white mt-2">
+            {porcentajeRecaudo !== undefined
+              ? `${porcentajeRecaudo.toFixed(1)}%`
+              : totalPagados > 0
+              ? `${((totalPagados / (metricas?.totalUnidades || 100)) * 100).toFixed(1)}%`
+              : '0.0%'}
+            <span className="text-sm font-normal text-slate-400"> / {metricas?.totalUnidades || 100} Unidades</span>
+          </p>
+          <p className="text-xs font-mono text-emerald-400 font-bold mt-1">
+            ${totalRecaudadoCalculado.toLocaleString('es-CO')} COP ({totalPagados} al día)
+          </p>
+          <div className="w-full bg-slate-900 h-2 rounded-full mt-2 overflow-hidden border border-slate-800">
+            <div 
+              className="bg-gradient-to-r from-teal-500 to-cyan-400 h-full rounded-full transition-all duration-500" 
+              style={{ width: porcentajeRecaudo !== undefined ? `${porcentajeRecaudo.toFixed(1)}%` : totalPagados > 0 ? `${((totalPagados / (metricas?.totalUnidades || 100)) * 100).toFixed(1)}%` : '0%' }}
+            />
+          </div>
+          <div className="mt-2.5 flex items-center justify-between text-[11px] font-mono">
+            <span className="text-teal-400 hover:underline">Detalle Recaudo →</span>
+            {onOpenDetalleCajaMenor && (
+              <span 
+                onClick={(e) => { e.stopPropagation(); onOpenDetalleCajaMenor(); }}
+                className="text-amber-400 hover:underline"
+              >
+                Caja Menor (${saldoCajaMenor.toLocaleString('es-CO')}) →
+              </span>
+            )}
           </div>
         </div>
 
-        {/* Tarjeta 3: SaaS MRR */}
+        {/* Tarjeta 3: Unidades Pendientes por Cobro */}
+        <div 
+          onClick={() => setExpandedCard(expandedCard === 'recaudo' ? null : 'recaudo')}
+          className={`bg-slate-900/60 border p-5 rounded-xl cursor-pointer transition-all duration-300 relative overflow-hidden shadow-lg ${
+            expandedCard === 'recaudo' ? 'border-amber-400 shadow-[0_0_25px_rgba(251,191,36,0.2)]' : 'border-slate-800 hover:border-slate-700'
+          }`}
+        >
+          <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-amber-500/10 rounded-full blur-2xl"></div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wider text-slate-400 font-mono">Unidades Pendientes por Cobro</span>
+            <ChevronRight className={`w-4 h-4 text-amber-400 transition-transform ${expandedCard === 'recaudo' ? 'rotate-90' : ''}`} />
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-3xl font-extrabold text-amber-400">
+              {unidadesEnMora} Aptos
+            </span>
+            <span className="text-xs text-slate-500">de {metricas?.totalUnidades || 100}</span>
+          </div>
+          <p className="text-xs text-slate-500 mt-2 font-mono">
+            Gestión preventiva & cobro Ley 675
+          </p>
+        </div>
+
+        {/* Tarjeta 4: SaaS MRR */}
         <div 
           onClick={() => setExpandedCard(expandedCard === 'saas' ? null : 'saas')}
           className={`bg-[#0b0f17] border p-6 rounded-3xl cursor-pointer transition-all duration-300 relative overflow-hidden shadow-xl ${
@@ -76,10 +161,17 @@ export default function AdminGeneralInteractive({ onShowToast }: AdminGeneralInt
           <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-blue-500/10 rounded-full blur-2xl"></div>
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono">SaaS MRR (Plataforma)</span>
-            <ChevronRight className={`w-4 h-4 text-blue-400 transition-transform ${expandedCard === 'saas' ? 'rotate-90' : ''}`} />
+            <ChevronRight className={`w-4 h-4 text-cyan-400 transition-transform ${expandedCard === 'saas' ? 'rotate-90' : ''}`} />
           </div>
-          <p className="text-3xl font-black text-blue-400 mt-2">$1.380.000</p>
-          <p className="text-xs text-slate-400 mt-2">3 Copropiedades conectadas</p>
+          <div className="mt-2">
+            {/* Reflejar solo Tricentenario que es la única copropiedad viva */}
+            <div className="text-3xl font-extrabold text-cyan-400">
+              $0
+            </div>
+            <p className="text-xs text-slate-400 mt-2">
+              1 Copropiedad conectada (urb Tricentenario)
+            </p>
+          </div>
         </div>
 
       </div>
@@ -87,14 +179,34 @@ export default function AdminGeneralInteractive({ onShowToast }: AdminGeneralInt
       {/* PANEL DE DESGLOSE INTERACTIVO DINÁMICO */}
       {expandedCard === 'recaudo' && (
         <div className="bg-[#0b0f17] border border-teal-500/30 p-6 rounded-3xl space-y-4 shadow-2xl animate-fade-in">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
             <div>
               <span className="text-[10px] font-mono font-bold text-teal-400 uppercase tracking-widest bg-teal-500/10 px-2.5 py-0.5 rounded border border-teal-500/30">
                 Desglose Operativo y Cartera Vencida
               </span>
               <h4 className="text-base font-black text-white mt-1">Acciones de Cobro Inmediato (WhatsApp & Ley 675)</h4>
             </div>
-            <span className="text-xs font-mono text-slate-400">{morosos.length} Unidades en Mora</span>
+            <div className="flex flex-wrap items-center gap-2">
+              {onOpenDetalleRecaudo && (
+                <button
+                  type="button"
+                  onClick={onOpenDetalleRecaudo}
+                  className="px-3 py-1.5 bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border border-teal-500/30 rounded-xl text-xs font-mono font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <DollarSign className="w-3.5 h-3.5" /> Detalle de Recaudo (100 Aptos)
+                </button>
+              )}
+              {onOpenDetalleCajaMenor && (
+                <button
+                  type="button"
+                  onClick={onOpenDetalleCajaMenor}
+                  className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-mono font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <Building2 className="w-3.5 h-3.5" /> Detalle Caja Menor (${saldoCajaMenor.toLocaleString('es-CO')} COP)
+                </button>
+              )}
+              <span className="text-xs font-mono text-slate-400 ml-2">{unidadesEnMora} Unidades en Mora</span>
+            </div>
           </div>
 
           <div className="space-y-3">
@@ -170,8 +282,8 @@ export default function AdminGeneralInteractive({ onShowToast }: AdminGeneralInt
               </span>
               <h4 className="text-base font-black text-white mt-1">Copropiedades Conectadas & Facturación DIAN</h4>
             </div>
-            <span className="text-xs font-mono text-blue-400 bg-blue-500/10 px-3 py-1 rounded-xl border border-blue-500/30">
-              3 Instancias Activas
+            <span className="text-xs font-mono text-cyan-400 bg-cyan-500/10 px-3 py-1 rounded-xl border border-cyan-500/30">
+              1 Instancia Activa (urb Tricentenario)
             </span>
           </div>
 

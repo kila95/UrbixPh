@@ -7,6 +7,7 @@ import {
   UploadCloud, FileAudio, Sparkles, X, FileDown, Printer, Check
 } from 'lucide-react';
 import { exportActaToLegalPDF, downloadActaLegalHTML, LegalActaData, LegalTenantInfo } from './ActaCardWithPDF';
+import { ConfiguradorLogoCopropiedad } from './ConfiguradorLogoCopropiedad';
 
 const DB_NAME = 'UrbixAudioVault';
 const STORE_NAME = 'audio_chunks';
@@ -97,6 +98,7 @@ export interface SuspendedMinuteSummary {
 export interface ResilientMeetingRecorderProps {
   tenantId?: string;
   tenantName?: string;
+  tenantLogoUrl?: string;
   suspendedMinutes?: SuspendedMinuteSummary[];
   onActaCreated?: (acta: any) => void;
   onJornadaSaved?: (data: { targetMinuteId?: string; meetingType: string; segment: AudioSegmentRecord }) => void;
@@ -106,6 +108,7 @@ export interface ResilientMeetingRecorderProps {
 export default function ResilientMeetingRecorder({
   tenantId = 't1',
   tenantName = 'Reserva del Tesoro',
+  tenantLogoUrl,
   suspendedMinutes = [],
   onActaCreated,
   onShowToast
@@ -131,10 +134,23 @@ export default function ResilientMeetingRecorder({
   const sessionIdRef = useRef<string | null>(null);
   const wakeLockRef = useRef<any>(null);
 
+  const [currentLogo, setCurrentLogo] = useState<string | undefined>(() => {
+    if (tenantLogoUrl) return tenantLogoUrl;
+    if (typeof window !== 'undefined') {
+      try {
+        return localStorage.getItem(`urbix_logo_${tenantId}`) || undefined;
+      } catch (e) {
+        return undefined;
+      }
+    }
+    return undefined;
+  });
+
   const tenantLegalInfo: LegalTenantInfo = {
     name: tenantName.includes('P.H.') ? tenantName : `Edificio ${tenantName} P.H.`,
     nit: '900.456.789-1',
-    zone: 'El Poblado, Medellín'
+    zone: 'El Poblado, Medellín',
+    logoUrl: currentLogo || tenantLogoUrl
   };
 
   const notifyMessage = (type: 'error' | 'success' | 'info', text: string) => {
@@ -173,16 +189,23 @@ export default function ResilientMeetingRecorder({
     const cleanActa: LegalActaData = {
       id: actaRaw.id || `act-${Date.now()}`,
       minute_number: actaRaw.minute_number || `ACT-${Date.now().toString().slice(-4)}`,
-      meeting_type: actaRaw.meeting_type || meetingType,
+      meeting_type: actaRaw.encabezado?.organo || actaRaw.meeting_type || meetingType,
       status: 'Aprobada / Foliada',
-      meeting_date: actaRaw.meeting_date || new Date().toISOString().split('T')[0],
-      start_time: actaRaw.start_time || '18:00:00',
-      quorum_percentage: actaRaw.quorum_percentage || 92,
-      president_name: actaRaw.president_name || 'Mauricio Restrepo (Presidente Consejo)',
-      secretary_name: actaRaw.secretary_name || 'Dra. Carolina Zuluaga (Administración)',
+      meeting_date: actaRaw.encabezado?.fecha || actaRaw.meeting_date || new Date().toISOString().split('T')[0],
+      start_time: actaRaw.encabezado?.horaInicio || actaRaw.start_time || '18:00:00',
+      end_time: actaRaw.encabezado?.horaFin || actaRaw.end_time || '',
+      quorum_percentage: actaRaw.encabezado?.quorum || actaRaw.quorum_percentage || 92,
+      president_name: actaRaw.encabezado?.presidente || actaRaw.president_name || 'Presidente de la Sesión',
+      secretary_name: actaRaw.encabezado?.secretario || actaRaw.secretary_name || 'Secretaría / Administración',
       summary: actaRaw.summary || 'Deliberaciones y decisiones conforme a la Ley 675 de 2001.',
       raw_transcript: actaRaw.raw_transcript,
-      commitments: actaRaw.commitments || []
+      encabezado: actaRaw.encabezado,
+      ordenDelDia: actaRaw.ordenDelDia || [],
+      desarrolloDetallado: actaRaw.desarrolloDetallado || [],
+      balanceFinanciero: actaRaw.balanceFinanciero || [],
+      decisionesYVotaciones: actaRaw.decisionesYVotaciones || [],
+      compromisos: actaRaw.compromisos || actaRaw.commitments || [],
+      commitments: actaRaw.commitments || actaRaw.compromisos || []
     };
 
     setActaListaParaDescargar(cleanActa);
@@ -489,6 +512,18 @@ export default function ResilientMeetingRecorder({
           </div>
         </div>
       </div>
+
+      {/* CONFIGURADOR DE LOGOTIPO OFICIAL DEL CONJUNTO */}
+      <ConfiguradorLogoCopropiedad
+        logoActual={currentLogo}
+        onGuardarLogo={(nuevoLogo) => {
+          setCurrentLogo(nuevoLogo);
+          try {
+            localStorage.setItem(`urbix_logo_${tenantId}`, nuevoLogo);
+          } catch (e) {}
+        }}
+        onShowToast={onShowToast}
+      />
 
       {bannerAlert && (
         <div className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 text-xs font-mono ${
