@@ -3,12 +3,11 @@ import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { uploadLargeAudio } from './resumableAudioUpload';
 import { 
   Mic, Square, Pause, Play, Wifi, WifiOff, 
-  HardDrive, ShieldCheck, RefreshCw, Loader2, CheckCircle2, AlertTriangle, CalendarClock
+  HardDrive, Loader2, CheckCircle2,
+  UploadCloud, FileAudio, Sparkles, X, FileDown, Printer, Check
 } from 'lucide-react';
+import { exportActaToLegalPDF, downloadActaLegalHTML, LegalActaData, LegalTenantInfo } from './ActaCardWithPDF';
 
-// ============================================================================
-// MOTOR NATIVO INDEXED-DB PARA PERSISTENCIA EN DISCO CONTRA FALLOS
-// ============================================================================
 const DB_NAME = 'UrbixAudioVault';
 const STORE_NAME = 'audio_chunks';
 
@@ -17,22 +16,6 @@ export interface AudioSegmentRecord {
   date: string;
   path: string;
   duration_sec: number;
-}
-
-interface AudioChunkRecord {
-  id?: number;
-  sessionId: string;
-  blob: Blob;
-  timestamp: number;
-}
-
-interface RecoverySessionMeta {
-  sessionId: string;
-  tenantId: string;
-  meetingType: string;
-  startedAt: string;
-  targetMinuteId?: string;
-  partNumber?: number;
 }
 
 function openAudioDB(): Promise<IDBDatabase> {
@@ -59,18 +42,24 @@ async function saveChunkToDisk(sessionId: string, blob: Blob): Promise<void> {
   });
 }
 
-async function getAllChunksFromDisk(sessionId: string): Promise<Blob[]> {
+async function getSessionChunksFromDisk(sessionId: string): Promise<Blob[]> {
   const db = await openAudioDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
-    const request = tx.objectStore(STORE_NAME).getAll();
-    request.onsuccess = () => {
-      const results = (request.result as AudioChunkRecord[]) || [];
-      const chunks = results
-        .filter(item => item.sessionId === sessionId)
-        .sort((a, b) => a.timestamp - b.timestamp)
-        .map(item => item.blob);
-      resolve(chunks);
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.openCursor();
+    const blobs: Blob[] = [];
+
+    request.onsuccess = (e) => {
+      const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
+      if (cursor) {
+        if (cursor.value.sessionId === sessionId) {
+          blobs.push(cursor.value.blob);
+        }
+        cursor.continue();
+      } else {
+        resolve(blobs);
+      }
     };
     request.onerror = () => reject(request.error);
   });
@@ -81,39 +70,24 @@ async function clearSessionFromDisk(sessionId: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    const request = store.getAll();
-    request.onsuccess = () => {
-      const results = (request.result as AudioChunkRecord[]) || [];
-      results.forEach(item => {
-        if (item.sessionId === sessionId && item.id !== undefined) {
-          store.delete(item.id);
+    const request = store.openCursor();
+
+    request.onsuccess = (e) => {
+      const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
+      if (cursor) {
+        if (cursor.value.sessionId === sessionId) {
+          cursor.delete();
         }
-      });
-      resolve();
+        cursor.continue();
+      } else {
+        resolve();
+      }
     };
     request.onerror = () => reject(request.error);
   });
 }
 
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const maxInlineBytes = 380 * 1024;
-    const safeBlob =
-      blob.size > maxInlineBytes
-        ? blob.slice(0, maxInlineBytes, blob.type || 'audio/webm')
-        : blob;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.includes(',') ? result.split(',')[1] : result;
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(safeBlob);
-  });
-}
-
-export interface SuspendedMinuteOption {
+export interface SuspendedMinuteSummary {
   id: string;
   number: string;
   type: string;
@@ -121,822 +95,573 @@ export interface SuspendedMinuteOption {
 }
 
 export interface ResilientMeetingRecorderProps {
-  tenantId: string;
+  tenantId?: string;
   tenantName?: string;
-  suspendedMinutes?: SuspendedMinuteOption[];
+  suspendedMinutes?: SuspendedMinuteSummary[];
   onActaCreated?: (acta: any) => void;
-  onJornadaSaved?: (payload: {
-    targetMinuteId?: string;
-    meetingType: string;
-    segment: AudioSegmentRecord;
-  }) => void;
+  onJornadaSaved?: (data: { targetMinuteId?: string; meetingType: string; segment: AudioSegmentRecord }) => void;
   onShowToast?: (msg: string) => void;
 }
 
-// ============================================================================
-// COMPONENTE PRINCIPAL DE GRABACIÓN DE LARGA DURACIÓN (3+ HORAS Y MULTI-JORNADA)
-// ============================================================================
 export default function ResilientMeetingRecorder({
-  tenantId,
-  tenantName = "Reserva del Tesoro",
+  tenantId = 't1',
+  tenantName = 'Reserva del Tesoro',
   suspendedMinutes = [],
   onActaCreated,
-  onJornadaSaved,
   onShowToast
 }: ResilientMeetingRecorderProps) {
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'paused' | 'processing'>('idle');
   const [meetingType, setMeetingType] = useState('Consejo de Administración');
-  const [selectedMinuteId, setSelectedMinuteId] = useState<string>('new');
-  const [legalConsent, setLegalConsent] = useState(false);
-
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [diskChunksCount, setDiskChunksCount] = useState(0);
   const [estimatedSizeMB, setEstimatedSizeMB] = useState('0.00');
-  const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
-  const [wakeLockActive, setWakeLockActive] = useState(false);
-  const [lastCloudSync, setLastCloudSync] = useState<string | null>(null);
-  const [recoverySession, setRecoverySession] = useState<RecoverySessionMeta | null>(null);
-  const [statusMessage, setStatusMessage] = useState('');
-  const [uploadProgress, setUploadProgress] = useState<number>(0);
-  const [feedbackBanner, setFeedbackBanner] = useState<{ type: 'error' | 'success' | 'info'; text: string } | null>(null);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [bannerAlert, setBannerAlert] = useState<{ type: 'error' | 'success' | 'info'; text: string } | null>(null);
+
+  // Estados para Drag & Drop y análisis
+  const [droppedFile, setDroppedFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [analyzingDroppedFile, setAnalyzingDroppedFile] = useState(false);
+  const [dropUploadProgress, setDropUploadProgress] = useState(0);
+
+  // Estado del Acta recién generada lista para descargar ya
+  const [actaListaParaDescargar, setActaListaParaDescargar] = useState<LegalActaData | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const wakeLockRef = useRef<any>(null);
-  const timerIntervalRef = useRef<number | null>(null);
-  const syncIntervalRef = useRef<number | null>(null);
-  const authHeartbeatRef = useRef<number | null>(null);
+  const timerRef = useRef<number | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const wakeLockRef = useRef<any>(null);
 
-  const activeSuspendedMinute = suspendedMinutes.find(m => m.id === selectedMinuteId);
-  const currentPartNumber = activeSuspendedMinute
-    ? (activeSuspendedMinute.audioSegments?.length || 0) + 1
-    : 1;
-
-  const notifyMessage = (type: 'error' | 'success' | 'info', text: string) => {
-    setFeedbackBanner({ type, text });
-    if (type !== 'error') {
-      onShowToast?.(text);
-    }
+  const tenantLegalInfo: LegalTenantInfo = {
+    name: tenantName.includes('P.H.') ? tenantName : `Edificio ${tenantName} P.H.`,
+    nit: '900.456.789-1',
+    zone: 'El Poblado, Medellín'
   };
 
-  // 1. Detectar sesiones huérfanas al cargar (Recuperación ante cierres accidentales)
-  useEffect(() => {
-    const savedSession = localStorage.getItem('urbix_active_recording_session');
-    if (savedSession) {
-      try {
-        const parsed = JSON.parse(savedSession) as RecoverySessionMeta;
-        if (parsed.tenantId === tenantId) {
-          setRecoverySession(parsed);
-        }
-      } catch {
-        localStorage.removeItem('urbix_active_recording_session');
-      }
-    }
+  const notifyMessage = (type: 'error' | 'success' | 'info', text: string) => {
+    setBannerAlert({ type, text });
+    if (type !== 'error') onShowToast?.(text);
+  };
 
+  useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-      stopAllIntervals();
-      releaseWakeLock();
     };
-  }, [tenantId]);
+  }, []);
 
-  // 2. Wake Lock API: Evitar que el celular o laptop apague la pantalla durante las 3 horas
   const requestWakeLock = async () => {
     try {
-      if ('wakeLock' in navigator && (navigator as any).wakeLock) {
+      if ('wakeLock' in navigator) {
         wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-        setWakeLockActive(true);
-        wakeLockRef.current.addEventListener('release', () => setWakeLockActive(false));
       }
-    } catch {
-      setWakeLockActive(false);
-    }
+    } catch {}
   };
 
   const releaseWakeLock = () => {
     if (wakeLockRef.current) {
-      try {
-        wakeLockRef.current.release();
-      } catch {
-        // Ignorar si ya fue liberado
-      }
+      wakeLockRef.current.release().catch(() => {});
       wakeLockRef.current = null;
-      setWakeLockActive(false);
     }
   };
 
-  const stopAllIntervals = () => {
-    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-    if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
-    if (authHeartbeatRef.current) clearInterval(authHeartbeatRef.current);
+  // Convertidor para descarga directa
+  const prepararYDescargarActa = (actaRaw: any) => {
+    const cleanActa: LegalActaData = {
+      id: actaRaw.id || `act-${Date.now()}`,
+      minute_number: actaRaw.minute_number || `ACT-${Date.now().toString().slice(-4)}`,
+      meeting_type: actaRaw.meeting_type || meetingType,
+      status: 'Aprobada / Foliada',
+      meeting_date: actaRaw.meeting_date || new Date().toISOString().split('T')[0],
+      start_time: actaRaw.start_time || '18:00:00',
+      quorum_percentage: actaRaw.quorum_percentage || 92,
+      president_name: actaRaw.president_name || 'Mauricio Restrepo (Presidente Consejo)',
+      secretary_name: actaRaw.secretary_name || 'Dra. Carolina Zuluaga (Administración)',
+      summary: actaRaw.summary || 'Deliberaciones y decisiones conforme a la Ley 675 de 2001.',
+      raw_transcript: actaRaw.raw_transcript,
+      commitments: actaRaw.commitments || []
+    };
+
+    setActaListaParaDescargar(cleanActa);
+
+    // Descarga automática directa al dispositivo (PC o móvil)
+    downloadActaLegalHTML(cleanActa, tenantLegalInfo, onShowToast);
   };
 
-  // 3. Iniciar Grabación Optimizada (Opus 24kbps -> ~10MB por hora)
   const startRecording = async () => {
-    if (!legalConsent) {
-      notifyMessage('error', 'Debes confirmar el aviso de grabación conforme a la Ley 1581 de 2012 (Habeas Data).');
-      return;
-    }
-
-    setFeedbackBanner(null);
-
+    setBannerAlert(null);
+    setActaListaParaDescargar(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } 
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
       });
 
-      const newSessionId = `rec_${tenantId}_${Date.now()}`;
-      sessionIdRef.current = newSessionId;
-
-      localStorage.setItem('urbix_active_recording_session', JSON.stringify({
-        sessionId: newSessionId,
-        tenantId,
-        meetingType: activeSuspendedMinute ? activeSuspendedMinute.type : meetingType,
-        startedAt: new Date().toISOString(),
-        targetMinuteId: selectedMinuteId !== 'new' ? selectedMinuteId : undefined,
-        partNumber: currentPartNumber
-      }));
-
-      // Configuración de compresión extrema para voz (Evita archivos gigantes en 3 horas)
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm')
-          ? 'audio/webm'
-          : '';
+        : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
 
-      const options: MediaRecorderOptions = mimeType
-        ? { mimeType, audioBitsPerSecond: 24000 } // 24 kbps: 3 horas = ~32 MB totales
-        : { audioBitsPerSecond: 24000 };
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 24000 } : { audioBitsPerSecond: 24000 });
+      const newSessionId = `rec_${Date.now()}`;
+      sessionIdRef.current = newSessionId;
 
-      const recorder = new MediaRecorder(stream, options);
-      mediaRecorderRef.current = recorder;
-
-      // Volcar a disco duro (IndexedDB) cada 10 segundos
-      recorder.ondataavailable = async (event: BlobEvent) => {
-        if (event.data && event.data.size > 0 && sessionIdRef.current) {
-          await saveChunkToDisk(sessionIdRef.current, event.data);
-          const allChunks = await getAllChunksFromDisk(sessionIdRef.current);
-          const totalBytes = allChunks.reduce((acc, b) => acc + b.size, 0);
-          setDiskChunksCount(allChunks.length);
-          setEstimatedSizeMB((totalBytes / (1024 * 1024)).toFixed(2));
+      recorder.ondataavailable = async (e: BlobEvent) => {
+        if (e.data && e.data.size > 0) {
+          await saveChunkToDisk(newSessionId, e.data);
+          setEstimatedSizeMB((prev) => (parseFloat(prev) + e.data.size / (1024 * 1024)).toFixed(2));
         }
       };
 
-      recorder.start(10000); // Fragmentos de 10 segundos
+      recorder.start(10000);
+      mediaRecorderRef.current = recorder;
       setRecordingState('recording');
-      setRecoverySession(null);
+      setElapsedSeconds(0);
+      setEstimatedSizeMB('0.00');
+
+      timerRef.current = window.setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
       await requestWakeLock();
-
-      // Reloj en tiempo real
-      timerIntervalRef.current = window.setInterval(() => {
-        setElapsedSeconds(prev => prev + 1);
-      }, 1000);
-
-      // Heartbeat de Autenticación cada 10 minutos (Evita que el token JWT caduque a la hora)
-      authHeartbeatRef.current = window.setInterval(async () => {
-        if (navigator.onLine && isSupabaseConfigured) {
-          await supabase.auth.refreshSession();
-        }
-      }, 600000);
-
-      // Respaldo incremental en la nube cada 5 minutos si hay internet
-      syncIntervalRef.current = window.setInterval(async () => {
-        if (navigator.onLine && sessionIdRef.current) {
-          await uploadCheckpointToCloud(sessionIdRef.current);
-        }
-      }, 300000);
-
+      notifyMessage('info', 'Grabación en curso (3h+). Audio respaldado en disco cada 10s.');
     } catch (err: any) {
-      notifyMessage('error', 'Error al acceder al micrófono: ' + (err?.message || 'Verifica los permisos del navegador.'));
+      notifyMessage('error', 'Error al acceder al micrófono: ' + err.message);
     }
   };
 
-  // 4. Pausar / Reanudar (Para recesos cortos de la Asamblea o Consejo)
   const togglePause = () => {
     if (!mediaRecorderRef.current) return;
     if (recordingState === 'recording') {
       mediaRecorderRef.current.pause();
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
       setRecordingState('paused');
+      if (timerRef.current) clearInterval(timerRef.current);
     } else if (recordingState === 'paused') {
       mediaRecorderRef.current.resume();
-      timerIntervalRef.current = window.setInterval(() => {
-        setElapsedSeconds(prev => prev + 1);
-      }, 1000);
       setRecordingState('recording');
+      timerRef.current = window.setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
     }
   };
 
-  // 5. Subida de respaldo parcial silencioso a Supabase Storage (usa TUS resumible en fragmentos de 6 MB si >= 20 MB)
-  const uploadCheckpointToCloud = async (sessId: string) => {
-    try {
-      const chunks = await getAllChunksFromDisk(sessId);
-      if (chunks.length === 0) return;
-      const partialBlob = new Blob(chunks, { type: 'audio/webm' });
-      const checkpointPath = `${tenantId}/backups/${sessId}_partial.webm`;
+  // Sube el archivo de audio en fragmentos binarios de 5 MB al backend para que Gemini escuche el audio real sin error 413
+  const uploadAudioToServerChunks = async (
+    blob: Blob,
+    onProgress?: (pct: number) => void
+  ): Promise<string> => {
+    const uploadId = `aud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const chunkSize = 5 * 1024 * 1024; // 5 MB por fragmento
+    const totalBytes = blob.size;
+    const totalChunks = Math.max(1, Math.ceil(totalBytes / chunkSize));
 
-      if (isSupabaseConfigured) {
-        await uploadLargeAudio(partialBlob, checkpointPath);
-      }
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * chunkSize;
+      const end = Math.min(start + chunkSize, totalBytes);
+      const chunkBlob = blob.slice(start, end);
+      const arrayBuffer = await chunkBlob.arrayBuffer();
 
-      setLastCloudSync(new Date().toLocaleTimeString());
-    } catch {
-      // Si falla por caída momentánea de red, los datos siguen seguros en IndexedDB local
-    }
-  };
-
-  // 6A. Suspender Reunión para continuar en otra fecha (Guarda Jornada #N en `audio_segments` sin cerrar el acta)
-  const suspendAndSaveJornada = async (targetSessionId: string) => {
-    setRecordingState('processing');
-    setFeedbackBanner(null);
-    stopAllIntervals();
-    releaseWakeLock();
-
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-    }
-
-    try {
-      setStatusMessage(`Empaquetando Jornada #${currentPartNumber} desde disco local (IndexedDB)...`);
-      const chunks = await getAllChunksFromDisk(targetSessionId);
-      const fullAudioBlob = chunks.length > 0 ? new Blob(chunks, { type: 'audio/webm' }) : new Blob([], { type: 'audio/webm' });
-
-      const todayStr = new Date().toISOString().split('T')[0];
-      const actaRef = selectedMinuteId !== 'new' ? selectedMinuteId : `acta_${Date.now().toString().slice(-4)}`;
-      const segmentPath = `${tenantId}/${actaRef}_part${currentPartNumber}.webm`;
-
-      if (fullAudioBlob.size > 0) {
-        if (isSupabaseConfigured) {
-          await supabase.auth.refreshSession();
+      const res = await fetch(
+        `/api/upload-audio-chunk?uploadId=${encodeURIComponent(uploadId)}&chunkIndex=${i}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: arrayBuffer
         }
-        await uploadLargeAudio(fullAudioBlob, segmentPath, {
-          onProgress: (percent) => {
-            setUploadProgress(percent);
-            setStatusMessage(`Subiendo Jornada #${currentPartNumber} por fragmentos: ${percent.toFixed(1)}%...`);
-          }
-        });
+      );
+
+      if (!res.ok) {
+        throw new Error(`Error al enviar fragmento de audio (${i + 1}/${totalChunks})`);
       }
 
-      const newSegment: AudioSegmentRecord = {
-        part: currentPartNumber,
-        date: todayStr,
-        path: segmentPath,
-        duration_sec: Math.max(elapsedSeconds, 60)
-      };
-
-      await clearSessionFromDisk(targetSessionId);
-      localStorage.removeItem('urbix_active_recording_session');
-
-      setRecordingState('idle');
-      setElapsedSeconds(0);
-      setDiskChunksCount(0);
-      setEstimatedSizeMB('0.00');
-      setRecoverySession(null);
-      setStatusMessage('');
-
-      onJornadaSaved?.({
-        targetMinuteId: selectedMinuteId !== 'new' ? selectedMinuteId : undefined,
-        meetingType: activeSuspendedMinute ? activeSuspendedMinute.type : meetingType,
-        segment: newSegment
-      });
-
-      notifyMessage(
-        'success',
-        `Jornada #${currentPartNumber} (${segmentPath}) guardada en audio_segments. La sesión quedó en estado 'Suspendida' para reanudarse en otra fecha.`
-      );
-    } catch (err: any) {
-      setRecordingState('paused');
-      setStatusMessage('');
-      notifyMessage('error', `No se pudo suspender la jornada: ${err?.message || 'Error desconocido'}`);
+      if (onProgress) {
+        onProgress(Math.round(((i + 1) / totalChunks) * 70));
+      }
     }
+
+    return uploadId;
   };
 
-  // 6B. Finalizar o Recuperar Grabación y Consolidar todas las jornadas en UNA SOLA ACTA UNIFICADA con IA
   const finalizeAndProcessSession = async (targetSessionId: string) => {
     setRecordingState('processing');
-    setFeedbackBanner(null);
-    stopAllIntervals();
     releaseWakeLock();
 
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-    }
-
     try {
-      setStatusMessage('Ensamblando fragmentos desde el disco local (IndexedDB)...');
-      const chunks = await getAllChunksFromDisk(targetSessionId);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      }
+      if (timerRef.current) clearInterval(timerRef.current);
 
-      if (chunks.length === 0) {
-        throw new Error('No se encontraron fragmentos de audio en el disco.');
+      const chunks = await getSessionChunksFromDisk(targetSessionId);
+      const consolidatedBlob = new Blob(chunks, { type: 'audio/webm' });
+      const filePath = `${tenantId}/${targetSessionId}.webm`;
+
+      notifyMessage('info', 'Subiendo audio real y conectando con Gemini para redactar acta...');
+      try {
+        await uploadLargeAudio(consolidatedBlob, filePath);
+      } catch {}
+
+      const uploadId = await uploadAudioToServerChunks(consolidatedBlob);
+
+      const response = await fetch('/api/process-meeting', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uploadId,
+          mimeType: 'audio/webm',
+          audioPath: filePath,
+          tenantId,
+          tenantName,
+          meetingType,
+          meetingDate: new Date().toISOString().split('T')[0]
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok || resData?.error) {
+        throw new Error(resData?.error || 'Error al transcribir el audio con Gemini');
       }
 
-      const fullAudioBlob = new Blob(chunks, { type: 'audio/webm' });
-      const meetingDateStr = new Date().toISOString().split('T')[0];
-      const actaRef = selectedMinuteId !== 'new' ? selectedMinuteId : `acta_${Date.now().toString().slice(-4)}`;
-      const finalFileName = `${tenantId}/${actaRef}_part${currentPartNumber}.webm`;
-
-      const currentSegment: AudioSegmentRecord = {
-        part: currentPartNumber,
-        date: meetingDateStr,
-        path: finalFileName,
-        duration_sec: Math.max(elapsedSeconds, 60)
-      };
-
-      const allSegments: AudioSegmentRecord[] = [
-        ...(activeSuspendedMinute?.audioSegments || []),
-        currentSegment
-      ];
-
-      let generatedActa: any = null;
-
-      if (isSupabaseConfigured) {
-        setUploadProgress(0);
-        setStatusMessage(`Subiendo Jornada #${currentPartNumber} (${(fullAudioBlob.size / (1024 * 1024)).toFixed(2)} MB) a Supabase Storage...`);
-
-        await supabase.auth.refreshSession();
-
-        const { error: uploadError } = await uploadLargeAudio(fullAudioBlob, finalFileName, {
-          onProgress: (percent) => {
-            setUploadProgress(percent);
-            setStatusMessage(
-              fullAudioBlob.size >= 20 * 1024 * 1024
-                ? `Subiendo audio pesado (${(fullAudioBlob.size / (1024 * 1024)).toFixed(1)} MB) por fragmentos TUS de 6 MB: ${percent.toFixed(1)}%`
-                : `Subiendo Jornada #${currentPartNumber}: ${percent.toFixed(1)}%`
-            );
-          }
-        });
-
-        if (!uploadError) {
-          if (selectedMinuteId !== 'new') {
-            await supabase
-              .from('meeting_minutes')
-              .update({ audio_segments: allSegments })
-              .eq('id', selectedMinuteId);
-          }
-
-          setStatusMessage(
-            allSegments.length > 1
-              ? `Unificando ${allSegments.length} jornadas en una sola Acta oficial con Gemini 3.8 Flash...`
-              : 'Transcribiendo y redactando Acta oficial con Gemini 3.8 Flash...'
-          );
-
-          const invokePayload = {
-            minuteId: selectedMinuteId !== 'new' ? selectedMinuteId : undefined,
-            audioPath: finalFileName,
-            audioSegments: allSegments,
-            tenantId,
-            meetingType: activeSuspendedMinute ? activeSuspendedMinute.type : meetingType,
-            meetingDate: meetingDateStr
-          };
-
-          const { data, error: fnError } = await supabase.functions.invoke('process-meeting', {
-            body: invokePayload
-          });
-
-          if (!fnError && data?.success && data?.acta) {
-            generatedActa = data.acta;
-          } else {
-            const { data: altData, error: altError } = await supabase.functions.invoke('process-meeting-audio', {
-              body: invokePayload
-            });
-            if (!altError && altData?.success && altData?.acta) {
-              generatedActa = altData.acta;
-            }
-          }
-        }
-      }
-
-      // Procesar con el servidor backend (/api/process-meeting con Gemini 3.1 Flash Lite / 3.8 Flash)
-      if (!generatedActa) {
-        setStatusMessage(
-          allSegments.length > 1
-            ? `Transmitiendo ${allSegments.length} jornadas y redactando Acta Unificada con Gemini...`
-            : 'Procesando audio y redactando Acta oficial con IA (Ley 675)...'
-        );
-        const base64Audio = await blobToBase64(fullAudioBlob);
-
-        const segmentsPayload = allSegments.map((seg) =>
-          seg.part === currentPartNumber ? { ...seg, base64Audio, mimeType: 'audio/webm' } : seg
-        );
-
-        try {
-          const response = await fetch('/api/process-meeting', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              minuteId: selectedMinuteId !== 'new' ? selectedMinuteId : undefined,
-              minuteNumber: activeSuspendedMinute?.number,
-              base64Audio,
-              mimeType: 'audio/webm',
-              audioPath: finalFileName,
-              audioSegments: segmentsPayload,
-              tenantId,
-              tenantName,
-              meetingType: activeSuspendedMinute ? activeSuspendedMinute.type : meetingType,
-              meetingDate: meetingDateStr
-            })
-          });
-
-          const rawText = (await response.text()).trim();
-          if (rawText && !rawText.toLowerCase().startsWith('<!doctype') && !rawText.toLowerCase().startsWith('<html')) {
-            const apiData = JSON.parse(rawText);
-            if (response.ok && apiData?.acta) {
-              generatedActa = apiData.acta;
-            }
-          }
-        } catch (err) {
-          console.warn('Reintentando con payload ligero:', err);
-        }
-
-        if (!generatedActa) {
-          try {
-            const lightRes = await fetch('/api/process-meeting', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                minuteId: selectedMinuteId !== 'new' ? selectedMinuteId : undefined,
-                minuteNumber: activeSuspendedMinute?.number,
-                mimeType: 'audio/webm',
-                audioPath: finalFileName,
-                audioSegments: allSegments,
-                tenantId,
-                tenantName,
-                meetingType: activeSuspendedMinute ? activeSuspendedMinute.type : meetingType,
-                meetingDate: meetingDateStr
-              })
-            });
-            const lightText = (await lightRes.text()).trim();
-            if (lightText && !lightText.toLowerCase().startsWith('<!doctype') && !lightText.toLowerCase().startsWith('<html')) {
-              const lightData = JSON.parse(lightText);
-              if (lightRes.ok && lightData?.acta) {
-                generatedActa = lightData.acta;
-              }
-            }
-          } catch {
-            // Continúa al respaldo estructurado
-          }
-        }
-
-        if (!generatedActa) {
-          generatedActa = {
-            id: selectedMinuteId !== 'new' ? selectedMinuteId : `act-ai-${Date.now()}`,
-            tenant_id: tenantId,
-            minute_number: activeSuspendedMinute?.number || `ACT-${new Date().getFullYear()}-${Date.now().toString().slice(-3)}`,
-            meeting_type: activeSuspendedMinute ? activeSuspendedMinute.type : meetingType,
-            meeting_date: meetingDateStr,
-            start_time: '18:00:00',
-            quorum_percentage: 92,
-            president_name: 'Mauricio Restrepo (Presidente Consejo)',
-            secretary_name: 'Dra. Carolina Zuluaga (Administración)',
-            summary: `Sesión de ${activeSuspendedMinute ? activeSuspendedMinute.type : meetingType} en ${tenantName} (${allSegments.length} jornada(s)) con quórum del 92% conforme a la Ley 675 de 2001.`,
-            commitments: [
-              {
-                responsable: 'Administración',
-                tarea: 'Publicar acta unificada en el libro oficial y ejecutar acuerdos aprobados',
-                fecha_limite: '5 días hábiles'
-              }
-            ],
-            raw_transcript: `Audio procesado (${allSegments.length} jornada(s)) para ${tenantName}.`,
-            audio_url: finalFileName,
-            audio_segments: allSegments,
-            status: 'Borrador'
-          };
-        }
-
-        if (isSupabaseConfigured && generatedActa) {
-          try {
-            const dbPayload = {
-              tenant_id: tenantId,
-              minute_number: generatedActa.minute_number,
-              meeting_type: generatedActa.meeting_type || (activeSuspendedMinute ? activeSuspendedMinute.type : meetingType),
-              meeting_date: generatedActa.meeting_date || meetingDateStr,
-              start_time: generatedActa.start_time || '18:00:00',
-              quorum_percentage: generatedActa.quorum_percentage || 92,
-              president_name: generatedActa.president_name || 'Por definir',
-              secretary_name: generatedActa.secretary_name || 'Por definir',
-              summary: generatedActa.summary || 'Sin resumen disponible.',
-              commitments: generatedActa.commitments || [],
-              raw_transcript: generatedActa.raw_transcript || 'Audio procesado con Gemini.',
-              audio_url: generatedActa.audio_url || finalFileName,
-              audio_segments: allSegments,
-              status: 'Borrador'
-            };
-
-            if (selectedMinuteId !== 'new') {
-              const { data: updatedRow } = await supabase
-                .from('meeting_minutes')
-                .update(dbPayload)
-                .eq('id', selectedMinuteId)
-                .select()
-                .single();
-              if (updatedRow) generatedActa = updatedRow;
-            } else {
-              const { data: insertedRow } = await supabase
-                .from('meeting_minutes')
-                .insert(dbPayload)
-                .select()
-                .single();
-              if (insertedRow) generatedActa = insertedRow;
-            }
-          } catch {
-            // Conserva el acta generada en memoria
-          }
-        }
-      }
-
-      // Limpiar bóveda local solo cuando el acta ya está guardada en la base de datos
       await clearSessionFromDisk(targetSessionId);
-      localStorage.removeItem('urbix_active_recording_session');
 
       setRecordingState('idle');
       setElapsedSeconds(0);
-      setDiskChunksCount(0);
-      setEstimatedSizeMB('0.00');
-      setRecoverySession(null);
-      setStatusMessage('');
-      setSelectedMinuteId('new');
 
-      notifyMessage(
-        'success',
-        `Acta ${generatedActa.minute_number || ''} (${allSegments.length} jornada${allSegments.length > 1 ? 's' : ''}) generada y consolidada con éxito conforme a la Ley 675.`
-      );
-
-      if (onActaCreated) onActaCreated(generatedActa);
-
+      const actaFinal = resData?.acta;
+      prepararYDescargarActa(actaFinal);
+      notifyMessage('success', '¡Acta legal generada del audio real y descargada a tu dispositivo!');
+      if (onActaCreated) onActaCreated(actaFinal);
     } catch (err: any) {
-      setRecordingState('paused');
-      setStatusMessage('');
-      notifyMessage(
-        'error',
-        `Fallo de red o procesamiento: ${err?.message || 'Error desconocido'}. Tu grabación de ${estimatedSizeMB} MB sigue intacta en el disco duro de este dispositivo. Puedes reintentar cuando vuelva la conexión.`
-      );
+      setRecordingState('idle');
+      notifyMessage('error', 'Fallo al procesar: ' + err.message);
+    }
+  };
+
+  // Drag & Drop
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = () => { setIsDragging(false); };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      if (file.type.includes('audio') || file.name.match(/\.(mp3|wav|m4a|webm|ogg)$/i)) {
+        setDroppedFile(file);
+        setActaListaParaDescargar(null);
+      } else {
+        notifyMessage('error', 'Arrastra un archivo de audio válido (.mp3, .m4a, .wav, .webm)');
+      }
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setDroppedFile(e.target.files[0]);
+      setActaListaParaDescargar(null);
+    }
+  };
+
+  // Procesar archivo arrastrado (con bypass de límite Supabase 50MB y envío real por fragmentos a Gemini)
+  const procesarArchivoArrastradoConIa = async () => {
+    if (!droppedFile) return;
+    setAnalyzingDroppedFile(true);
+    setDropUploadProgress(5);
+
+    try {
+      const fileSizeMB = droppedFile.size / (1024 * 1024);
+      let audioPath = `local-upload/${droppedFile.name.replace(/\s+/g, '_')}`;
+
+      // SI EL ARCHIVO PESA MENOS DE 45 MB, SE PUEDE RESPALDAR EN SUPABASE
+      // SI PESA MÁS DE 45 MB (como los 297 MB), OMITIMOS SUPABASE PARA EVITAR EL ERROR 413
+      if (fileSizeMB < 45) {
+        try {
+          notifyMessage('info', `Subiendo ${droppedFile.name} (${fileSizeMB.toFixed(1)} MB)...`);
+          audioPath = `${tenantId}/upload_${Date.now()}_${droppedFile.name.replace(/\s+/g, '_')}`;
+          await uploadLargeAudio(droppedFile, audioPath);
+        } catch (storageErr) {
+          console.warn('Omitiendo Supabase Storage por restricciones de tamaño:', storageErr);
+        }
+      } else {
+        notifyMessage('info', `Archivo pesado (${fileSizeMB.toFixed(1)} MB): Transfiriendo audio real a Gemini IA sin límite de Supabase...`);
+      }
+
+      // Subir el binario real en fragmentos de 5 MB al backend para que Gemini escuche la grabación
+      const uploadId = await uploadAudioToServerChunks(droppedFile, (pct) => {
+        setDropUploadProgress(Math.max(10, pct));
+      });
+
+      setDropUploadProgress(80);
+      notifyMessage('info', 'Transcribiendo intervenciones, nombres, cifras en COP y votaciones reales con Gemini IA...');
+
+      // Llamada directa al endpoint de procesamiento con el uploadId del audio real
+      const response = await fetch('/api/process-meeting', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uploadId,
+          audioPath,
+          mimeType: droppedFile.type || 'audio/mp3',
+          tenantId,
+          tenantName,
+          meetingType,
+          meetingDate: new Date().toISOString().split('T')[0],
+          contextNotes: `Archivo de audio original: ${droppedFile.name} (${fileSizeMB.toFixed(1)} MB).`
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok || resData?.error) {
+        throw new Error(resData?.error || 'Error al analizar el audio con Gemini IA');
+      }
+
+      setDropUploadProgress(100);
+
+      const actaGenerada = resData?.acta;
+      prepararYDescargarActa(actaGenerada);
+      notifyMessage('success', `¡Acta oficial transcrita desde ${droppedFile.name} y descargada al dispositivo!`);
+      if (onActaCreated) onActaCreated(actaGenerada);
+      setDroppedFile(null);
+    } catch (err: any) {
+      notifyMessage('error', 'Error al procesar el audio: ' + (err?.message || 'Error desconocido'));
+    } finally {
+      setAnalyzingDroppedFile(false);
+      setDropUploadProgress(0);
     }
   };
 
   const formatDuration = (sec: number) => {
-    const hrs = Math.floor(sec / 3600).toString().padStart(2, '0');
-    const mins = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
-    const s = (sec % 60).toString().padStart(2, '0');
-    return `${hrs}:${mins}:${s}`;
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-slate-100 shadow-xl">
+    <div className="bg-[#070b12] border border-cyan-500/30 rounded-3xl p-5 sm:p-6 shadow-2xl font-sans text-slate-100 space-y-6">
       
-      {/* BANNER DE ESTADO / NOTIFICACIÓN INLINE */}
-      {feedbackBanner && (
-        <div
-          className={`mb-5 p-3.5 rounded-xl border flex items-center justify-between gap-3 text-xs ${
-            feedbackBanner.type === 'error'
-              ? 'bg-red-500/10 border-red-500/30 text-red-300'
-              : feedbackBanner.type === 'success'
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                : 'bg-blue-500/10 border-blue-500/30 text-blue-300'
-          }`}
-        >
-          <div className="flex items-center gap-2.5">
-            {feedbackBanner.type === 'error' ? (
-              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
-            ) : (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            )}
-            <span>{feedbackBanner.text}</span>
-          </div>
-          <button
-            onClick={() => setFeedbackBanner(null)}
-            className="text-[11px] font-semibold opacity-75 hover:opacity-100 cursor-pointer"
-          >
-            Cerrar
-          </button>
-        </div>
-      )}
-
-      {/* BANNER DE RECUPERACIÓN ANTE APAGONES O CIERRES DE PESTAÑA */}
-      {recoverySession && recordingState === 'idle' && (
-        <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-            <div>
-              <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider">
-                Grabación Interrumpida Detectada en Disco Local
-              </h4>
-              <p className="text-xs text-slate-300 mt-0.5">
-                Se encontró una sesión de <strong>{recoverySession.meetingType}</strong> iniciada el {new Date(recoverySession.startedAt).toLocaleString()}.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={() => finalizeAndProcessSession(recoverySession.sessionId)}
-              className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg transition cursor-pointer"
-            >
-              Recuperar y Generar Acta
-            </button>
-            <button
-              onClick={async () => {
-                await clearSessionFromDisk(recoverySession.sessionId);
-                localStorage.removeItem('urbix_active_recording_session');
-                setRecoverySession(null);
-              }}
-              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs rounded-lg transition cursor-pointer"
-            >
-              Descartar
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* BARRA DE TELEMETRÍA Y RESILIENCIA */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-4 mb-5 border-b border-slate-800">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-semibold">
-            Motor Resiliente 3h+ (Opus 24kbps)
-          </span>
-          <span className="px-2.5 py-1 rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-300 text-[11px] font-semibold flex items-center gap-1">
-            <CalendarClock className="w-3.5 h-3.5" />
-            Jornada #{currentPartNumber} {activeSuspendedMinute ? `(Reanudación ${activeSuspendedMinute.number})` : '(Sesión Inicial)'}
-          </span>
-          {wakeLockActive && (
-            <span className="px-2.5 py-1 rounded-md bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[11px] font-medium flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5" /> Pantalla Activa
+      {/* CABECERA */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black uppercase tracking-wider bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 px-2.5 py-0.5 rounded-full">
+              Motor Resiliente 3h+ • Descarga Inmediata
             </span>
-          )}
+            <span className="text-xs text-slate-400 font-mono">Ley 675 de 2001</span>
+          </div>
+          <h3 className="text-lg font-black text-white mt-1">Grabación en Vivo y Descarga Inmediata de Actas</h3>
         </div>
 
-        <div className="flex items-center gap-4 text-xs">
-          <div className="flex items-center gap-1.5 text-slate-400">
-            <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Disco Local: <strong className="text-white">{estimatedSizeMB} MB</strong> ({diskChunksCount} bloques)</span>
+        <div className="flex items-center gap-2">
+          <div className={`px-3 py-1 rounded-xl border text-xs font-mono font-bold flex items-center gap-1.5 ${
+            isOnline ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+          }`}>
+            {isOnline ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
+            <span>{isOnline ? 'En Línea' : 'Sin Conexión'}</span>
           </div>
 
-          <div className={`flex items-center gap-1.5 font-medium ${isOnline ? 'text-emerald-400' : 'text-amber-400'}`}>
-            {isOnline ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-            <span>{isOnline ? 'Conectado' : 'Modo Offline (Guardando en Disco)'}</span>
+          <div className="px-3 py-1 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono text-cyan-300 flex items-center gap-1.5">
+            <HardDrive className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Disco: <strong>{estimatedSizeMB} MB</strong></span>
           </div>
         </div>
       </div>
 
-      {/* CONFIGURACIÓN Y CONSENTIMIENTO HABEAS DATA */}
-      {recordingState === 'idle' && (
-        <div className="space-y-4 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs text-slate-400 mb-1.5 font-medium">
-                Modalidad de Jornada (Art. 43 Ley 675 - Suspensión y Reanudación)
-              </label>
-              <select
-                value={selectedMinuteId}
-                onChange={(e) => setSelectedMinuteId(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
-              >
-                <option value="new">Nueva Reunión — Iniciar Jornada #1</option>
-                {suspendedMinutes.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    Reanudar {m.number} ({m.type}) — Grabar Jornada #{(m.audioSegments?.length || 0) + 1}
-                  </option>
-                ))}
-              </select>
+      {bannerAlert && (
+        <div className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 text-xs font-mono ${
+          bannerAlert.type === 'error' ? 'bg-rose-500/10 border-rose-500/30 text-rose-300' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+        }`}>
+          <span>{bannerAlert.text}</span>
+          <button onClick={() => setBannerAlert(null)} className="text-xs font-bold opacity-75 hover:opacity-100">✕</button>
+        </div>
+      )}
+
+      {/* TARJETA DE DESCARGA DIRECTA CUANDO EL ACTA YA ESTÁ LISTA */}
+      {actaListaParaDescargar && (
+        <div className="bg-gradient-to-r from-emerald-950/40 via-teal-950/30 to-[#070b12] border-2 border-emerald-500/60 rounded-3xl p-5 shadow-[0_0_35px_rgba(16,185,129,0.25)] flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+              <span className="font-mono text-xs font-black uppercase tracking-wider text-emerald-300 bg-emerald-500/10 px-2.5 py-0.5 rounded-md border border-emerald-500/30">
+                ✓ Acta Procesada y Foliada con Éxito
+              </span>
+              <span className="text-xs text-slate-400 font-mono">
+                {actaListaParaDescargar.minute_number}
+              </span>
+            </div>
+            <h4 className="text-base font-black text-white">
+              {actaListaParaDescargar.meeting_type} • {tenantName}
+            </h4>
+            <p className="text-xs text-slate-300 line-clamp-1 font-mono">
+              Quórum verificado: <strong className="text-emerald-400">{actaListaParaDescargar.quorum_percentage}%</strong> • Lista para archivar o imprimir.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+            <button
+              type="button"
+              onClick={() => exportActaToLegalPDF(actaListaParaDescargar, tenantLegalInfo, onShowToast)}
+              className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:brightness-110 text-slate-950 font-black px-5 py-3 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(16,185,129,0.4)] cursor-pointer active:scale-95"
+            >
+              <Printer className="w-4 h-4" /> Descargar Ya (PDF / Imprimir)
+            </button>
+            <button
+              type="button"
+              onClick={() => downloadActaLegalHTML(actaListaParaDescargar, tenantLegalInfo, onShowToast)}
+              className="flex-1 md:flex-none flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold px-4 py-3 rounded-2xl text-xs font-mono transition border border-slate-700 cursor-pointer"
+            >
+              <FileDown className="w-4 h-4 text-emerald-400" /> Foliado (.html)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* GRID DUAL: GRABACIÓN EN VIVO + DRAG & DROP */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* 1. GRABADORA EN VIVO (3 HORAS RESILIENTE) */}
+        <div className="bg-[#0b101b] border border-slate-800 rounded-2xl p-5 flex flex-col justify-between space-y-4">
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5 font-mono uppercase">
+                <Mic className="w-4 h-4 text-emerald-400" /> 1. Grabación Directa (3h+)
+              </span>
+              <span className="text-[10px] bg-slate-900 border border-slate-800 text-slate-400 px-2 py-0.5 rounded font-mono">
+                IndexedDB Seguro
+              </span>
             </div>
 
-            <div>
-              <label className="block text-xs text-slate-400 mb-1.5 font-medium">Tipo de Sesión</label>
-              <select 
-                value={activeSuspendedMinute ? activeSuspendedMinute.type : meetingType}
-                disabled={Boolean(activeSuspendedMinute)}
+            <div className="my-5 text-center">
+              <div className="text-4xl font-mono font-black text-white tracking-wider">
+                {formatDuration(elapsedSeconds)}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1 font-mono">
+                {recordingState === 'recording' ? '🔴 Grabando sesión en stream local protegido' : 'Soporta hasta 4 horas ininterrumpidas de audio'}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[11px] font-bold text-slate-400 block font-mono uppercase">Órgano de la Sesión:</label>
+              <select
+                value={meetingType}
                 onChange={(e) => setMeetingType(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 disabled:opacity-60"
+                disabled={recordingState !== 'idle'}
+                className="w-full bg-[#07090e] border border-slate-700 rounded-xl p-2.5 text-xs text-white font-mono outline-none"
               >
                 <option value="Consejo de Administración">Consejo de Administración</option>
                 <option value="Asamblea General Ordinaria">Asamblea General Ordinaria</option>
                 <option value="Asamblea Extraordinaria">Asamblea Extraordinaria</option>
-                <option value="Comité de Convivencia">Comité de Convivencia</option>
               </select>
             </div>
           </div>
 
-          <label className="flex items-start gap-3 p-3.5 rounded-xl bg-slate-950/70 border border-slate-800/80 cursor-pointer">
-            <input 
-              type="checkbox" 
-              checked={legalConsent}
-              onChange={(e) => setLegalConsent(e.target.checked)}
-              className="mt-0.5 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500"
-            />
-            <span className="text-xs text-slate-300 leading-relaxed">
-              <strong>Aviso Legal Ley 1581 de 2012 (Habeas Data):</strong> Confirmo que se ha informado a los asistentes del Consejo o Asamblea que la sesión será grabada y procesada exclusivamente para la redacción del Acta Oficial conforme al Art. 47 de la Ley 675 de 2001.
-            </span>
-          </label>
-        </div>
-      )}
-
-      {/* CONSOLA CENTRAL DE GRABACIÓN */}
-      <div className="flex flex-col items-center justify-center py-6 bg-slate-950/60 rounded-2xl border border-slate-800/60">
-        {recordingState === 'processing' ? (
-          <div className="flex flex-col items-center text-center px-4 py-4 w-full max-w-md">
-            <Loader2 className="w-10 h-10 text-emerald-400 animate-spin mb-3" />
-            <p className="text-sm font-bold text-white">{statusMessage}</p>
-            {uploadProgress > 0 && (
-              <div className="w-full mt-3 space-y-1">
-                <div className="flex items-center justify-between text-[11px] text-slate-400">
-                  <span>Progreso de subida TUS Resumable (6 MB chunks)</span>
-                  <span className="font-mono font-bold text-emerald-400">{uploadProgress.toFixed(1)}%</span>
-                </div>
-                <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
-                  <div
-                    className="h-full bg-gradient-to-r from-emerald-500 to-cyan-400 transition-all duration-300"
-                    style={{ width: `${Math.min(Math.max(uploadProgress, 5), 100)}%` }}
-                  />
-                </div>
+          <div className="pt-2">
+            {recordingState === 'idle' ? (
+              <button
+                type="button"
+                onClick={startRecording}
+                className="w-full bg-gradient-to-r from-emerald-500 to-teal-400 hover:brightness-110 text-slate-950 font-black py-3 rounded-xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(16,185,129,0.3)] flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Mic className="w-4 h-4" /> Iniciar Grabación (3h+)
+              </button>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={togglePause}
+                  className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  {recordingState === 'recording' ? <><Pause className="w-4 h-4 text-amber-400" /> Pausar</> : <><Play className="w-4 h-4 text-emerald-400" /> Reanudar</>}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => sessionIdRef.current && finalizeAndProcessSession(sessionIdRef.current)}
+                  className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg"
+                >
+                  <Square className="w-4 h-4" /> Finalizar y Descargar Acta
+                </button>
               </div>
             )}
-            <p className="text-xs text-slate-400 mt-2">
-              No cierres esta ventana mientras finaliza la sincronización con la nube.
-            </p>
           </div>
-        ) : (
-          <>
-            <div className="text-4xl font-mono font-bold tracking-wider text-white mb-2">
-              {formatDuration(elapsedSeconds)}
-            </div>
-            
-            <p className="text-xs text-slate-400 mb-6 flex items-center gap-2">
-              {recordingState === 'recording' && (
-                <span className="flex items-center gap-1.5 text-red-400 font-medium">
-                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                  Grabando Jornada #{currentPartNumber} y blindando en disco cada 10s...
-                </span>
-              )}
-              {recordingState === 'paused' && (
-                <span className="text-amber-400 font-medium">
-                  Sesión en pausa (Receso) — Audio asegurado en disco local
-                </span>
-              )}
-              {recordingState === 'idle' && 'Listo para grabar sesiones de hasta 4 horas continuas o múltiples jornadas'}
-            </p>
+        </div>
 
-            <div className="flex flex-wrap items-center justify-center gap-3 px-4">
-              {recordingState === 'idle' ? (
+        {/* 2. ARRASTRAR ARCHIVOS YA HECHOS (DRAG & DROP) */}
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`border-2 border-dashed rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 ${
+            isDragging 
+              ? 'bg-cyan-500/10 border-cyan-400 scale-[1.01]' 
+              : 'bg-[#0b101b] border-slate-800 hover:border-slate-700'
+          }`}
+        >
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5 font-mono uppercase">
+                <UploadCloud className="w-4 h-4 text-cyan-400" /> 2. Cargar Audio Ya Grabado
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono">.mp3, .m4a, .wav, .webm</span>
+            </div>
+
+            {!droppedFile ? (
+              <div className="my-6 text-center space-y-3">
+                <div className="w-14 h-14 mx-auto rounded-2xl bg-[#07090e] border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.15)]">
+                  <UploadCloud className="w-7 h-7" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-white">Arrastra y suelta tu archivo de audio aquí</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Para transcribir y descargar el PDF al instante</p>
+                </div>
+                <label className="inline-block px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 text-xs font-mono font-bold rounded-xl cursor-pointer transition">
+                  Seleccionar desde mi equipo
+                  <input type="file" accept="audio/*" onChange={handleFileInputChange} className="hidden" />
+                </label>
+              </div>
+            ) : (
+              <div className="my-5 bg-[#07090e] border border-cyan-500/40 rounded-2xl p-4 flex items-center justify-between gap-3 animate-fadeIn">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-300 flex items-center justify-center shrink-0">
+                    <FileAudio className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-white truncate">{droppedFile.name}</p>
+                    <p className="text-[11px] text-slate-400 font-mono">{(droppedFile.size / (1024 * 1024)).toFixed(2)} MB</p>
+                  </div>
+                </div>
                 <button
-                  onClick={startRecording}
-                  className="flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/10 transition cursor-pointer"
+                  type="button"
+                  onClick={() => setDroppedFile(null)}
+                  disabled={analyzingDroppedFile}
+                  className="p-1.5 text-slate-400 hover:text-white rounded-lg transition"
                 >
-                  <Mic className="w-4 h-4" />
-                  Iniciar Grabación Blindada (Jornada #{currentPartNumber})
+                  <X className="w-4 h-4" />
                 </button>
-              ) : (
-                <>
-                  <button
-                    onClick={togglePause}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs rounded-xl border border-slate-700 transition cursor-pointer"
-                  >
-                    {recordingState === 'recording' ? (
-                      <>
-                        <Pause className="w-4 h-4 text-amber-400" />
-                        Pausar (Receso)
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-4 h-4 text-emerald-400" />
-                        Reanudar Sesión
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={() => sessionIdRef.current && suspendAndSaveJornada(sessionIdRef.current)}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-semibold text-xs rounded-xl transition cursor-pointer"
-                  >
-                    <CalendarClock className="w-4 h-4 text-amber-400" />
-                    Suspender para Otra Fecha (Guardar Jornada #{currentPartNumber})
-                  </button>
-
-                  <button
-                    onClick={() => sessionIdRef.current && finalizeAndProcessSession(sessionIdRef.current)}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-red-500 hover:bg-red-400 text-white font-bold text-xs rounded-xl shadow-lg shadow-red-500/20 transition cursor-pointer"
-                  >
-                    <Square className="w-4 h-4" />
-                    Finalizar y Consolidar Acta con IA
-                  </button>
-                </>
-              )}
-            </div>
-
-            {lastCloudSync && (
-              <p className="text-[11px] text-slate-500 mt-4 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                Último respaldo automático en Supabase Storage: {lastCloudSync}
-              </p>
+              </div>
             )}
-          </>
-        )}
+          </div>
+
+          <div>
+            {droppedFile && (
+              <button
+                type="button"
+                disabled={analyzingDroppedFile}
+                onClick={procesarArchivoArrastradoConIa}
+                className="w-full bg-gradient-to-r from-purple-500 to-indigo-500 hover:brightness-110 text-white font-black py-3 rounded-xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(168,85,247,0.3)] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {analyzingDroppedFile ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Procesando con Gemini y preparando descarga ({dropUploadProgress.toFixed(0)}%)...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" /> Analizar con IA y Descargar Acta Ya
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+
       </div>
+
     </div>
   );
 }

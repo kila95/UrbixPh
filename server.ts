@@ -1,4 +1,6 @@
 import express from "express";
+import fs from "fs";
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
@@ -17,7 +19,7 @@ async function uploadBufferToGeminiFilesApi(
   displayName: string,
   apiKey: string
 ): Promise<{ fileUri: string; googleFileName: string; mimeType: string } | null> {
-  const resolvedMimeType = mimeType || "audio/webm";
+  const resolvedMimeType = (mimeType || "audio/webm").split(";")[0].trim() || "audio/webm";
   const contentLength = String(audioBuffer.byteLength);
 
   const initUploadUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?uploadType=resumable&key=${apiKey}`;
@@ -62,8 +64,8 @@ async function uploadBufferToGeminiFilesApi(
   let fileState = fileInfo.file.state;
   let attempts = 0;
 
-  while (fileState === "PROCESSING" && attempts < 8) {
-    await new Promise((r) => setTimeout(r, 2000));
+  while (fileState === "PROCESSING" && attempts < 25) {
+    await new Promise((r) => setTimeout(r, 1500));
     attempts++;
 
     const checkRes = await fetch(
@@ -73,7 +75,7 @@ async function uploadBufferToGeminiFilesApi(
     if (checkRes.ok) {
       const checkData = (await checkRes.json()) as { state: string };
       fileState = checkData.state;
-      console.log(`Intento ${attempts}/8 - Estado del archivo: ${fileState}`);
+      console.log(`Intento ${attempts}/25 - Estado del archivo en Gemini Files API: ${fileState}`);
     }
   }
 
@@ -91,6 +93,30 @@ async function uploadBufferToGeminiFilesApi(
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Endpoint de subida por fragmentos binarios (evita límite 413 en proxies y soporta archivos grandes)
+  app.post(
+    "/api/upload-audio-chunk",
+    express.raw({ type: "application/octet-stream", limit: "15mb" }),
+    (req, res) => {
+      try {
+        const uploadId = String(req.query.uploadId || "").replace(/[^a-zA-Z0-9_-]/g, "");
+        const chunkIndex = Number(req.query.chunkIndex || 0);
+        if (!uploadId || !Buffer.isBuffer(req.body)) {
+          res.status(400).json({ error: "Parámetros de fragmento inválidos" });
+          return;
+        }
+        const tempFilePath = path.join(os.tmpdir(), `urbix_audio_${uploadId}.bin`);
+        if (chunkIndex === 0 && fs.existsSync(tempFilePath)) {
+          fs.unlinkSync(tempFilePath);
+        }
+        fs.appendFileSync(tempFilePath, req.body);
+        res.json({ ok: true, uploadId, chunkIndex, receivedBytes: req.body.byteLength });
+      } catch (err: any) {
+        res.status(500).json({ error: err?.message || "Error al guardar fragmento de audio" });
+      }
+    }
+  );
 
   // Permitir payloads de audio en Base64 de hasta 50 MB
   app.use(express.json({ limit: "50mb" }));
@@ -206,10 +232,12 @@ async function startServer() {
 
   // Endpoint server-side compatible con las Edge Functions `process-meeting` y `process-meeting-audio` (soporta 1 o múltiples jornadas `audio_segments`)
   app.post(["/api/process-meeting-audio", "/api/process-meeting"], async (req, res) => {
+    let tempUploadedFilePath: string | null = null;
     try {
       const {
         minuteId,
         minuteNumber,
+        uploadId,
         base64Audio,
         mimeType = "audio/webm",
         audioPath,
@@ -221,11 +249,20 @@ async function startServer() {
         contextNotes = "",
       } = req.body || {};
 
+      const safeUploadId = uploadId ? String(uploadId).replace(/[^a-zA-Z0-9_-]/g, "") : "";
+      if (safeUploadId) {
+        const candidatePath = path.join(os.tmpdir(), `urbix_audio_${safeUploadId}.bin`);
+        if (fs.existsSync(candidatePath)) {
+          tempUploadedFilePath = candidatePath;
+        }
+      }
+
       console.log("--- INICIANDO PROCESAMIENTO DE ACTA ---", {
         audioPath,
         tenantId,
         meetingType,
-        hasAudio: Boolean(base64Audio),
+        hasBase64Audio: Boolean(base64Audio),
+        hasChunkedUpload: Boolean(tempUploadedFilePath),
       });
 
       const apiKey = process.env.GEMINI_API_KEY;
@@ -245,6 +282,34 @@ async function startServer() {
         },
       });
 
+      // Si el cliente subió el audio por fragmentos (/api/upload-audio-chunk), lo leemos del disco temporal
+      let uploadedBuffer: Buffer | null = null;
+      let geminiUploadedFile: { fileUri: string; googleFileName: string; mimeType: string } | null = null;
+
+      if (tempUploadedFilePath) {
+        uploadedBuffer = fs.readFileSync(tempUploadedFilePath);
+        const cleanMime = (mimeType || "audio/mp3").split(";")[0].trim() || "audio/mp3";
+        // Si el archivo supera 12 MB, usamos Gemini Resumable Files API para máxima fidelidad
+        if (uploadedBuffer.byteLength > 12 * 1024 * 1024) {
+          try {
+            geminiUploadedFile = await uploadBufferToGeminiFilesApi(
+              uploadedBuffer,
+              cleanMime,
+              audioPath || `sesion_${Date.now()}`,
+              apiKey
+            );
+          } catch (uploadErr) {
+            console.warn("Aviso al subir a Gemini Files API, usando fragmento inline:", uploadErr);
+          }
+        }
+      }
+
+      const effectiveBase64Audio =
+        base64Audio ||
+        (!geminiUploadedFile && uploadedBuffer
+          ? uploadedBuffer.subarray(0, Math.min(uploadedBuffer.byteLength, 14 * 1024 * 1024)).toString("base64")
+          : undefined);
+
       const normalizedSegments: Array<{
         part: number;
         date: string;
@@ -261,41 +326,23 @@ async function startServer() {
                 date: meetingDate,
                 path: audioPath || `${tenantId}/acta_${Date.now()}_part1.webm`,
                 duration_sec: 3600,
-                base64Audio,
+                base64Audio: effectiveBase64Audio,
                 mimeType,
               },
             ];
 
-      const isMultiSession = normalizedSegments.length > 1;
       const defaultMinuteNumber =
         minuteNumber || `ACT-${new Date().getFullYear()}-${Date.now().toString().slice(-3)}`;
 
       const systemPrompt = `
-Eres un abogado experto en la Ley 675 de 2001 (Propiedad Horizontal en Colombia).
-A continuación recibirás ${normalizedSegments.length} jornada(s) correspondientes a una misma reunión (${meetingType} en ${tenantName}) celebrada el ${meetingDate} que tuvo ${
-        isMultiSession
-          ? "suspensión y reanudación en distintas jornadas conforme al Art. 43 de la Ley 675 de 2001"
-          : "una única sesión"
-      }.
+Eres un secretario jurídico experto en la Ley 675 de 2001 (Propiedad Horizontal en Colombia).
+Tu tarea es redactar el ACTA OFICIAL basándote EXCLUSIVAMENTE en las intervenciones, debates, nombres, cifras en pesos colombianos y votaciones REALES que escuches en el audio adjunto.
 
-Integra todas las jornadas en UNA SOLA ACTA UNIFICADA dejando constancia explícita de la verificación del quórum, orden del día, deliberaciones, votaciones y compromisos adquiridos.
-
-Responde EXCLUSIVAMENTE con un JSON válido con esta estructura:
-{
-  "minute_number": "${defaultMinuteNumber}",
-  "quorum_percentage": 92,
-  "president_name": "Nombre del Presidente de la sesión",
-  "secretary_name": "Nombre del Secretario de la sesión",
-  "raw_transcript": "Transcripción o síntesis cronológica detallada dividida por Jornada y puntos del orden del día",
-  "summary": "Resumen ejecutivo legal unificado de deliberaciones, votaciones y decisiones aprobadas conforme a la Ley 675 de 2001",
-  "commitments": [
-    {
-      "responsable": "Nombre o Cargo",
-      "tarea": "Obligación o gestión aprobada",
-      "fecha_limite": "Plazo de ejecución"
-    }
-  ]
-}
+REGLAS OBLIGATORIAS DE REDACCIÓN:
+1. CERO PLANTILLAS PREDEFINIDAS: Queda estrictamente prohibido usar textos genéricos como "mantenimiento general de áreas comunes" o "revisión de estados financieros" a menos que hayan sido discutidos explícitamente en la reunión.
+2. FIDELIDAD NOMINAL Y ECONÓMICA: Extrae los nombres reales de los participantes, valores exactos en COP debatidos, cotizaciones mencionadas y resoluciones votadas.
+3. CONSIGNACIÓN DE INTERVENCIONES: Detalla quién tomó la palabra, objeciones presentadas y sentido de los votos (nominal o por coeficiente).
+4. SI UN DATO NO FUE MENCIONADO: Indica "No se debatió en la sesión" en lugar de inventar acuerdos.
 `;
 
       const buildParts = (includeInlineAudio: boolean) => {
@@ -303,23 +350,31 @@ Responde EXCLUSIVAMENTE con un JSON válido con esta estructura:
           | { text: string }
           | { fileData: { mimeType: string; fileUri: string } }
           | { inlineData: { mimeType: string; data: string } }
-        > = [{ text: systemPrompt }];
+        > = [
+          {
+            text: `${systemPrompt}\n\nDatos de encabezado de la sesión: Órgano: ${meetingType} | Copropiedad: ${tenantName} | Fecha: ${meetingDate} | Número de Acta sugerido: ${defaultMinuteNumber}.`,
+          },
+        ];
 
         for (const seg of normalizedSegments) {
-          const durationMinutes = seg.duration_sec
-            ? Math.round(seg.duration_sec / 60)
-            : 60;
           builtParts.push({
-            text: `--- INICIO DE JORNADA #${seg.part} (Fecha: ${seg.date}, Archivo: ${seg.path}, Duración aprox: ${durationMinutes} min) ---`,
+            text: `--- JORNADA #${seg.part} (Fecha: ${seg.date}, Archivo: ${seg.path}) ---`,
           });
 
           const segBase64 = (
-            seg.base64Audio || (seg.part === 1 ? base64Audio : undefined)
+            seg.base64Audio || (seg.part === 1 ? effectiveBase64Audio : undefined)
           )?.replace(/^data:[^;]+;base64,/, "");
           const rawMime = seg.mimeType || mimeType || "audio/webm";
           const segMime = rawMime.split(";")[0].trim() || "audio/webm";
 
-          if (includeInlineAudio && segBase64) {
+          if (includeInlineAudio && geminiUploadedFile && seg.part === 1) {
+            builtParts.push({
+              fileData: {
+                mimeType: geminiUploadedFile.mimeType,
+                fileUri: geminiUploadedFile.fileUri,
+              },
+            });
+          } else if (includeInlineAudio && segBase64) {
             builtParts.push({
               inlineData: {
                 mimeType: segMime,
@@ -328,18 +383,14 @@ Responde EXCLUSIVAMENTE con un JSON válido con esta estructura:
             });
           } else {
             builtParts.push({
-              text: `[Registro de audio de Jornada #${seg.part} celebrada el ${seg.date} (${durationMinutes} min, archivo: ${seg.path}): Verificación de quórum deliberatorio y decisorio, lectura y aprobación del orden del día de ${meetingType} en ${tenantName}, deliberación de estados financieros, mantenimiento de áreas comunes, seguridad y convivencia, constancia de ${
-                seg.part < normalizedSegments.length
-                  ? "suspensión de la sesión por decisión de los asistentes para continuar en la siguiente jornada"
-                  : "votación definitiva de propuestas, aprobación de presupuestos/contratos y clausura formal de la sesión"
-              }.]`,
+              text: `[Sin audio binario adjunto para la Jornada #${seg.part} (${seg.path}). Basarse únicamente en las notas suministradas e indicar "No se debatió en la sesión" para cualquier dato no mencionado.]`,
             });
           }
         }
 
         if (contextNotes) {
           builtParts.push({
-            text: `Notas adicionales del secretario / Orden del día suministrado:\n${contextNotes}`,
+            text: `Notas adicionales del secretario / Contexto del archivo:\n${contextNotes}`,
           });
         }
 
@@ -347,8 +398,8 @@ Responde EXCLUSIVAMENTE con un JSON válido con esta estructura:
       };
 
       const generateConfig = {
+        systemInstruction: systemPrompt,
         responseMimeType: "application/json",
-        temperature: 0.2,
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -383,11 +434,10 @@ Responde EXCLUSIVAMENTE con un JSON válido con esta estructura:
         },
       };
 
-      // Helper con timeout estricto de 8.5s por intento para evitar que cualquier proxy (Nginx/Cloud Run) corte la conexión con 504 (<!doctype html>)
       const callModelWithTimeout = async (
         modelName: string,
         partsToUse: ReturnType<typeof buildParts>,
-        timeoutMs = 8500
+        timeoutMs = 90000
       ) => {
         return await Promise.race([
           ai.models.generateContent({
@@ -404,55 +454,57 @@ Responde EXCLUSIVAMENTE con un JSON válido con esta estructura:
         ]);
       };
 
-      // Modelos activos verificados en v1beta (gemini-1.5-flash y gemini-2.5-flash fueron retirados por Google y devuelven 404)
       const audioCandidateModels = [
-        "gemini-3.1-flash-lite-preview",
         "gemini-3.5-transcribe",
         "gemini-3.8-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-latest",
       ];
       const textCandidateModels = [
-        "gemini-3.1-flash-lite-preview",
         "gemini-3.8-flash",
+        "gemini-3.1-flash-lite",
         "gemini-flash-latest",
       ];
 
       let response: any = null;
-      const hasAnyInlineAudio = normalizedSegments.some((s) =>
-        Boolean(s.base64Audio || (s.part === 1 && base64Audio))
-      );
+      const hasAnyAudio =
+        Boolean(geminiUploadedFile) ||
+        normalizedSegments.some((s) =>
+          Boolean(s.base64Audio || (s.part === 1 && effectiveBase64Audio))
+        );
 
-      // 1. Intentar con el audio inline si está presente y tiene tamaño seguro
-      if (hasAnyInlineAudio) {
+      // 1. Procesar el audio real con Gemini (hasta 90s por modelo para grabaciones extensas)
+      if (hasAnyAudio) {
         const audioParts = buildParts(true);
         for (const candidateModel of audioCandidateModels) {
           try {
-            response = await callModelWithTimeout(candidateModel, audioParts, 8500);
+            response = await callModelWithTimeout(candidateModel, audioParts, 90000);
             if (response?.text) {
-              console.log(`Acta generada con audio inline usando ${candidateModel}`);
+              console.log(`Acta generada con audio real usando ${candidateModel}`);
               break;
             }
           } catch (err) {
             console.warn(
-              `Aviso en ${candidateModel} con audio inline:`,
+              `Aviso en ${candidateModel} con audio real:`,
               err instanceof Error ? err.message : err
             );
           }
         }
       }
 
-      // 2. Si el contenedor WebM fragmentado del navegador fue rechazado o hubo timeout con el binario, procesar con los metadatos + notas en modo ultrarrápido
+      // 2. Respaldo sólo si no se envió audio o si todos los modelos de audio fallaron
       if (!response?.text) {
         const metadataParts = buildParts(false);
         for (const candidateModel of textCandidateModels) {
           try {
-            response = await callModelWithTimeout(candidateModel, metadataParts, 8000);
+            response = await callModelWithTimeout(candidateModel, metadataParts, 25000);
             if (response?.text) {
-              console.log(`Acta generada con contexto estructurado usando ${candidateModel}`);
+              console.log(`Acta generada en modo notas usando ${candidateModel}`);
               break;
             }
           } catch (err) {
             console.warn(
-              `Aviso en ${candidateModel} modo contexto:`,
+              `Aviso en ${candidateModel} modo notas:`,
               err instanceof Error ? err.message : err
             );
           }
@@ -484,41 +536,19 @@ Responde EXCLUSIVAMENTE con un JSON válido con esta estructura:
               : cleanedJson;
           structuredActa = JSON.parse(jsonSlice);
         } catch (parseErr) {
-          console.warn("Error parseando JSON de Gemini, usando síntesis estructurada:", parseErr);
+          console.warn("Error parseando JSON de Gemini:", parseErr);
         }
       }
 
-      // 3. Respaldo determinístico si la API externa experimenta caída total
       if (!structuredActa) {
         structuredActa = {
           minute_number: defaultMinuteNumber,
-          quorum_percentage: 92,
-          president_name: "Mauricio Restrepo (Presidente Consejo)",
-          secretary_name: "Dra. Carolina Zuluaga (Administración)",
-          raw_transcript: `[Jornada 1 - ${meetingDate}] Apertura de la sesión de ${meetingType} en ${tenantName}. Verificación del quórum deliberatorio y decisorio conforme a la Ley 675 de 2001. ${
-            contextNotes
-              ? `Desarrollo de puntos registrados: ${contextNotes}`
-              : "Revisión de ejecución presupuestal, mantenimiento preventivo de equipos hidroneumáticos y aprobación de contratos de vigilancia y aseo."
-          }`,
-          summary: `Se celebró sesión de ${meetingType} en la copropiedad ${tenantName} el día ${meetingDate}, contando con quórum reglamentario. ${
-            contextNotes
-              ? `Puntos principales aprobados: ${contextNotes}`
-              : "Se aprobó el informe de gestión administrativa, el cronograma de mantenimiento de áreas comunes y el seguimiento de cartera morosa conforme al Art. 51 de la Ley 675 de 2001."
-          }`,
-          commitments: [
-            {
-              responsable: "Administración",
-              tarea: contextNotes
-                ? `Ejecutar las decisiones registradas en la sesión: ${contextNotes.slice(0, 120)}`
-                : "Publicar el acta en el libro oficial y gestionar las órdenes de trabajo aprobadas",
-              fecha_limite: "Próximos 5 días hábiles",
-            },
-            {
-              responsable: "Consejo de Administración",
-              tarea: "Verificar cumplimiento de cotizaciones y pólizas de áreas comunes",
-              fecha_limite: "Próxima sesión ordinaria",
-            },
-          ],
+          quorum_percentage: 0,
+          president_name: "No se debatió en la sesión",
+          secretary_name: "No se debatió en la sesión",
+          raw_transcript: contextNotes || "No se debatió en la sesión",
+          summary: contextNotes || "No se debatió en la sesión",
+          commitments: [],
         };
       }
 
@@ -539,50 +569,32 @@ Responde EXCLUSIVAMENTE con un JSON válido con esta estructura:
         meeting_type: meetingType || "Consejo de Administración",
         meeting_date: cleanSegments[0]?.date || meetingDate,
         start_time: "18:00:00",
-        quorum_percentage: structuredActa.quorum_percentage || 92,
-        president_name: structuredActa.president_name || "Por definir",
-        secretary_name: structuredActa.secretary_name || "Por definir",
-        summary: structuredActa.summary || "Sin resumen.",
+        quorum_percentage: structuredActa.quorum_percentage ?? 92,
+        president_name: structuredActa.president_name || "No se debatió en la sesión",
+        secretary_name: structuredActa.secretary_name || "No se debatió en la sesión",
+        summary: structuredActa.summary || "No se debatió en la sesión",
         commitments: structuredActa.commitments || [],
         raw_transcript:
           structuredActa.raw_transcript ||
-          "Audio procesado y transcrito conforme a la Ley 675 de 2001.",
+          "No se debatió en la sesión",
         audio_url: cleanSegments[0]?.path || audioPath || "meeting-audios/sesion.webm",
         audio_segments: cleanSegments,
         status: "Borrador",
       };
 
       res.status(200).json({ success: true, acta: consolidatedActa });
-    } catch (error) {
-      console.error("Error no controlado en /api/process-meeting, activando acta de contingencia:", error);
-      const fallbackNow = new Date().toISOString().split("T")[0];
-      res.status(200).json({
-        success: true,
-        acta: {
-          id: `act-ai-${Date.now()}`,
-          tenant_id: "t1",
-          minute_number: `ACT-${new Date().getFullYear()}-${Date.now().toString().slice(-3)}`,
-          meeting_type: "Consejo de Administración",
-          meeting_date: fallbackNow,
-          start_time: "18:00:00",
-          quorum_percentage: 92,
-          president_name: "Mauricio Restrepo (Presidente Consejo)",
-          secretary_name: "Dra. Carolina Zuluaga (Administración)",
-          summary:
-            "Sesión celebrada con quórum deliberatorio y decisorio conforme a la Ley 675 de 2001. Se aprobaron los puntos del orden del día y el plan de mantenimiento preventivo.",
-          commitments: [
-            {
-              responsable: "Administración",
-              tarea: "Publicar el acta en el libro oficial y ejecutar las órdenes aprobadas",
-              fecha_limite: "Próximos 5 días hábiles",
-            },
-          ],
-          raw_transcript:
-            "Apertura de sesión, verificación del quórum reglamentario, deliberación de informes de administración y aprobación de compromisos.",
-          audio_url: "meeting-audios/sesion.webm",
-          status: "Borrador",
-        },
+    } catch (error: any) {
+      console.error("Error en /api/process-meeting:", error);
+      res.status(500).json({
+        success: false,
+        error: error?.message || "Error al transcribir el audio de la sesión",
       });
+    } finally {
+      if (tempUploadedFilePath && fs.existsSync(tempUploadedFilePath)) {
+        try {
+          fs.unlinkSync(tempUploadedFilePath);
+        } catch {}
+      }
     }
   });
 

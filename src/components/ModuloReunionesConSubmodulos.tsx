@@ -33,11 +33,13 @@ import {
 import SubmoduloConvocatoriasLey675 from './SubmoduloConvocatoriasLey675';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
 import { exportActaToLegalPDF } from '../ActaCardWithPDF';
+import ResilientMeetingRecorder from '../ResilientMeetingRecorder';
 
 export interface ModuloReunionesConSubmodulosProps {
   unidadResidenteActual?: string;
   esConsejero?: boolean;
   rolUsuario?: 'admin' | 'supervisor' | 'residente';
+  copropiedadNombre?: string;
   onShowToast?: (msg: string) => void;
 }
 
@@ -69,6 +71,7 @@ export default function ModuloReunionesConSubmodulos({
   unidadResidenteActual = 'Torre 2 - 301',
   esConsejero = true,
   rolUsuario = 'residente',
+  copropiedadNombre = 'P.H. Reserva del Tesoro',
   onShowToast
 }: ModuloReunionesConSubmodulosProps) {
   const [submoduloActivo, setSubmoduloActivo] = useState<'video' | 'convocatorias' | 'quorum' | 'votaciones' | 'acta'>('video');
@@ -3621,6 +3624,14 @@ export default function ModuloReunionesConSubmodulos({
                 </button>
               </div>
             </div>
+          </div>
+
+          <div className="mt-6">
+            <ResilientMeetingRecorder
+              tenantId="t1"
+              tenantName={copropiedadNombre}
+              onShowToast={onShowToast}
+            />
           </div>
         </div>
       )}

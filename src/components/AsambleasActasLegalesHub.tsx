@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
 import { exportActaToLegalPDF } from '../ActaCardWithPDF';
+import ResilientMeetingRecorder from '../ResilientMeetingRecorder';
 
 export default function AsambleasActasLegalesHub({
   onShowToast,
@@ -854,6 +855,14 @@ export default function AsambleasActasLegalesHub({
           </div>
         </div>
       )}
+
+      <div className="mt-6">
+        <ResilientMeetingRecorder
+          tenantId="t1"
+          tenantName={copropiedadNombre}
+          onShowToast={onShowToast}
+        />
+      </div>
 
     </div>
   );
