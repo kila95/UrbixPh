@@ -14,7 +14,9 @@ import {
   Volume2,
   MonitorUp,
   AlertTriangle,
-  Play
+  Play,
+  PhoneCall,
+  Wifi
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
 import { exportActaToLegalPDF } from '../ActaCardWithPDF';
@@ -550,102 +552,139 @@ export default function AsambleasActasLegalesHub({
           
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
-            {/* LIENZO PRINCIPAL DE VIDEOLLAMADA */}
-            <div className="lg:col-span-2 bg-[#0b0f17] border border-slate-800 rounded-3xl p-4 sm:p-5 flex flex-col justify-between space-y-4 relative min-h-[420px] shadow-inner overflow-hidden">
+            {/* LIENZO PRINCIPAL DE VIDEOLLAMADA INTERCAMBIABLE */}
+            <div className="lg:col-span-2 bg-[#0b0f17] border border-cyan-500/20 rounded-3xl p-5 flex flex-col justify-between space-y-4 relative shadow-2xl overflow-hidden">
               
-              {/* Barra superior de estado */}
-              <div className="flex items-center justify-between z-10">
-                <div className="flex items-center gap-2 bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-xs font-mono">
-                  <span className={`w-2.5 h-2.5 rounded-full ${enTransmision ? 'bg-rose-500 animate-ping' : 'bg-slate-600'}`} />
-                  <span className="font-bold text-white">{enTransmision ? 'EN VIVO' : 'SALA EN ESPERA'}</span>
-                  {enTransmision && (
-                    <span className="text-slate-400 ml-1 flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-cyan-400" /> {formatearTiempo(segundosTranscurridos)}
-                    </span>
-                  )}
+              {/* ========================================================
+                  1. BARRA SUPERIOR DE ESTADO
+                 ======================================================== */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-800/80">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Badge de Estado Dinámico */}
+                  <span className={`px-3 py-1 rounded-full text-xs font-mono font-bold flex items-center gap-1.5 ${
+                    enTransmision 
+                      ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40 animate-pulse' 
+                      : 'bg-rose-950/40 text-rose-300 border border-rose-800/50'
+                  }`}>
+                    <span className="w-2 h-2 rounded-full bg-rose-500" />
+                    {enTransmision ? 'TRANSMISIÓN EN VIVO' : 'SALA EN ESPERA'}
+                  </span>
+
+                  <span className="px-3 py-1 rounded-full text-xs font-mono text-cyan-300 bg-cyan-950/50 border border-cyan-800/50 flex items-center gap-1.5">
+                    <Wifi className="w-3.5 h-3.5 text-cyan-400" />
+                    Canal Masivo SFU (Capacidad: 100-200 Personas)
+                  </span>
+
+                  <span className="px-3 py-1 rounded-full text-xs font-mono text-slate-300 bg-slate-900 border border-slate-800 flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${enTransmision ? 'bg-emerald-400 animate-ping' : 'bg-rose-500'}`} />
+                    {enTransmision ? '9 Conectados' : '0 Conectados'}
+                  </span>
                 </div>
 
-                <div className="flex items-center gap-2 bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-xs font-mono">
-                  <span className="text-slate-400">Quórum Activo:</span>
-                  <strong className="text-emerald-400">{quorumActual}%</strong>
-                </div>
-              </div>
-
-              {/* Pantalla central del orador / Video HTML5 en Vivo */}
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-2 bg-[#07090e]/90 border border-slate-800/80 rounded-2xl relative my-2 overflow-hidden min-h-[260px]">
-                
-                {enTransmision ? (
-                  <>
-                    <video
-                      ref={localVideoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className={`w-full h-full max-h-[340px] object-cover rounded-xl transition-all ${
-                        !camaraActiva ? 'hidden' : ''
-                      }`}
-                    />
-
-                    {/* Elemento de video remoto oculto/listo para reproducir audio o video de participantes */}
-                    <video ref={remoteVideoRef} autoPlay playsInline className="hidden" />
-                    
-                    {!camaraActiva && (
-                      <div className="flex flex-col items-center justify-center py-10 space-y-2">
-                        <div className="w-16 h-16 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center text-slate-500">
-                          <VideoOff className="w-8 h-8" />
-                        </div>
-                        <p className="text-xs text-slate-400 font-mono">Cámara desactivada por el usuario</p>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-8 space-y-3">
-                    <div className="w-20 h-20 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-300 shadow-[0_0_25px_rgba(34,211,238,0.2)]">
-                      <Users className="w-9 h-9" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm sm:text-base font-black text-white">{participanteHablando}</h4>
-                      <p className="text-xs text-slate-400 font-mono mt-1">Presiona "Iniciar Videollamada" para activar la sala P2P para todos los miembros.</p>
-                    </div>
-
-                    {errorMultimedia && (
-                      <div className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs rounded-xl flex items-center gap-2 max-w-sm">
-                        <AlertTriangle className="w-4 h-4 shrink-0" />
-                        <span>{errorMultimedia}</span>
-                      </div>
-                    )}
-
+                {/* Botón para Iniciar / Terminar Llamada */}
+                <div className="flex items-center gap-2">
+                  {!enTransmision ? (
                     <button
                       type="button"
-                      onClick={iniciarTransmisionEnVivo}
-                      className="bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black px-6 py-2.5 rounded-xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,211,238,0.35)] flex items-center gap-2 cursor-pointer"
+                      onClick={() => {
+                        setEnTransmision(true);
+                        iniciarTransmisionEnVivo();
+                      }}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 rounded-xl text-xs font-black transition cursor-pointer shadow-lg shadow-emerald-500/20"
                     >
-                      <Play className="w-4 h-4 fill-current" /> Iniciar Videollamada de Asamblea
+                      <PhoneCall className="w-3.5 h-3.5" />
+                      <span>Conectar / Abrir Sala</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={detenerTransmision}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-black transition cursor-pointer shadow-lg shadow-rose-600/20"
+                    >
+                      <PhoneOff className="w-3.5 h-3.5" />
+                      <span>Finalizar Llamada</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* ========================================================
+                  2. CONTENEDOR PRINCIPAL INTERCAMBIABLE
+                 ======================================================== */}
+              {!enTransmision ? (
+                /* ESTADO A: SALA EN ESPERA */
+                <div className="w-full aspect-video min-h-[420px] bg-[#070a10] border border-slate-800/80 rounded-2xl flex flex-col items-center justify-center text-center p-6 space-y-4">
+                  <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(0,242,254,0.15)]">
+                    <Radio className="w-8 h-8" />
+                  </div>
+
+                  <div className="space-y-1.5 max-w-lg">
+                    <h3 className="text-xl font-bold font-mono text-white">
+                      Sala Lista para Convocatoria y Citación en Vivo
+                    </h3>
+                    <p className="text-xs text-slate-400 font-mono leading-relaxed">
+                      Elige Asamblea General (canal masivo 100–200 personas) o Reunión de Consejo/Comité. Al pulsar conectar se habilitará la cuadrícula de video para los copropietarios.
+                    </p>
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEnTransmision(true);
+                        iniciarTransmisionEnVivo();
+                      }}
+                      className="px-5 py-2.5 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 rounded-xl text-xs font-mono font-bold transition cursor-pointer"
+                    >
+                      ▶ Iniciar Transmisión de la Asamblea
                     </button>
                   </div>
-                )}
+                </div>
+              ) : (
+                /* ESTADO B: CUADRÍCULA ACTIVA TEAMS (Mismo espacio exacto) */
+                <div className="w-full aspect-video min-h-[420px] bg-[#070a10] border border-cyan-500/30 rounded-2xl p-2 grid grid-cols-3 grid-rows-3 gap-2 shadow-[0_0_25px_rgba(0,242,254,0.1)]">
+                  {[
+                    { id: '1', nombre: 'Esteban Ochoa', apt: 'T1-302', iniciales: 'EO', mic: false, activo: false },
+                    { id: '2', nombre: 'Eloina Mesa Mesa', apt: 'Admin', iniciales: 'EM', mic: false, activo: false },
+                    { id: '3', nombre: 'Andrés Vesga', apt: 'Portería', iniciales: 'AV', mic: false, activo: false },
+                    { id: '4', nombre: 'Darío Negrette', apt: 'T1-502', iniciales: 'DN', mic: true, activo: true },
+                    { id: '5', nombre: 'Carlos Andrés Gómez', apt: 'T1-101', iniciales: 'CG', mic: false, activo: false },
+                    { id: '6', nombre: 'María Camila Restrepo', apt: 'T1-102', iniciales: 'MR', mic: false, activo: false },
+                    { id: '7', nombre: 'Santiago Vélez', apt: 'T2-205', iniciales: 'SV', mic: false, activo: false },
+                    { id: '8', nombre: 'Daniela Restrepo', apt: 'T2-103', iniciales: 'DR', mic: false, activo: false },
+                    { id: '9', nombre: 'Juan Fernando', apt: 'T2-505', iniciales: 'JF', mic: false, activo: false },
+                  ].map((p) => (
+                    <div
+                      key={p.id}
+                      className={`relative rounded-xl flex items-center justify-center transition-all bg-[#0b0f17] border ${
+                        p.activo
+                          ? 'border-cyan-400 shadow-[0_0_15px_rgba(0,242,254,0.3)] bg-cyan-950/20'
+                          : 'border-slate-800/80 hover:border-slate-700'
+                      }`}
+                    >
+                      {/* Círculo central con iniciales */}
+                      <div className={`w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center font-mono font-bold text-sm md:text-lg select-none border shadow-md ${
+                        p.activo
+                          ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400/50'
+                          : 'bg-slate-900 text-slate-300 border-slate-700/80'
+                      }`}>
+                        {p.iniciales}
+                      </div>
 
-                {/* Sub-cámaras de participantes en vivo */}
-                {enTransmision && (
-                  <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between bg-black/60 backdrop-blur-md px-3 py-2 rounded-xl border border-slate-800/80 z-20">
-                    <div className="flex items-center gap-2 text-xs font-mono text-cyan-300">
-                      <Volume2 className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                      <span>{compartiendoPantalla ? 'Proyectando Pantalla' : 'Canal WebRTC HD Activo'}</span>
+                      {/* Etiqueta inferior con nombre y micrófono */}
+                      <div className="absolute bottom-1.5 left-1.5 max-w-[90%] flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-sm px-2 py-0.5 rounded-md text-[10px] font-mono border border-slate-800/80">
+                        <span className="truncate text-slate-200">{p.nombre}</span>
+                        <span className="text-cyan-400">({p.apt})</span>
+                        {p.mic ? (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5" />
+                        ) : (
+                          <span className="text-[9px] text-rose-400/80 ml-0.5">🔇</span>
+                        )}
+                      </div>
                     </div>
-
-                    <div className="flex items-center gap-1.5">
-                      {participantesRemotos.map((p) => (
-                        <span key={p.id} className="text-[10px] bg-slate-900 border border-slate-700 px-2 py-0.5 rounded text-slate-300">
-                          {p.unidad}
-                        </span>
-                      ))}
-                      <span className="text-[10px] bg-cyan-950 border border-cyan-500/40 px-2 py-0.5 rounded text-cyan-300">
-                        Admin (Tú)
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
+                  ))}
+                </div>
+              )}
 
               {/* Barra inferior de controles multimedia */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800/80 z-10">

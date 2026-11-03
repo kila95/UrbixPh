@@ -19,7 +19,9 @@ import {
   Download,
   Sparkles,
   MonitorUp,
+  PhoneCall,
   PhoneOff,
+  Wifi,
   Play,
   Lock,
   BellRing,
@@ -2350,28 +2352,33 @@ export default function ModuloReunionesConSubmodulos({
       {submoduloActivo === 'video' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
-          {/* LIENZO DE VIDEO PRINCIPAL (IMAGEN PROPIA FIJA + SUBCUADROS DERECHOS + BLINDAJE DE AUDIO) */}
+          {/* LIENZO DE VIDEO PRINCIPAL INTERCAMBIABLE (SALA EN ESPERA <-> CUADRÍCULA 3X3 EN EL MISMO ESPACIO) */}
           <div className="lg:col-span-2 space-y-4">
-            <div className="relative min-h-[520px] bg-slate-950 rounded-3xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col justify-between p-4 sm:p-5">
+            <div className="w-full bg-[#0b0f17] border border-cyan-500/20 rounded-3xl p-5 shadow-2xl font-sans text-slate-100 space-y-4">
               
-              {/* Barra superior de estado + Indicador de Topología (SFU 200+ vs Malla Segura 10) */}
-              <div className="flex flex-wrap items-center justify-between gap-2 z-10">
+              {/* ========================================================
+                  1. BARRA SUPERIOR DE ESTADO
+                 ======================================================== */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-800/80">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="flex items-center gap-2 bg-rose-500/20 text-rose-400 border border-rose-500/40 px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase">
-                    <span className={`w-2 h-2 rounded-full ${enVivo ? 'bg-rose-500 animate-ping' : 'bg-slate-600'}`} />
-                    {enVivo ? 'TRANSMISIÓN OFICIAL LEY 675' : 'SALA EN ESPERA'}
+                  {/* Badge de Estado Dinámico */}
+                  <span className={`px-3 py-1 rounded-full text-xs font-mono font-bold flex items-center gap-1.5 ${
+                    enVivo 
+                      ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40 animate-pulse' 
+                      : 'bg-rose-950/40 text-rose-300 border border-rose-800/50'
+                  }`}>
+                    <span className="w-2 h-2 rounded-full bg-rose-500" />
+                    {enVivo ? 'TRANSMISIÓN EN VIVO' : 'SALA EN ESPERA'}
                   </span>
 
-                  <span
-                    className={`text-[10px] font-mono font-bold px-2.5 py-1 rounded-full border ${
-                      esModoMasivoSFU
-                        ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40'
-                        : 'bg-amber-500/15 text-amber-300 border-amber-500/40'
-                    }`}
-                  >
-                    {esModoMasivoSFU
-                      ? '🌐 Canal Masivo SFU (Capacidad: 100–200 Personas)'
-                      : `🔒 Malla Segura P2P Encriptada (Máx. ${MAX_PERSONAS_MALLA_CONSEJO} Personas)`}
+                  <span className="px-3 py-1 rounded-full text-xs font-mono text-cyan-300 bg-cyan-950/50 border border-cyan-800/50 flex items-center gap-1.5">
+                    <Wifi className="w-3.5 h-3.5 text-cyan-400" />
+                    Canal Masivo SFU (Capacidad: 100-200 Personas)
+                  </span>
+
+                  <span className="px-3 py-1 rounded-full text-xs font-mono text-slate-300 bg-slate-900 border border-slate-800 flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${enVivo ? 'bg-emerald-400 animate-ping' : 'bg-rose-500'}`} />
+                    {enVivo ? '9 Conectados' : '0 Conectados'}
                   </span>
 
                   {grabandoSesion && (
@@ -2382,639 +2389,113 @@ export default function ModuloReunionesConSubmodulos({
                   )}
                 </div>
 
+                {/* Botón para Iniciar / Terminar Llamada */}
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      reproducirTonoAudio('prueba');
-                      forzarReproduccionStreamsRemotos(false);
-                      onShowToast?.('🔊 Altavoces y canales de voz remotos verificados y activos al 100%.');
-                    }}
-                    className="bg-slate-900/90 hover:bg-slate-800 text-cyan-300 text-[11px] px-2.5 py-1 rounded-xl border border-cyan-500/30 font-mono flex items-center gap-1 cursor-pointer transition"
-                    title="Verificar sonido de altavoces"
-                  >
-                    <Volume2 className="w-3.5 h-3.5 text-cyan-400" /> Probar Sonido
-                  </button>
-                  <span className="bg-slate-900/80 backdrop-blur-md text-slate-300 text-xs px-3 py-1 rounded-xl border border-slate-700 font-mono">
-                    🔴 {enVivo ? `${formatearTiempo(segundosTranscurridos)} • ${Math.max(asistentesConectados, participantesRemotos.length + 1)} Conectado(s)` : '0 Conectados'}
-                  </span>
+                  {!enVivo ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEnVivo(true);
+                        conectarASala();
+                      }}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 rounded-xl text-xs font-black transition cursor-pointer shadow-lg shadow-emerald-500/20"
+                    >
+                      <PhoneCall className="w-3.5 h-3.5" />
+                      <span>Conectar / Abrir Sala</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        detenerTransmision();
+                        setEnVivo(false);
+                      }}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-black transition cursor-pointer shadow-lg shadow-rose-600/20"
+                    >
+                      <PhoneOff className="w-3.5 h-3.5" />
+                      <span>Finalizar Llamada</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* CONTENIDO CENTRAL: IMAGEN PRINCIPAL DEL USUARIO (IZQUIERDA) + SUBCUADROS DERECHOS DE PARTICIPANTES CON CONTROL DE PALABRA */}
-              <div className="relative flex-1 flex flex-col justify-between overflow-hidden my-3 rounded-2xl bg-[#07090e]/90 border border-slate-800/80 p-3 sm:p-4">
-                {enVivo ? (
-                  <div className="w-full flex flex-col gap-3">
-                    {/* Banco de audio dedicado para cada participante conectado en la malla WebRTC (fuera de display:none para que el navegador nunca suspenda el audio del 2° o 3° residente) */}
-                    <div className="sr-only w-0 h-0 overflow-hidden pointer-events-none" aria-hidden="true">
-                      {participantesRemotos.map((pr) => (
-                        <audio
-                          key={`audio-${pr.peerId}`}
-                          ref={(node) => bindRemoteSubcuadroAudio(pr.peerId, node)}
-                          autoPlay
-                          playsInline
-                          muted={!audioRemotoOn}
-                        />
-                      ))}
-                    </div>
-
-                    {/* BARRA DE MODERACIÓN Y BLINDAJE DE AUDIO (EVITA AUDIOS ABIERTOS AL MISMO TIEMPO Y SALTOS DE PANTALLA) */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 bg-[#0b111d] border border-slate-800 px-3 py-2 rounded-xl text-[11px] font-mono">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-                        <span className="text-slate-300">
-                          🎙️ Micrófono Autorizado (Palabra):{' '}
-                          <strong className="text-emerald-300">
-                            {unidadConPalabra === 'ADMIN'
-                              ? 'Administración Principal (Moderador)'
-                              : `${unidadConPalabra} (${
-                                  catalogoApartamentos.find((c) => c.unidad === unidadConPalabra)?.propietario || 'Consejero'
-                                })`}
-                          </strong>
-                        </span>
-                        {solicitudesPalabra.length > 0 && (
-                          <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-md text-[10px] font-bold">
-                            ✋ {solicitudesPalabra.length} Solicitud(es) de palabra
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {rolUsuario === 'admin' ? (
-                          <button
-                            type="button"
-                            onClick={() => otorgarPalabraAParticipante('ADMIN', 'Administración Principal')}
-                            className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold cursor-pointer transition ${
-                              unidadConPalabra === 'ADMIN'
-                                ? 'bg-cyan-500/20 text-cyan-200 border-cyan-500/50'
-                                : 'bg-rose-500/20 text-rose-300 border-rose-500/50 hover:bg-rose-500/30'
-                            }`}
-                          >
-                            {unidadConPalabra === 'ADMIN'
-                              ? '🔒 Audio Blindado (Solo Admin Activo)'
-                              : '🔇 Quitar Palabra / Silenciar Participantes'}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={solicitarPalabraResidente}
-                            className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold cursor-pointer transition ${
-                              unidadConPalabra.trim().toLowerCase() === unidadActiva.trim().toLowerCase() ||
-                              Boolean(peerIdConPalabra && peerIdConPalabra === miPeerIdRef.current)
-                                ? 'bg-emerald-500/25 text-emerald-200 border-emerald-400'
-                                : manoLevantada
-                                ? 'bg-amber-500/25 text-amber-200 border-amber-400'
-                                : 'bg-slate-900 text-cyan-300 border-cyan-500/40 hover:bg-slate-800'
-                            }`}
-                          >
-                            {unidadConPalabra.trim().toLowerCase() === unidadActiva.trim().toLowerCase() ||
-                            Boolean(peerIdConPalabra && peerIdConPalabra === miPeerIdRef.current)
-                              ? '🎙️ Tienes la Palabra (Clic para Ceder)'
-                              : manoLevantada
-                              ? '✋ Palabra Solicitada (Esperando Admin)'
-                              : '✋ Pedir la Palabra al Administrador'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* DISTRIBUCIÓN FIJA ANTISALTO:
-                        - IZQUIERDA (7 columnas): Imagen principal fija del usuario viéndose a sí mismo.
-                        - DERECHA (5 columnas): Subcuadros fijos de cada una de las otras personas con su cámara en vivo + Botones para dar la palabra. */}
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-stretch">
-                      
-                      {/* IZQUIERDA: IMAGEN PRINCIPAL DEL USUARIO (SIEMPRE FIJA, NUNCA SALTA DE ARRIBA HACIA ABAJO) */}
-                      <div className="md:col-span-7 relative h-[320px] md:h-[385px] rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center">
-                        <video
-                          ref={setVideoLocalElement}
-                          autoPlay
-                          playsInline
-                          muted
-                          className={`w-full h-full object-cover ${!camOn ? 'hidden' : ''}`}
-                        />
-                        {!camOn && (
-                          <div className="text-center p-4 space-y-1.5">
-                            <VideoOff className="w-9 h-9 text-slate-600 mx-auto" />
-                            <p className="text-xs text-slate-400 font-mono">Tu Cámara está Apagada</p>
-                          </div>
-                        )}
-
-                        {/* Insignia Superior Izquierda: Vista Propia Fija */}
-                        <div className="absolute top-3 left-3 flex items-center gap-2 bg-slate-950/85 backdrop-blur-md px-3 py-1 rounded-xl border border-slate-800 text-[10px] font-mono">
-                          <span className="w-2 h-2 rounded-full bg-cyan-400" />
-                          <span className="text-white font-bold">
-                            📌 TU CÁMARA PRINCIPAL ({rolUsuario === 'admin' ? 'Administración' : unidadActiva})
-                          </span>
-                        </div>
-
-                        {/* Barra Inferior Fija de Estado de Audio Local */}
-                        <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-2 bg-slate-950/90 backdrop-blur-md px-3 py-2 rounded-xl border border-slate-800 text-[10px] font-mono">
-                          <div className="flex items-center gap-2 truncate">
-                            {micOn ? (
-                              <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold">
-                                🎙️ MIC ACTIVO (CON PALABRA)
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded bg-slate-800 text-amber-300 border border-amber-500/30 font-bold">
-                                🔒 MIC SILENCIADO (MODO ESCUCHA)
-                              </span>
-                            )}
-                            <span className="text-slate-300 truncate hidden sm:inline">
-                              {rolUsuario === 'admin' ? 'Moderador General' : unidadActiva}
-                            </span>
-                          </div>
-
-                          {/* Medidor de voz de ancho fijo (jamás altera el alto ni mueve la imagen) */}
-                          <div className="flex items-center gap-1.5 shrink-0" title="Nivel de micrófono">
-                            {micOn ? (
-                              <Mic className="w-3.5 h-3.5 text-emerald-400" />
-                            ) : (
-                              <MicOff className="w-3.5 h-3.5 text-rose-400" />
-                            )}
-                            <div className="w-16 h-2 bg-slate-800 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-all duration-150"
-                                style={{ width: `${micOn ? Math.max(8, nivelMic) : 0}%` }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* DERECHA: SUBCUADROS DE LAS OTRAS PERSONAS CON CÁMARA EN VIVO + BOTÓN DE ADMINISTRADOR PARA DAR LA PALABRA */}
-                      <div className="md:col-span-5 h-[320px] md:h-[385px] rounded-2xl bg-[#090d16] border border-slate-800 p-2.5 flex flex-col justify-between overflow-hidden">
-                        <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-2 shrink-0">
-                          <span className="text-[11px] font-mono font-bold text-cyan-300 flex items-center gap-1.5">
-                            <Users className="w-3.5 h-3.5 text-cyan-400" />
-                            Subcuadros Participantes ({participantesRemotos.length} en vivo)
-                          </span>
-                          <span className="text-[10px] font-mono text-slate-400">
-                            {rolUsuario === 'admin' ? 'Clic para Dar Palabra' : 'Audio Moderado'}
-                          </span>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-                          {/* SUBCUADRO 1: SEÑAL DE VIDEO REMOTA PRINCIPAL (ADMINISTRACIÓN O PARTICIPANTE CON LA PALABRA) */}
-                          <div className="relative h-[112px] w-full rounded-xl overflow-hidden bg-slate-900 border border-cyan-500/40 flex items-center justify-center shrink-0">
-                            <video
-                              ref={setVideoRemotoElement}
-                              autoPlay
-                              playsInline
-                              muted
-                              className={`w-full h-full object-cover ${remotoConectado ? 'block' : 'hidden'}`}
-                            />
-
-                            {!remotoConectado && (
-                              <div className="flex items-center justify-between w-full px-3 py-2 gap-2">
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                  <div className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-500/40 flex items-center justify-center text-cyan-300 font-black text-xs font-mono shrink-0">
-                                    {rolUsuario === 'residente' ? 'AD' : nombreParticipanteRemoto.slice(0, 2).toUpperCase()}
-                                  </div>
-                                  <div className="min-w-0">
-                                    <p className="text-xs font-bold text-white truncate">
-                                      {rolUsuario === 'residente' ? 'Administración Principal' : nombreParticipanteRemoto}
-                                    </p>
-                                    <p className="text-[10px] text-cyan-300 font-mono truncate">
-                                      {unidadConPalabra === 'ADMIN'
-                                        ? '🎙️ Moderador con micrófono activo'
-                                        : `🎙️ Orador activo: ${unidadConPalabra}`}
-                                    </p>
-                                  </div>
-                                </div>
-
-                                <button
-                                  type="button"
-                                  onClick={() => inicializarPeerConnection(true)}
-                                  className="px-2 py-1 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 rounded-lg text-[10px] font-mono font-bold inline-flex items-center gap-1 cursor-pointer shrink-0"
-                                  title="Sincronizar canal P2P/TURN"
-                                >
-                                  <RefreshCw className="w-3 h-3" /> P2P
-                                </button>
-                              </div>
-                            )}
-
-                            <div className="absolute bottom-1.5 left-2 right-2 flex items-center justify-between bg-slate-950/85 backdrop-blur-md px-2 py-0.5 rounded-lg border border-slate-800 text-[10px] font-mono">
-                              <span className="text-cyan-300 font-bold truncate">
-                                📹 {rolUsuario === 'residente' ? 'Cámara Administración' : nombreParticipanteRemoto}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const nuevoAudio = !audioRemotoOn;
-                                  setAudioRemotoOn(nuevoAudio);
-                                  audioRemotoOnRef.current = nuevoAudio;
-                                  forzarReproduccionStreamsRemotos(!nuevoAudio);
-                                }}
-                                className="text-[10px] text-emerald-400 hover:underline cursor-pointer ml-2 shrink-0"
-                              >
-                                {audioRemotoOn ? '🔊 Audio ON' : '🔇 Mute'}
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* SUBCUADROS INDIVIDUALES DE CADA UNO DE LOS OTROS PARTICIPANTES (MAPEO 1-A-1 GARANTIZADO PARA 1°, 2°, 3°+ RESIDENTE) */}
-                          {(() => {
-                            const listaBase = (
-                              esModoMasivoSFU
-                                ? catalogoApartamentos
-                                : catalogoApartamentos.filter((c) => apartamentosEscogidosAdmin.includes(c.unidad))
-                            ).filter((part) => (rolUsuario === 'residente' ? part.unidad !== unidadActiva : true));
-
-                            const residentesRemotos = participantesRemotos.filter((p) => p.rol !== 'admin');
-                            const peersAsignados = new Set<string>();
-                            const peerPorUnidadSubcuadro = new Map<
-                              string,
-                              (typeof participantesRemotos)[number]
-                            >();
-
-                            // Pasada 1: Coincidencia exacta por unidad (1 a 1)
-                            listaBase.forEach((part) => {
-                              const matchExacto = residentesRemotos.find(
-                                (p) =>
-                                  !peersAsignados.has(p.peerId) &&
-                                  p.unidad.trim().toLowerCase() === part.unidad.trim().toLowerCase()
-                              );
-                              if (matchExacto) {
-                                peerPorUnidadSubcuadro.set(part.unidad, matchExacto);
-                                peersAsignados.add(matchExacto.peerId);
-                              }
-                            });
-
-                            // Pasada 2: Cualquier residente conectado adicional (2°, 3°+) cuya unidad colisionó o aún no se sincronizó se asigna al siguiente subcuadro libre
-                            residentesRemotos.forEach((p) => {
-                              if (!peersAsignados.has(p.peerId)) {
-                                const subcuadroLibre = listaBase.find(
-                                  (part) => !peerPorUnidadSubcuadro.has(part.unidad)
-                                );
-                                if (subcuadroLibre) {
-                                  peerPorUnidadSubcuadro.set(subcuadroLibre.unidad, p);
-                                  peersAsignados.add(p.peerId);
-                                }
-                              }
-                            });
-
-                            return listaBase.map((part) => {
-                              const etiqueta = `${part.unidad} (${part.propietario})`;
-                              const peerDeEstaUnidad = peerPorUnidadSubcuadro.get(part.unidad);
-                              const tienePalabra =
-                                unidadConPalabra !== 'ADMIN' &&
-                                ((peerDeEstaUnidad && peerIdConPalabra
-                                  ? peerIdConPalabra === peerDeEstaUnidad.peerId
-                                  : false) ||
-                                  unidadConPalabra.trim().toLowerCase() === part.unidad.trim().toLowerCase());
-                              const pidioPalabra =
-                                solicitudesPalabra.includes(part.unidad) ||
-                                Boolean(
-                                  peerDeEstaUnidad &&
-                                    solicitudesPalabra.includes(peerDeEstaUnidad.unidad)
-                                );
-
-                              const tieneVideoEnVivo = Boolean(
-                                peerDeEstaUnidad &&
-                                  (remoteStreamsMapRef.current.has(peerDeEstaUnidad.peerId) ||
-                                    peerDeEstaUnidad.conectado)
-                              );
-
-                              return (
-                                <div
-                                  key={part.unidad}
-                                  className={`h-[82px] w-full rounded-xl p-2 border flex items-center justify-between gap-2 transition shrink-0 ${
-                                    tienePalabra
-                                      ? 'bg-emerald-950/30 border-emerald-500/60'
-                                      : pidioPalabra
-                                      ? 'bg-amber-950/25 border-amber-500/50'
-                                      : tieneVideoEnVivo
-                                      ? 'bg-cyan-950/20 border-cyan-500/40'
-                                      : 'bg-[#0d1320] border-slate-800/90'
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-2.5 min-w-0">
-                                    {/* Mini-visor de cámara en vivo del participante (muestra su <video> real cuando se conecta) */}
-                                    <div
-                                      className={`relative w-20 h-[64px] rounded-xl overflow-hidden flex flex-col items-center justify-center font-mono text-[10px] font-bold border shrink-0 ${
-                                        tienePalabra
-                                          ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200'
-                                          : pidioPalabra
-                                          ? 'bg-amber-500/20 border-amber-400 text-amber-200'
-                                          : 'bg-slate-900 border-slate-700 text-slate-300'
-                                      }`}
-                                    >
-                                      {peerDeEstaUnidad && tieneVideoEnVivo ? (
-                                        <>
-                                          <video
-                                            key={`vid-${peerDeEstaUnidad.peerId}`}
-                                            ref={(node) => bindRemoteSubcuadroVideo(peerDeEstaUnidad.peerId, node)}
-                                            autoPlay
-                                            playsInline
-                                            muted
-                                            className="w-full h-full object-cover"
-                                          />
-                                          <span className="absolute bottom-0.5 right-1 bg-emerald-500 text-slate-950 text-[8px] font-black px-1 rounded">
-                                            VIVO
-                                          </span>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <span>{part.unidad.split('-')[1]?.trim() || 'PH'}</span>
-                                          <span className="text-[8px] opacity-75">CAM</span>
-                                        </>
-                                      )}
-                                    </div>
-
-                                    <div className="min-w-0">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-xs font-bold text-white truncate">{part.unidad}</span>
-                                        {tieneVideoEnVivo && (
-                                          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" title="Cámara y audio conectados" />
-                                        )}
-                                      </div>
-                                      <p className="text-[10px] text-slate-400 truncate">{part.propietario}</p>
-
-                                      <div className="flex items-center gap-1.5 mt-1">
-                                        {tienePalabra ? (
-                                          <span className="text-[10px] font-mono font-bold text-emerald-300 flex items-center gap-1">
-                                            <Mic className="w-3 h-3 text-emerald-400" /> Mic Activo (Con la Palabra)
-                                          </span>
-                                        ) : pidioPalabra ? (
-                                          <span className="text-[10px] font-mono font-bold text-amber-300 flex items-center gap-1">
-                                            <Hand className="w-3 h-3 text-amber-400" /> Pidió la Palabra
-                                          </span>
-                                        ) : (
-                                          <span className="text-[10px] font-mono text-slate-400 flex items-center gap-1">
-                                            <MicOff className="w-3 h-3 text-rose-400/80" /> Mic Silenciado (Blindado)
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {/* Botón exclusivo del Administrador / Consejo para Dar o Quitar la Palabra y Activar su Micrófono */}
-                                  {rolUsuario === 'admin' ? (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        tienePalabra
-                                          ? otorgarPalabraAParticipante('ADMIN', 'Administración Principal')
-                                          : otorgarPalabraAParticipante(
-                                              part.unidad,
-                                              etiqueta,
-                                              peerDeEstaUnidad?.peerId
-                                            )
-                                      }
-                                      className={`px-2.5 py-1.5 rounded-lg text-[10px] font-mono font-bold border cursor-pointer transition shrink-0 ${
-                                        tienePalabra
-                                          ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/50'
-                                          : pidioPalabra
-                                          ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.3)]'
-                                          : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border-cyan-500/40'
-                                      }`}
-                                    >
-                                      {tienePalabra ? '🔇 Quitar Palabra' : '🎙️ Dar Palabra'}
-                                    </button>
-                                  ) : (
-                                    <span
-                                      className={`px-2 py-1 rounded-lg text-[9px] font-mono font-bold border shrink-0 ${
-                                        tienePalabra
-                                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                                          : tieneVideoEnVivo
-                                          ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
-                                          : 'bg-slate-900 text-slate-400 border-slate-800'
-                                      }`}
-                                    >
-                                      {tienePalabra ? '🗣️ Hablando' : tieneVideoEnVivo ? '🟢 En Vivo' : 'En Sala'}
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            });
-                          })()}
-                        </div>
-                      </div>
-                    </div>
+              {/* ========================================================
+                  2. CONTENEDOR PRINCIPAL INTERCAMBIABLE
+                 ======================================================== */}
+              {!enVivo ? (
+                /* ESTADO A: SALA EN ESPERA (Tu diseño original) */
+                <div className="w-full aspect-video min-h-[420px] bg-[#070a10] border border-slate-800/80 rounded-2xl flex flex-col items-center justify-center text-center p-6 space-y-4">
+                  <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(0,242,254,0.15)]">
+                    <Radio className="w-8 h-8" />
                   </div>
-                ) : invitacionEntrante && rolUsuario === 'residente' && tieneAccesoAReunion ? (
-                  // TARJETA DE LLAMADA / INVITACIÓN EN VIVO AL RESIDENTE CONVOCADO
-                  <div className="text-center space-y-4 py-6 px-6 max-w-lg mx-auto my-auto bg-cyan-950/20 border border-cyan-500/40 rounded-3xl shadow-[0_0_30px_rgba(34,211,238,0.2)]">
-                    <div className="w-16 h-16 mx-auto rounded-2xl bg-cyan-500/20 border border-cyan-400/50 flex items-center justify-center text-cyan-300">
-                      <BellRing className="w-8 h-8 animate-bounce text-cyan-400" />
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-mono font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 px-3 py-1 rounded-full uppercase">
-                        {invitacionEntrante.tipo === 'consejo'
-                          ? `🔒 Malla Segura P2P Consejo (Máx. ${MAX_PERSONAS_MALLA_CONSEJO} Personas)`
-                          : '🌐 Asamblea General SFU en Vivo (Capacidad 200+ Residentes)'}
-                      </span>
-                      <h3 className="text-base sm:text-lg font-black text-white mt-2">
-                        {invitacionEntrante.titulo}
-                      </h3>
-                      <p className="text-xs text-slate-400 font-mono mt-1">
-                        Convoca: <strong className="text-cyan-300">{invitacionEntrante.orador}</strong> • Hora: {invitacionEntrante.hora}
-                      </p>
-                      <p className="text-xs text-emerald-400 font-mono mt-1">
-                        ✓ Tu unidad (<strong>{unidadActiva}</strong>) está acreditada • Pantalla 1 a 1 estilo Teams activa
-                      </p>
-                    </div>
 
+                  <div className="space-y-1.5 max-w-lg">
+                    <h3 className="text-xl font-bold font-mono text-white">
+                      Sala Lista para Convocatoria y Citación en Vivo
+                    </h3>
+                    <p className="text-xs text-slate-400 font-mono leading-relaxed">
+                      Elige Asamblea General (canal masivo 100–200 personas) o Reunión de Consejo/Comité. Al pulsar conectar se habilitará la cuadrícula de video para los copropietarios.
+                    </p>
+                  </div>
+
+                  <div className="pt-2">
                     <button
                       type="button"
-                      onClick={conectarASala}
-                      className="w-full bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black py-3.5 px-6 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,211,238,0.35)] flex items-center justify-center gap-2 cursor-pointer"
+                      onClick={() => {
+                        setEnVivo(true);
+                        conectarASala();
+                      }}
+                      className="px-5 py-2.5 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 rounded-xl text-xs font-mono font-bold transition cursor-pointer"
                     >
-                      <Play className="w-4 h-4 fill-current" /> Aceptar e Ingresar con Cámara y Sonido
+                      ▶ Iniciar Transmisión de la Asamblea
                     </button>
                   </div>
-                ) : invitacionEntrante && rolUsuario === 'residente' && !tieneAccesoAReunion ? (
-                  // SALA PRIVADA CUANDO ES CONSEJO Y EL APARTAMENTO NO FUE ESCOGIDO POR LA ADMINISTRACIÓN
-                  <div className="text-center py-6 px-6 max-w-md mx-auto my-auto bg-amber-950/15 border border-amber-500/30 rounded-3xl space-y-2">
-                    <Lock className="w-9 h-9 text-amber-400 mx-auto" />
-                    <h4 className="text-sm font-bold text-white">Sesión Encriptada del Consejo (Máx. 10 Personas)</h4>
-                    <p className="text-xs text-slate-400">
-                      Tu unidad (<strong className="text-white">{unidadActiva}</strong>) no se encuentra dentro de los apartamentos seleccionados por la Administración para esta sesión privada.
-                    </p>
-                    <p className="text-[11px] font-mono text-amber-300/90 pt-1">
-                      Apartamentos citados ({invitacionEntrante.apartamentosConvocados.length}/10): {invitacionEntrante.apartamentosConvocados.join(', ')}
-                    </p>
-                  </div>
-                ) : (
-                  // PANTALLA DE CONFIGURACIÓN Y CONVOCATORIA EN VIVO (DOBLE TOPOLOGÍA: 200+ EN ASAMBLEA GENERAL VS MÁX 10 EN CONSEJO)
-                  <div className="w-full max-w-xl mx-auto text-center space-y-4 py-3 px-2 sm:px-4 my-auto">
-                    <div className="w-14 h-14 mx-auto rounded-2xl bg-[#090d14] border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_25px_rgba(34,211,238,0.15)]">
-                      {rolUsuario === 'admin' ? <Radio className="w-7 h-7 animate-pulse" /> : <Lock className="w-7 h-7 text-slate-500" />}
-                    </div>
-
-                    <div>
-                      <h3 className="text-base sm:text-lg font-bold text-white">
-                        {rolUsuario === 'admin' ? 'Sala Lista para Convocatoria y Citación en Vivo' : 'En Espera de Inicio de Asamblea'}
-                      </h3>
-                      <p className="text-xs text-slate-400 font-mono mt-1 max-w-md mx-auto">
-                        {rolUsuario === 'admin'
-                          ? 'Elige Asamblea General (canal masivo 100–200 personas) o Reunión de Consejo/Comité (conexión segura entre sí máx. 10 personas). Visualización 1 a 1 tipo Teams.'
-                          : 'La sesión virtual está protegida bajo la Ley 675 con visualización 1 a 1 estilo Teams. Te notificaremos cuando inicie.'}
-                      </p>
-                    </div>
-
-                    {rolUsuario === 'admin' && (
-                      <div className="space-y-3 text-left bg-[#0b0f17] border border-slate-800 p-4 rounded-2xl">
-                        {/* Título de la reunión a convocar */}
-                        <div>
-                          <label className="text-[10px] font-mono font-bold uppercase text-cyan-400 block mb-1">
-                            Título / Motivo de la Videoconferencia:
-                          </label>
-                          <input
-                            type="text"
-                            value={tituloConvocatoriaInput}
-                            onChange={(e) => setTituloConvocatoriaInput(e.target.value)}
-                            placeholder="Ej. Asamblea General Ordinaria 2026 / Reunión de Consejo"
-                            className="w-full bg-[#07090e] border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-cyan-400 font-mono"
-                          />
-                        </div>
-
-                        {/* Selector de Tipo: Asamblea General (100-200 simultáneos) vs Otras Reuniones/Consejo (Malla Segura Máx. 10) */}
-                        <div>
-                          <label className="text-[10px] font-mono font-bold uppercase text-slate-400 block mb-1.5">
-                            Arquitectura de Conexión según Tipo de Reunión:
-                          </label>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setTipoConvocatoriaAdmin('asamblea');
-                                setTituloConvocatoriaInput('Asamblea General Ordinaria de Copropietarios 2026');
-                              }}
-                              className={`p-2.5 rounded-xl text-xs font-mono font-bold transition cursor-pointer text-left border ${
-                                tipoConvocatoriaAdmin === 'asamblea'
-                                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-[0_0_12px_rgba(34,211,238,0.2)]'
-                                  : 'bg-[#07090e] text-slate-400 border-slate-800 hover:text-white'
-                              }`}
-                            >
-                              <span className="block text-white">🌐 Asamblea / Consejo General</span>
-                              <span className="text-[10px] text-cyan-300/90 font-normal">
-                                Canal Masivo SFU: 100 a 200 personas simultáneas
-                              </span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setTipoConvocatoriaAdmin('consejo');
-                                setTituloConvocatoriaInput('Sesión Privada del Consejo de Administración');
-                              }}
-                              className={`p-2.5 rounded-xl text-xs font-mono font-bold transition cursor-pointer text-left border ${
-                                tipoConvocatoriaAdmin === 'consejo'
-                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
-                                  : 'bg-[#07090e] text-slate-400 border-slate-800 hover:text-white'
-                              }`}
-                            >
-                              <span className="block text-white">🔒 Consejo / Otras Reuniones</span>
-                              <span className="text-[10px] text-amber-300/90 font-normal">
-                                Malla Segura Encriptada P2P: Máx. 10 personas
-                              </span>
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Si es Asamblea General -> Confirmación de canal masivo 200 personas + foco 1 a 1 */}
-                        {tipoConvocatoriaAdmin === 'asamblea' ? (
-                          <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between gap-2 text-xs">
-                            <span className="text-emerald-300 font-mono text-[11px]">
-                              ✓ <strong>Capacidad 100–200 personas simultáneas</strong> + Pantalla 1 a 1 automática cuando alguien habla (estilo Teams).
-                            </span>
-                            <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-bold shrink-0">
-                              200+ SFU
-                            </span>
-                          </div>
-                        ) : (
-                          /* Si es Consejo de Administración -> Selector de apartamentos con tope estricto de 10 personas */
-                          <div className="p-3 bg-[#07090e] border border-amber-500/30 rounded-xl space-y-2.5">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-mono font-bold text-amber-300">
-                                Conexión Segura P2P ({apartamentosEscogidosAdmin.length}/{MAX_PERSONAS_MALLA_CONSEJO} máx. personas):
-                              </span>
-                              <div className="flex gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setApartamentosEscogidosAdmin(
-                                      catalogoApartamentos.slice(0, MAX_PERSONAS_MALLA_CONSEJO).map((c) => c.unidad)
-                                    )
-                                  }
-                                  className="text-[10px] font-mono text-cyan-400 hover:underline cursor-pointer"
-                                >
-                                  Seleccionar hasta 10
-                                </button>
-                                <span className="text-slate-600">|</span>
-                                <button
-                                  type="button"
-                                  onClick={() => setApartamentosEscogidosAdmin([])}
-                                  className="text-[10px] font-mono text-slate-400 hover:text-white cursor-pointer"
-                                >
-                                  Limpiar
-                                </button>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
-                              {catalogoApartamentos.map((apt) => {
-                                const activo = apartamentosEscogidosAdmin.includes(apt.unidad);
-                                return (
-                                  <div
-                                    key={apt.unidad}
-                                    onClick={() => toggleApartamentoEscogido(apt.unidad)}
-                                    className={`p-2 rounded-lg border text-[11px] flex items-center gap-2 cursor-pointer transition select-none ${
-                                      activo
-                                        ? 'bg-amber-500/15 border-amber-400 text-white'
-                                        : 'bg-[#0b0f17] border-slate-800 text-slate-400 hover:border-slate-700'
-                                    }`}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={activo}
-                                      onChange={() => {}}
-                                      className="accent-amber-400 w-3.5 h-3.5 pointer-events-none"
-                                    />
-                                    <div className="truncate">
-                                      <span className="font-bold text-white block leading-tight">{apt.unidad}</span>
-                                      <span className="text-[10px] text-slate-400 truncate block">{apt.propietario} ({apt.cargo})</span>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-
-                            <div className="flex gap-1.5 pt-1">
-                              <input
-                                type="text"
-                                value={nuevoAptoManual}
-                                onChange={(e) => setNuevoAptoManual(e.target.value)}
-                                placeholder="Agregar apto a malla segura (máx. 10)..."
-                                className="flex-1 bg-[#0b0f17] border border-slate-800 rounded-lg px-2.5 py-1 text-[11px] text-white outline-none focus:border-amber-400 font-mono"
-                              />
-                              <button
-                                type="button"
-                                onClick={handleAgregarApartamentoManual}
-                                className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-[11px] font-mono font-bold flex items-center gap-1 cursor-pointer"
-                              >
-                                <Plus className="w-3 h-3" /> Agregar
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={conectarASala}
-                          className="w-full bg-gradient-to-r from-cyan-500 to-teal-400 hover:brightness-110 text-slate-950 font-black px-6 py-3 rounded-xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(34,211,238,0.35)] flex items-center justify-center gap-2 cursor-pointer"
-                        >
-                          <Play className="w-4 h-4 fill-current" />
-                          {tipoConvocatoriaAdmin === 'asamblea'
-                            ? 'Iniciar Sala Masiva SFU (100–200 Personas • Pantalla 1 a 1)'
-                            : `Iniciar Conexión Segura P2P (${apartamentosEscogidosAdmin.length}/10 Personas • Pantalla 1 a 1)`}
-                        </button>
+                </div>
+              ) : (
+                /* ESTADO B: CUADRÍCULA ACTIVA TEAMS (Mismo espacio exacto) */
+                <div className="w-full aspect-video min-h-[420px] bg-[#070a10] border border-cyan-500/30 rounded-2xl p-2 grid grid-cols-3 grid-rows-3 gap-2 shadow-[0_0_25px_rgba(0,242,254,0.1)]">
+                  {[
+                    { id: '1', nombre: 'Esteban Ochoa', apt: 'T1-302', iniciales: 'EO', mic: false, activo: false },
+                    { id: '2', nombre: 'Eloina Mesa Mesa', apt: 'Admin', iniciales: 'EM', mic: false, activo: false },
+                    { id: '3', nombre: 'Andrés Vesga', apt: 'Portería', iniciales: 'AV', mic: false, activo: false },
+                    { id: '4', nombre: 'Darío Negrette', apt: 'T1-502', iniciales: 'DN', mic: true, activo: true },
+                    { id: '5', nombre: 'Carlos Andrés Gómez', apt: 'T1-101', iniciales: 'CG', mic: false, activo: false },
+                    { id: '6', nombre: 'María Camila Restrepo', apt: 'T1-102', iniciales: 'MR', mic: false, activo: false },
+                    { id: '7', nombre: 'Santiago Vélez', apt: 'T2-205', iniciales: 'SV', mic: false, activo: false },
+                    { id: '8', nombre: 'Daniela Restrepo', apt: 'T2-103', iniciales: 'DR', mic: false, activo: false },
+                    { id: '9', nombre: 'Juan Fernando', apt: 'T2-505', iniciales: 'JF', mic: false, activo: false },
+                  ].map((p) => (
+                    <div
+                      key={p.id}
+                      className={`relative rounded-xl flex items-center justify-center transition-all bg-[#0b0f17] border ${
+                        p.activo
+                          ? 'border-cyan-400 shadow-[0_0_15px_rgba(0,242,254,0.3)] bg-cyan-950/20'
+                          : 'border-slate-800/80 hover:border-slate-700'
+                      }`}
+                    >
+                      {/* Círculo central con iniciales */}
+                      <div className={`w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center font-mono font-bold text-sm md:text-lg select-none border shadow-md ${
+                        p.activo
+                          ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400/50'
+                          : 'bg-slate-900 text-slate-300 border-slate-700/80'
+                      }`}>
+                        {p.iniciales}
                       </div>
-                    )}
-                  </div>
-                )}
-              </div>
+
+                      {/* Etiqueta inferior con nombre y micrófono */}
+                      <div className="absolute bottom-1.5 left-1.5 max-w-[90%] flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-sm px-2 py-0.5 rounded-md text-[10px] font-mono border border-slate-800/80">
+                        <span className="truncate text-slate-200">{p.nombre}</span>
+                        <span className="text-cyan-400">({p.apt})</span>
+                        {p.mic ? (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5" />
+                        ) : (
+                          <span className="text-[9px] text-rose-400/80 ml-0.5">🔇</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* BARRA INFERIOR DE CONTROLES DE VIDEO, AUDIO Y GRABACIÓN DE ACTAS */}
               <div className="bg-[#0b0f17]/90 backdrop-blur-md p-3 rounded-2xl border border-slate-800 flex items-center justify-between gap-2 z-10 flex-wrap">

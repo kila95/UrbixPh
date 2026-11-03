@@ -260,96 +260,75 @@ export default function SalaAsambleaVirtualExecutive({
         {/* COLUMNA IZQUIERDA: PANTALLA PRINCIPAL DE TRANSMISIÓN Y CONTROLES (7 COLUMNAS EN DESKTOP) */}
         <div className={`${chatOpen ? 'lg:col-span-7' : 'lg:col-span-8'} space-y-4 transition-all duration-300`}>
           
-          {/* REPRODUCTOR DE VIDEO / STREAM SIMULADO */}
-          <div className="relative w-full aspect-video bg-gradient-to-b from-[#0e131d] to-[#05070a] border border-cyan-500/20 rounded-2xl overflow-hidden shadow-2xl flex flex-col justify-between p-4 group">
+          {/* ========================================================
+              LIENZO DE TRANSMISIÓN MULTI-PARTICIPANTE (ESTILO GALERÍA)
+             ======================================================== */}
+          <div className="relative w-full aspect-video bg-[#0b0f17] border border-cyan-500/30 rounded-2xl overflow-hidden shadow-[0_0_25px_rgba(0,242,254,0.15)] p-3 flex flex-col justify-between">
             
-            {/* Encabezado sobre el video */}
-            <div className="flex items-start justify-between z-10">
-              <div className="bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 flex items-center gap-2 text-xs">
-                <Radio className="w-3.5 h-3.5 text-rose-500 animate-pulse" />
-                <span className="font-bold text-white tracking-wide">PODIO PRINCIPAL</span>
-                <span className="text-slate-400 font-mono text-[11px]">| Dr. Mauricio Restrepo</span>
+            {/* Barra superior flotante de la sala */}
+            <div className="flex items-center justify-between z-10 pb-2">
+              <div className="bg-slate-950/80 backdrop-blur-md px-3 py-1 rounded-xl border border-cyan-500/20 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                <span className="font-mono text-xs font-bold text-white uppercase tracking-wider">
+                  Asamblea en Vivo • Urb. Tricentenario
+                </span>
+                <span className="text-[10px] text-cyan-300 font-mono bg-cyan-950/60 px-2 py-0.5 rounded-md border border-cyan-800/40">
+                  9 Conectados
+                </span>
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-md border border-white/10 font-mono text-[10px] text-cyan-300 flex items-center gap-1">
-                  <Volume2 className="w-3 h-3 text-cyan-400" />
-                  HD 1080p • WebRTC
+                <span className="px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 font-mono text-[10px] text-emerald-400 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  WebRTC HD
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setModoPantalla(modoPantalla === 'enfoque_video' ? 'normal' : 'enfoque_video')}
-                  className="p-1.5 rounded-lg bg-black/60 backdrop-blur-md hover:bg-slate-800 text-slate-300 transition"
-                  title="Modo enfoque"
-                >
-                  {modoPantalla === 'enfoque_video' ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                </button>
               </div>
             </div>
 
-            {/* Simulación visual de video transmisión / avatar del orador */}
-            <div className="my-auto flex flex-col items-center justify-center text-center space-y-3 z-10">
-              <div className="relative">
-                <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-gradient-to-tr from-cyan-600 via-teal-500 to-indigo-600 p-1 shadow-[0_0_30px_rgba(34,211,238,0.4)] animate-pulse">
-                  <div className="w-full h-full rounded-full bg-[#0b0f17] flex items-center justify-center text-2xl md:text-3xl font-black text-cyan-300">
-                    MR
+            {/* Cuadrícula Galería de Participantes (3x3 simétrica) */}
+            <div className="flex-1 grid grid-cols-3 grid-rows-3 gap-2 p-1">
+              {[
+                { id: '1', nombre: 'Esteban Ochoa', apt: 'T1-302', iniciales: 'EO', mic: false, activo: false },
+                { id: '2', nombre: 'Eloina Mesa Mesa', apt: 'Admin', iniciales: 'EM', mic: false, activo: false },
+                { id: '3', nombre: 'Andrés Vesga', apt: 'Portería', iniciales: 'AV', mic: false, activo: false },
+                { id: '4', nombre: 'Darío Negrette', apt: 'T1-502', iniciales: 'DN', mic: true, activo: true },
+                { id: '5', nombre: 'Carlos Andrés Gómez', apt: 'T1-101', iniciales: 'CG', mic: false, activo: false },
+                { id: '6', nombre: 'María Camila Restrepo', apt: 'T1-102', iniciales: 'MR', mic: false, activo: false },
+                { id: '7', nombre: 'Santiago Vélez', apt: 'T2-205', iniciales: 'SV', mic: false, activo: false },
+                { id: '8', nombre: 'Daniela Restrepo', apt: 'T2-103', iniciales: 'DR', mic: false, activo: false },
+                { id: '9', nombre: 'Juan Fernando', apt: 'T2-505', iniciales: 'JF', mic: false, activo: false },
+              ].map((participante) => (
+                <div
+                  key={participante.id}
+                  className={`relative rounded-xl flex items-center justify-center transition-all bg-[#070a10] border ${
+                    participante.activo
+                      ? 'border-cyan-400 shadow-[0_0_15px_rgba(0,242,254,0.3)] bg-cyan-950/10'
+                      : 'border-slate-800/80 hover:border-slate-700'
+                  }`}
+                >
+                  {/* Círculo central con iniciales alineado a los tonos oscuros de la app */}
+                  <div className={`w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center font-mono font-bold text-sm md:text-lg select-none border shadow-md ${
+                    participante.activo
+                      ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400/50'
+                      : 'bg-slate-900 text-slate-300 border-slate-700/80'
+                  }`}>
+                    {participante.iniciales}
+                  </div>
+
+                  {/* Píldora inferior de identificación */}
+                  <div className="absolute bottom-1.5 left-1.5 max-w-[90%] flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-sm px-2 py-0.5 rounded-md text-[10px] font-mono border border-slate-800/80">
+                    <span className="truncate text-slate-200">{participante.nombre}</span>
+                    <span className="text-cyan-400">({participante.apt})</span>
+                    {participante.mic ? (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5" title="Micrófono activo" />
+                    ) : (
+                      <span className="text-[9px] text-rose-400/80 ml-0.5">🔇</span>
+                    )}
                   </div>
                 </div>
-                <span className="absolute bottom-1 right-1 w-5 h-5 bg-emerald-500 rounded-full border-2 border-[#07090e] flex items-center justify-center text-[10px] text-black font-bold">
-                  ✓
-                </span>
-              </div>
-
-              <div>
-                <h4 className="text-base md:text-lg font-bold text-white tracking-tight">
-                  Dr. Mauricio Restrepo
-                </h4>
-                <p className="text-xs text-cyan-400 font-mono">
-                  Presidente del Consejo de Administración • En Uso de la Palabra
-                </p>
-                <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/40 border border-cyan-500/30 text-xs text-slate-300 font-mono">
-                  <Clock className="w-3.5 h-3.5 text-cyan-400" />
-                  Tema: Sustentación Presupuesto Ordinario Vigencia 2026
-                </div>
-              </div>
+              ))}
             </div>
 
-            {/* Grid flotante de participantes secundarios / mi cámara */}
-            <div className="z-10 grid grid-cols-3 gap-2 max-w-sm">
-              <div className="bg-black/70 backdrop-blur-md border border-slate-700/80 rounded-xl p-2 flex items-center gap-2 text-left">
-                <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-xs shrink-0">
-                  CP
-                </div>
-                <div className="overflow-hidden">
-                  <div className="text-[11px] font-bold text-white truncate">C. Pineda</div>
-                  <div className="text-[9px] text-slate-400 truncate">Administrador</div>
-                </div>
-              </div>
-
-              <div className="bg-black/70 backdrop-blur-md border border-slate-700/80 rounded-xl p-2 flex items-center gap-2 text-left">
-                <div className="w-7 h-7 rounded-lg bg-teal-600 flex items-center justify-center font-bold text-xs shrink-0">
-                  CO
-                </div>
-                <div className="overflow-hidden">
-                  <div className="text-[11px] font-bold text-white truncate">C. Ortiz</div>
-                  <div className="text-[9px] text-slate-400 truncate">Revisora Fiscal</div>
-                </div>
-              </div>
-
-              {/* Mi Cámara */}
-              <div className={`backdrop-blur-md border rounded-xl p-2 flex items-center gap-2 text-left ${camOn ? 'bg-cyan-950/70 border-cyan-500/50' : 'bg-black/70 border-slate-800'}`}>
-                <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${camOn ? 'bg-cyan-500 text-black' : 'bg-slate-700 text-slate-400'}`}>
-                  {camOn ? <Video className="w-3.5 h-3.5" /> : <VideoOff className="w-3.5 h-3.5" />}
-                </div>
-                <div className="overflow-hidden">
-                  <div className="text-[11px] font-bold text-cyan-300 truncate">Yo ({unidadResidenteActual})</div>
-                  <div className="text-[9px] text-slate-400 truncate">{camOn ? 'Cámara Activa' : 'Sin Video'}</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Fondo sutil de gradiente */}
-            <div className="absolute inset-0 bg-radial-at-c from-cyan-950/15 via-transparent to-transparent pointer-events-none" />
           </div>
 
           {/* BARRA DE CONTROLES MULTIMEDIA & PARTICIPACIÓN */}
