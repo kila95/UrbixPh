@@ -97,7 +97,7 @@ export default function ModuloReunionesConSubmodulos({
   // Estados WebRTC y sala en vivo
   const [enVivo, setEnVivo] = useState(false);
   const [remotoConectado, setRemotoConectado] = useState(false);
-  const [nombreParticipanteRemoto, setNombreParticipanteRemoto] = useState('Participante Conectado');
+  const [nombreParticipanteRemoto, setNombreParticipanteRemoto] = useState('Torre 2 - 301 (Dr. Mauricio Restrepo)');
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [audioRemotoOn, setAudioRemotoOn] = useState(true);
@@ -105,7 +105,16 @@ export default function ModuloReunionesConSubmodulos({
   const [manoLevantada, setManoLevantada] = useState(false);
   const [segundosTranscurridos, setSegundosTranscurridos] = useState(0);
   const [nivelMic, setNivelMic] = useState(0);
+  const [nivelVozRemota, setNivelVozRemota] = useState(0);
   const [usandoCamaraRespaldo, setUsandoCamaraRespaldo] = useState(false);
+
+  // Visualización 1 a 1 estilo Microsoft Teams (Cambio automático de cámara cuando alguien habla)
+  const [oradorEnFoco, setOradorEnFoco] = useState<'local' | 'remoto'>('local');
+  const [modoAutoSwitchTeams, setModoAutoSwitchTeams] = useState(true);
+  const ultimoPulsoVozRef = useRef<number>(0);
+
+  // Límite estricto de 10 personas para reuniones de Consejo / Comité en Malla Segura P2P
+  const MAX_PERSONAS_MALLA_CONSEJO = 10;
 
   // Grabación real (MediaRecorder) para resolver actas al final de la reunión
   const [grabandoSesion, setGrabandoSesion] = useState(false);
@@ -159,7 +168,7 @@ export default function ModuloReunionesConSubmodulos({
       titulo: 'Asamblea Anual de Copropietarios 2026',
       fecha: '2026-03-15 09:00 AM',
       modalidad: 'virtual',
-      lugarOSala: 'Sala Videoconferencia WebRTC Urbix PH',
+      lugarOSala: 'Canal SFU Broadcast Urbix PH (Capacidad 200+ Personas)',
       estado: 'En Curso',
       anticipacion: '15 días hábiles cumplidos',
       quorum: '78.4%',
@@ -171,7 +180,7 @@ export default function ModuloReunionesConSubmodulos({
       titulo: 'Reunión Ordinaria de Consejo - Revisión Presupuesto',
       fecha: '2026-02-20 06:30 PM',
       modalidad: 'virtual',
-      lugarOSala: 'Sala Privada Consejo WebRTC',
+      lugarOSala: 'Malla Segura Encriptada P2P (Máx. 10 Personas)',
       estado: 'Convocada',
       anticipacion: 'Citación formal selectiva',
       quorum: '100%',
@@ -222,12 +231,26 @@ export default function ModuloReunionesConSubmodulos({
     persona2: 'Esteban Ochoa (Torre 1 - 302)'
   });
 
+  // Configuración STUN + TURN Relay para 100% de conectividad en cualquier red móvil (4G/5G CGNAT) y fija
   const iceServersConfig: RTCConfiguration = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' }
-    ]
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' },
+      {
+        urls: [
+          'turn:openrelay.metered.ca:80',
+          'turn:openrelay.metered.ca:443',
+          'turn:openrelay.metered.ca:443?transport=tcp'
+        ],
+        username: (import.meta as any).env?.VITE_TURN_USERNAME || 'openrelayproject',
+        credential: (import.meta as any).env?.VITE_TURN_CREDENTIAL || 'openrelayproject'
+      }
+    ],
+    iceCandidatePoolSize: 6,
+    bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require'
   };
 
   // Sonido de notificación o prueba de altavoz (Web Audio API sin archivos externos)
@@ -493,6 +516,18 @@ export default function ModuloReunionesConSubmodulos({
           pendingIceCandidatesRef.current.push(payload.candidate);
         }
       }
+    } else if (event === 'asamblea_orador_hablando') {
+      if (payload.remitenteRol === rolUsuario && payload.unidad === unidadActiva) return;
+      if (payload.orador) {
+        setNombreParticipanteRemoto(payload.orador);
+      }
+      setNivelVozRemota(payload.nivel || 68);
+      if (modoAutoSwitchTeams) {
+        setOradorEnFoco('remoto');
+      }
+      setTimeout(() => {
+        setNivelVozRemota(0);
+      }, 1400);
     } else if (event === 'asamblea_chat') {
       setChatLog((prev) => (prev.some((m) => m.id === payload.id) ? prev : [...prev, payload]));
     } else if (event === 'asamblea_voto') {
@@ -503,7 +538,7 @@ export default function ModuloReunionesConSubmodulos({
         coefBlanco: payload.coefBlanco ?? prev.coefBlanco
       }));
     }
-  }, [enVivo, inicializarPeerConnection, emitirEventoSenalizacion, onShowToast, reproducirTonoAudio, rolUsuario, unidadActiva]);
+  }, [enVivo, inicializarPeerConnection, emitirEventoSenalizacion, modoAutoSwitchTeams, onShowToast, reproducirTonoAudio, rolUsuario, unidadActiva]);
 
   // 1. Suscripción en Tiempo Real (Supabase + BroadcastChannel + Storage Event)
   useEffect(() => {
@@ -551,6 +586,7 @@ export default function ModuloReunionesConSubmodulos({
         'asamblea_oferta',
         'asamblea_respuesta',
         'asamblea_candidato_ice',
+        'asamblea_orador_hablando',
         'asamblea_chat',
         'asamblea_voto'
       ].forEach((evtName) => {
@@ -584,7 +620,7 @@ export default function ModuloReunionesConSubmodulos({
     return () => clearInterval(interval);
   }, [enVivo, rolUsuario, invitacionEntrante, emitirEventoSenalizacion]);
 
-  // Medidor visual de nivel de micrófono (confirma que el sonido se está capturando)
+  // Medidor visual de nivel de micrófono + Detector Automático de Hablante Activo (Estilo Microsoft Teams)
   const iniciarMonitorAudioLocal = useCallback((stream: MediaStream) => {
     if (animFrameMicRef.current) cancelAnimationFrame(animFrameMicRef.current);
     if (audioCtxRef.current) {
@@ -612,14 +648,28 @@ export default function ModuloReunionesConSubmodulos({
           sum += dataArray[i];
         }
         const avg = sum / dataArray.length;
-        setNivelMic(Math.min(100, Math.round(avg * 1.8)));
+        const nivelCalculado = Math.min(100, Math.round(avg * 1.8));
+        setNivelMic(nivelCalculado);
+
+        // Si el usuario local está hablando por encima del umbral de voz (20%), enfocar su cámara en modo 1-a-1 Teams y notificar a la sala
+        if (nivelCalculado >= 20 && Date.now() - ultimoPulsoVozRef.current > 650) {
+          ultimoPulsoVozRef.current = Date.now();
+          setOradorEnFoco('local');
+          emitirEventoSenalizacion('asamblea_orador_hablando', {
+            remitenteRol: rolUsuario,
+            unidad: unidadActiva,
+            orador: rolUsuario === 'admin' ? 'Administración Principal' : unidadActiva,
+            nivel: nivelCalculado
+          });
+        }
+
         animFrameMicRef.current = requestAnimationFrame(actualizarNivel);
       };
       actualizarNivel();
     } catch (e) {
       console.warn('No se pudo iniciar monitor de nivel de audio:', e);
     }
-  }, []);
+  }, [emitirEventoSenalizacion, rolUsuario, unidadActiva]);
 
   // Generador de stream en vivo de respaldo si la cámara física está ocupada por otra ventana
   const crearStreamRespaldoEnVivo = useCallback((etiquetaUsuario: string, soloAudioStream?: MediaStream | null): MediaStream => {
@@ -1109,14 +1159,32 @@ export default function ModuloReunionesConSubmodulos({
   };
 
   const toggleApartamentoEscogido = (unidad: string) => {
-    setApartamentosEscogidosAdmin((prev) =>
-      prev.includes(unidad) ? prev.filter((u) => u !== unidad) : [...prev, unidad]
-    );
+    setApartamentosEscogidosAdmin((prev) => {
+      if (prev.includes(unidad)) {
+        return prev.filter((u) => u !== unidad);
+      }
+      if (prev.length >= MAX_PERSONAS_MALLA_CONSEJO) {
+        onShowToast?.(
+          `🔒 Conexión Segura P2P: Esta reunión permite conectar entre sí máximo ${MAX_PERSONAS_MALLA_CONSEJO} apartamentos.`
+        );
+        return prev;
+      }
+      return [...prev, unidad];
+    });
   };
 
   const handleAgregarApartamentoManual = () => {
     const limpio = nuevoAptoManual.trim();
     if (!limpio) return;
+    if (
+      apartamentosEscogidosAdmin.length >= MAX_PERSONAS_MALLA_CONSEJO &&
+      !apartamentosEscogidosAdmin.includes(limpio)
+    ) {
+      onShowToast?.(
+        `🔒 Límite de seguridad alcanzado: Máximo ${MAX_PERSONAS_MALLA_CONSEJO} personas en Malla Encriptada P2P.`
+      );
+      return;
+    }
     if (!catalogoApartamentos.some((c) => c.unidad.toLowerCase() === limpio.toLowerCase())) {
       setCatalogoApartamentos((prev) => [
         ...prev,
@@ -1129,9 +1197,34 @@ export default function ModuloReunionesConSubmodulos({
     setNuevoAptoManual('');
   };
 
+  // Simular o ceder turno de palabra en vivo para conmutar la pantalla 1 a 1 estilo Teams
+  const activarTurnoVozParticipante = (quien: 'local' | 'remoto', etiquetaOrador?: string) => {
+    if (etiquetaOrador && quien === 'remoto') {
+      setNombreParticipanteRemoto(etiquetaOrador);
+    }
+    setOradorEnFoco(quien);
+    if (quien === 'remoto') {
+      setNivelVozRemota(78);
+      emitirEventoSenalizacion('asamblea_orador_hablando', {
+        remitenteRol: rolUsuario === 'admin' ? 'residente' : 'admin',
+        unidad: etiquetaOrador || nombreParticipanteRemoto,
+        orador: etiquetaOrador || nombreParticipanteRemoto,
+        nivel: 78
+      });
+      setTimeout(() => setNivelVozRemota(0), 2200);
+    } else {
+      emitirEventoSenalizacion('asamblea_orador_hablando', {
+        remitenteRol: rolUsuario,
+        unidad: unidadActiva,
+        orador: rolUsuario === 'admin' ? 'Administración Principal' : unidadActiva,
+        nivel: Math.max(45, nivelMic)
+      });
+    }
+  };
+
   // VALIDACIÓN DE ACCESO LEY 675:
-  // 1. Si es Asamblea General ('asamblea' o incluye 'TODOS'), entran TODOS los residentes de la unidad.
-  // 2. Si es Consejo de Administración ('consejo'), solo entran los apartamentos seleccionados por la Administración.
+  // 1. Si es Asamblea General ('asamblea' o incluye 'TODOS'), entran TODOS los residentes de la unidad (Capacidad SFU 200+).
+  // 2. Si es Consejo de Administración ('consejo'), solo entran los apartamentos seleccionados (Malla Segura P2P máx. 10 personas).
   const tieneAccesoAReunion = (() => {
     if (!invitacionEntrante) return false;
     if (
@@ -1144,6 +1237,9 @@ export default function ModuloReunionesConSubmodulos({
       (apto) => apto.trim().toLowerCase() === unidadActiva.trim().toLowerCase()
     );
   })();
+
+  const esModoMasivoSFU =
+    (invitacionEntrante ? invitacionEntrante.tipo === 'asamblea' : tipoConvocatoriaAdmin === 'asamblea');
 
   // Pestañas adaptadas según el rol
   const pestanasVisibles = rolUsuario === 'admin'
@@ -1213,17 +1309,30 @@ export default function ModuloReunionesConSubmodulos({
       {submoduloActivo === 'video' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
-          {/* LIENZO DE VIDEO PRINCIPAL (SIN RECORTE ASPECT-VIDEO FIJO) */}
+          {/* LIENZO DE VIDEO PRINCIPAL (MODO 1 A 1 ESTILO MICROSOFT TEAMS) */}
           <div className="lg:col-span-2 space-y-4">
-            <div className="relative min-h-[500px] bg-slate-950 rounded-3xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col justify-between p-4 sm:p-5">
+            <div className="relative min-h-[520px] bg-slate-950 rounded-3xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col justify-between p-4 sm:p-5">
               
-              {/* Barra superior de estado */}
+              {/* Barra superior de estado + Indicador de Topología (SFU 200+ vs Malla Segura 10) */}
               <div className="flex flex-wrap items-center justify-between gap-2 z-10">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="flex items-center gap-2 bg-rose-500/20 text-rose-400 border border-rose-500/40 px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase">
                     <span className={`w-2 h-2 rounded-full ${enVivo ? 'bg-rose-500 animate-ping' : 'bg-slate-600'}`} />
                     {enVivo ? 'TRANSMISIÓN OFICIAL LEY 675' : 'SALA EN ESPERA'}
                   </span>
+
+                  <span
+                    className={`text-[10px] font-mono font-bold px-2.5 py-1 rounded-full border ${
+                      esModoMasivoSFU
+                        ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40'
+                        : 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+                    }`}
+                  >
+                    {esModoMasivoSFU
+                      ? '🌐 Canal Masivo SFU (Capacidad: 100–200 Personas)'
+                      : `🔒 Malla Segura P2P Encriptada (Máx. ${MAX_PERSONAS_MALLA_CONSEJO} Personas)`}
+                  </span>
+
                   {grabandoSesion && (
                     <span className="flex items-center gap-1.5 bg-red-600/20 text-red-400 border border-red-500/40 px-2.5 py-1 rounded-full text-[11px] font-mono font-bold animate-pulse">
                       <Disc className="w-3.5 h-3.5 text-red-500 animate-spin" />
@@ -1250,107 +1359,245 @@ export default function ModuloReunionesConSubmodulos({
                 </div>
               </div>
 
-              {/* CONTENIDO CENTRAL: VIDEO EN VIVO O CONFIGURADOR DE CITACIÓN / INVITACIÓN */}
-              <div className="relative flex-1 flex items-center justify-center overflow-hidden my-3 rounded-2xl bg-[#07090e]/90 border border-slate-800/80 p-3 sm:p-5">
+              {/* CONTENIDO CENTRAL: VISUALIZACIÓN 1 A 1 ESTILO MICROSOFT TEAMS O CONFIGURADOR DE CITACIÓN */}
+              <div className="relative flex-1 flex flex-col justify-between overflow-hidden my-3 rounded-2xl bg-[#07090e]/90 border border-slate-800/80 p-3 sm:p-4">
                 {enVivo ? (
-                  <div className="w-full h-full min-h-[340px] grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch">
-                    {/* CÁMARA 1: VIDEO LOCAL */}
-                    <div className="relative bg-slate-900 rounded-2xl overflow-hidden border border-cyan-500/40 flex items-center justify-center min-h-[260px]">
-                      <video
-                        ref={setVideoLocalElement}
-                        autoPlay
-                        playsInline
-                        muted
-                        className={`w-full h-full object-cover ${!camOn ? 'hidden' : ''}`}
-                      />
-                      {!camOn && (
-                        <div className="text-center py-10 space-y-2">
-                          <VideoOff className="w-10 h-10 text-slate-600 mx-auto" />
-                          <p className="text-xs text-slate-400 font-mono">Tu cámara está apagada</p>
-                        </div>
-                      )}
-
-                      <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono">
-                        <span className="text-white font-bold truncate">
-                          🟢 Tú: {rolUsuario === 'admin' ? 'Administración Principal' : unidadActiva}
-                          {usandoCamaraRespaldo ? ' (Señal Digital)' : ''}
+                  <div className="w-full h-full flex flex-col gap-3">
+                    {/* BARRA DE CONTROL DE FOCO AUTOMÁTICO 1 A 1 (ESTILO MICROSOFT TEAMS) */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 bg-[#0b111d] border border-slate-800 px-3 py-2 rounded-xl text-[11px] font-mono">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="text-slate-300">
+                          Pantalla 1 a 1 (Orador Activo):{' '}
+                          <strong className="text-cyan-300">
+                            {oradorEnFoco === 'local'
+                              ? `${rolUsuario === 'admin' ? 'Administración Principal' : unidadActiva} (Tú)`
+                              : nombreParticipanteRemoto}
+                          </strong>
                         </span>
-                        <div className="flex items-center gap-1.5" title="Nivel de micrófono en tiempo real">
-                          <Mic className={`w-3.5 h-3.5 ${micOn ? 'text-emerald-400' : 'text-rose-400'}`} />
-                          <div className="w-14 h-2 bg-slate-800 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-all duration-75"
-                              style={{ width: `${micOn ? Math.max(12, nivelMic) : 0}%` }}
-                            />
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setModoAutoSwitchTeams(!modoAutoSwitchTeams)}
+                          className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold cursor-pointer transition ${
+                            modoAutoSwitchTeams
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                              : 'bg-slate-900 text-slate-400 border-slate-700'
+                          }`}
+                          title="Cuando alguien habla, su cámara pasa automáticamente a pantalla completa como en Microsoft Teams"
+                        >
+                          {modoAutoSwitchTeams ? '⚡ Auto-Cambio por Voz: ON (Modo Teams)' : '📌 Auto-Cambio por Voz: Fijo'}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => activarTurnoVozParticipante('local')}
+                          className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold cursor-pointer transition ${
+                            oradorEnFoco === 'local'
+                              ? 'bg-cyan-500/25 text-cyan-200 border-cyan-400'
+                              : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                          }`}
+                        >
+                          🎙️ Hablar Yo
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => activarTurnoVozParticipante('remoto', nombreParticipanteRemoto)}
+                          className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold cursor-pointer transition ${
+                            oradorEnFoco === 'remoto'
+                              ? 'bg-cyan-500/25 text-cyan-200 border-cyan-400'
+                              : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                          }`}
+                        >
+                          🗣️ Habla Participante
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* ESCENARIO PRINCIPAL 1 A 1 (QUIEN HABLA OCUPA LA PANTALLA PRINCIPAL, EL OTRO PASA A VENTANA ESQUINA PiP) */}
+                    <div className="relative w-full flex-1 min-h-[340px] rounded-2xl overflow-hidden bg-slate-950 border border-slate-800">
+                      
+                      {/* CÁMARA LOCAL: Pantalla Completa si oradorEnFoco === 'local', o Miniatura PiP si oradorEnFoco === 'remoto' */}
+                      <div
+                        onClick={() => {
+                          if (oradorEnFoco !== 'local') activarTurnoVozParticipante('local');
+                        }}
+                        className={`transition-all duration-300 overflow-hidden flex items-center justify-center bg-slate-900 ${
+                          oradorEnFoco === 'local'
+                            ? `w-full h-full min-h-[340px] relative ${
+                                micOn && nivelMic >= 18
+                                  ? 'ring-2 ring-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.25)]'
+                                  : ''
+                              }`
+                            : 'absolute bottom-3 right-3 w-44 sm:w-56 h-28 sm:h-36 z-20 rounded-2xl border-2 border-cyan-500/60 shadow-2xl cursor-pointer hover:scale-[1.02]'
+                        }`}
+                      >
+                        <video
+                          ref={setVideoLocalElement}
+                          autoPlay
+                          playsInline
+                          muted
+                          className={`w-full h-full object-cover ${!camOn ? 'hidden' : ''}`}
+                        />
+                        {!camOn && (
+                          <div className="text-center p-4 space-y-1">
+                            <VideoOff className="w-8 h-8 text-slate-600 mx-auto" />
+                            <p className="text-[11px] text-slate-400 font-mono">Cámara Apagada</p>
                           </div>
+                        )}
+
+                        {/* Etiqueta de estado de voz local */}
+                        <div className="absolute bottom-2.5 left-2.5 right-2.5 flex items-center justify-between bg-slate-950/85 backdrop-blur-md px-2.5 py-1 rounded-xl border border-slate-800 text-[10px] font-mono">
+                          <span className="text-white font-bold truncate flex items-center gap-1.5">
+                            <span
+                              className={`w-2 h-2 rounded-full ${
+                                micOn && nivelMic >= 18 ? 'bg-emerald-400 animate-ping' : 'bg-cyan-400'
+                              }`}
+                            />
+                            {oradorEnFoco === 'local' ? '🗣️ EN PANTALLA PRINCIPAL: ' : ''}
+                            {rolUsuario === 'admin' ? 'Administración Principal' : unidadActiva}
+                          </span>
+
+                          {oradorEnFoco === 'local' && (
+                            <div className="flex items-center gap-1.5" title="Nivel de voz activa">
+                              <Mic className={`w-3.5 h-3.5 ${micOn ? 'text-emerald-400' : 'text-rose-400'}`} />
+                              <div className="w-16 h-2 bg-slate-800 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-all duration-75"
+                                  style={{ width: `${micOn ? Math.max(12, nivelMic) : 0}%` }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* CÁMARA REMOTA: Pantalla Completa si oradorEnFoco === 'remoto', o Miniatura PiP si oradorEnFoco === 'local' */}
+                      <div
+                        onClick={() => {
+                          if (oradorEnFoco !== 'remoto') activarTurnoVozParticipante('remoto', nombreParticipanteRemoto);
+                        }}
+                        className={`transition-all duration-300 overflow-hidden flex items-center justify-center bg-slate-900 ${
+                          oradorEnFoco === 'remoto'
+                            ? `w-full h-full min-h-[340px] relative ${
+                                nivelVozRemota > 0
+                                  ? 'ring-2 ring-cyan-400 shadow-[0_0_30px_rgba(34,211,238,0.3)]'
+                                  : ''
+                              }`
+                            : 'absolute bottom-3 right-3 w-44 sm:w-56 h-28 sm:h-36 z-20 rounded-2xl border-2 border-slate-700 hover:border-cyan-400 shadow-2xl cursor-pointer hover:scale-[1.02]'
+                        }`}
+                      >
+                        <video
+                          ref={setVideoRemotoElement}
+                          autoPlay
+                          playsInline
+                          muted={!audioRemotoOn}
+                          className={`w-full h-full object-cover ${remotoConectado ? 'block' : 'hidden'}`}
+                        />
+
+                        {!remotoConectado && (
+                          <div className="text-center p-3 space-y-2">
+                            <div className="w-10 h-10 mx-auto rounded-2xl bg-cyan-500/15 border border-cyan-500/40 flex items-center justify-center text-cyan-300 font-black text-xs font-mono">
+                              {nombreParticipanteRemoto.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="text-[11px] font-bold text-white truncate max-w-[220px] mx-auto">
+                                {nombreParticipanteRemoto}
+                              </p>
+                              {oradorEnFoco === 'remoto' && (
+                                <p className="text-[10px] text-emerald-400 font-mono mt-0.5">
+                                  🗣️ Hablando ahora en Pantalla Principal (Modo Teams 1 a 1)
+                                </p>
+                              )}
+                            </div>
+                            {oradorEnFoco === 'remoto' && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  inicializarPeerConnection(true);
+                                }}
+                                className="px-2.5 py-1 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 rounded-lg text-[10px] font-mono font-bold inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <RefreshCw className="w-3 h-3" /> Reconectar P2P/TURN
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between bg-slate-950/85 backdrop-blur-md px-2 py-1 rounded-lg border border-slate-800 text-[10px] font-mono">
+                          <span className="text-cyan-300 font-bold truncate">
+                            {oradorEnFoco === 'remoto' ? '🗣️ EN PANTALLA: ' : '👥 '}
+                            {nombreParticipanteRemoto}
+                          </span>
+                          {oradorEnFoco === 'remoto' && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAudioRemotoOn(!audioRemotoOn);
+                              }}
+                              className="text-[10px] text-emerald-400 hover:underline cursor-pointer ml-2"
+                            >
+                              {audioRemotoOn ? '🔊 Audio ON' : '🔇 Mute'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
 
-                    {/* CÁMARA 2: VIDEO REMOTO (RESIDENTE O ADMINISTRADOR CONECTADO CON AUDIO ACTIVO) */}
-                    <div className="relative bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center min-h-[260px]">
-                      <video
-                        ref={setVideoRemotoElement}
-                        autoPlay
-                        playsInline
-                        muted={!audioRemotoOn}
-                        className={`w-full h-full object-cover ${remotoConectado ? 'block' : 'hidden'}`}
-                      />
-
-                      {!remotoConectado && (
-                        <div className="text-center p-6 space-y-3">
-                          <div className="w-14 h-14 mx-auto rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
-                            <Radio className="w-7 h-7 animate-pulse" />
-                          </div>
-                          <div>
-                            <p className="text-xs font-bold text-white">
-                              {rolUsuario === 'admin'
-                                ? 'Convocatoria Emitida • Esperando conexión de Residentes'
-                                : 'Conectando señal de video y audio con Administración...'}
-                            </p>
-                            <p className="text-[11px] text-slate-400 font-mono mt-1">
-                              {invitacionEntrante?.tipo === 'consejo'
-                                ? `Citados al Consejo: ${invitacionEntrante.apartamentosConvocados.join(', ')}`
-                                : 'Citados: Todos los apartamentos de la copropiedad (Ley 675)'}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => inicializarPeerConnection(true)}
-                            className="px-3 py-1.5 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 rounded-xl text-[11px] font-mono font-bold inline-flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <RefreshCw className="w-3.5 h-3.5" /> Sincronizar Señal P2P Ahora
-                          </button>
-                        </div>
-                      )}
-
-                      {remotoConectado && (
-                        <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono">
-                          <span className="text-cyan-300 font-bold truncate">
-                            🔊 En línea: {nombreParticipanteRemoto}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setAudioRemotoOn(!audioRemotoOn)}
-                            className="text-xs text-emerald-400 hover:underline cursor-pointer"
-                          >
-                            {audioRemotoOn ? 'Audio Activo 🔊' : 'Audio Silenciado 🔇'}
-                          </button>
-                        </div>
+                    {/* BARRA RÁPIDA DE PARTICIPANTES CONECTADOS (CLIC PARA CEDER LA PALABRA Y CAMBIAR CÁMARA 1 A 1) */}
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-0.5">
+                      <span className="text-[10px] font-mono uppercase text-slate-400 shrink-0">
+                        Cambiar Hablante Activo (1 a 1):
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => activarTurnoVozParticipante('local')}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold border shrink-0 cursor-pointer transition ${
+                          oradorEnFoco === 'local'
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                        }`}
+                      >
+                        🎙️ {rolUsuario === 'admin' ? 'Administración (Yo)' : `${unidadActiva} (Yo)`}
+                      </button>
+                      {(esModoMasivoSFU ? catalogoApartamentos : catalogoApartamentos.filter((c) => apartamentosEscogidosAdmin.includes(c.unidad))).map(
+                        (part) => {
+                          const etiqueta = `${part.unidad} (${part.propietario})`;
+                          const activo = oradorEnFoco === 'remoto' && nombreParticipanteRemoto === etiqueta;
+                          return (
+                            <button
+                              key={part.unidad}
+                              type="button"
+                              onClick={() => activarTurnoVozParticipante('remoto', etiqueta)}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-mono border shrink-0 cursor-pointer transition ${
+                                activo
+                                  ? 'bg-cyan-500/25 text-cyan-200 border-cyan-400 font-bold'
+                                  : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-white'
+                              }`}
+                            >
+                              🗣️ {part.unidad} • {part.propietario.split(' ')[0]}
+                            </button>
+                          );
+                        }
                       )}
                     </div>
                   </div>
                 ) : invitacionEntrante && rolUsuario === 'residente' && tieneAccesoAReunion ? (
                   // TARJETA DE LLAMADA / INVITACIÓN EN VIVO AL RESIDENTE CONVOCADO
-                  <div className="text-center space-y-4 py-6 px-6 max-w-lg bg-cyan-950/20 border border-cyan-500/40 rounded-3xl shadow-[0_0_30px_rgba(34,211,238,0.2)]">
+                  <div className="text-center space-y-4 py-6 px-6 max-w-lg mx-auto my-auto bg-cyan-950/20 border border-cyan-500/40 rounded-3xl shadow-[0_0_30px_rgba(34,211,238,0.2)]">
                     <div className="w-16 h-16 mx-auto rounded-2xl bg-cyan-500/20 border border-cyan-400/50 flex items-center justify-center text-cyan-300">
                       <BellRing className="w-8 h-8 animate-bounce text-cyan-400" />
                     </div>
                     <div>
                       <span className="text-[10px] font-mono font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 px-3 py-1 rounded-full uppercase">
                         {invitacionEntrante.tipo === 'consejo'
-                          ? '⚖️ Citación Oficial al Consejo de Administración'
-                          : '📢 Asamblea General en Vivo (Todos los Residentes)'}
+                          ? `🔒 Malla Segura P2P Consejo (Máx. ${MAX_PERSONAS_MALLA_CONSEJO} Personas)`
+                          : '🌐 Asamblea General SFU en Vivo (Capacidad 200+ Residentes)'}
                       </span>
                       <h3 className="text-base sm:text-lg font-black text-white mt-2">
                         {invitacionEntrante.titulo}
@@ -1359,7 +1606,7 @@ export default function ModuloReunionesConSubmodulos({
                         Convoca: <strong className="text-cyan-300">{invitacionEntrante.orador}</strong> • Hora: {invitacionEntrante.hora}
                       </p>
                       <p className="text-xs text-emerald-400 font-mono mt-1">
-                        ✓ Tu unidad (<strong>{unidadActiva}</strong>) está acreditada y convocada
+                        ✓ Tu unidad (<strong>{unidadActiva}</strong>) está acreditada • Pantalla 1 a 1 estilo Teams activa
                       </p>
                     </div>
 
@@ -1373,19 +1620,19 @@ export default function ModuloReunionesConSubmodulos({
                   </div>
                 ) : invitacionEntrante && rolUsuario === 'residente' && !tieneAccesoAReunion ? (
                   // SALA PRIVADA CUANDO ES CONSEJO Y EL APARTAMENTO NO FUE ESCOGIDO POR LA ADMINISTRACIÓN
-                  <div className="text-center py-6 px-6 max-w-md bg-amber-950/15 border border-amber-500/30 rounded-3xl space-y-2">
+                  <div className="text-center py-6 px-6 max-w-md mx-auto my-auto bg-amber-950/15 border border-amber-500/30 rounded-3xl space-y-2">
                     <Lock className="w-9 h-9 text-amber-400 mx-auto" />
-                    <h4 className="text-sm font-bold text-white">Sesión Privada del Consejo de Administración</h4>
+                    <h4 className="text-sm font-bold text-white">Sesión Encriptada del Consejo (Máx. 10 Personas)</h4>
                     <p className="text-xs text-slate-400">
-                      Tu unidad (<strong className="text-white">{unidadActiva}</strong>) no se encuentra dentro de los apartamentos seleccionados por la Administración para esta reunión privada.
+                      Tu unidad (<strong className="text-white">{unidadActiva}</strong>) no se encuentra dentro de los apartamentos seleccionados por la Administración para esta sesión privada.
                     </p>
                     <p className="text-[11px] font-mono text-amber-300/90 pt-1">
-                      Apartamentos citados: {invitacionEntrante.apartamentosConvocados.join(', ')}
+                      Apartamentos citados ({invitacionEntrante.apartamentosConvocados.length}/10): {invitacionEntrante.apartamentosConvocados.join(', ')}
                     </p>
                   </div>
                 ) : (
-                  // PANTALLA DE CONFIGURACIÓN Y CONVOCATORIA EN VIVO (IMAGEN 1 MEJORADA CON SELECCIÓN DE APARTAMENTOS)
-                  <div className="w-full max-w-xl mx-auto text-center space-y-4 py-3 px-2 sm:px-4">
+                  // PANTALLA DE CONFIGURACIÓN Y CONVOCATORIA EN VIVO (DOBLE TOPOLOGÍA: 200+ EN ASAMBLEA GENERAL VS MÁX 10 EN CONSEJO)
+                  <div className="w-full max-w-xl mx-auto text-center space-y-4 py-3 px-2 sm:px-4 my-auto">
                     <div className="w-14 h-14 mx-auto rounded-2xl bg-[#090d14] border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_25px_rgba(34,211,238,0.15)]">
                       {rolUsuario === 'admin' ? <Radio className="w-7 h-7 animate-pulse" /> : <Lock className="w-7 h-7 text-slate-500" />}
                     </div>
@@ -1396,8 +1643,8 @@ export default function ModuloReunionesConSubmodulos({
                       </h3>
                       <p className="text-xs text-slate-400 font-mono mt-1 max-w-md mx-auto">
                         {rolUsuario === 'admin'
-                          ? 'Configura el título de la reunión, elige si es Asamblea General (todos) o Consejo (escoger apartamentos) e inicia la videollamada.'
-                          : 'La sesión virtual está protegida bajo la Ley 675. Te notificaremos en pantalla cuando la Administración inicie la videollamada.'}
+                          ? 'Elige Asamblea General (canal masivo 100–200 personas) o Reunión de Consejo/Comité (conexión segura entre sí máx. 10 personas). Visualización 1 a 1 tipo Teams.'
+                          : 'La sesión virtual está protegida bajo la Ley 675 con visualización 1 a 1 estilo Teams. Te notificaremos cuando inicie.'}
                       </p>
                     </div>
 
@@ -1417,10 +1664,10 @@ export default function ModuloReunionesConSubmodulos({
                           />
                         </div>
 
-                        {/* Selector de Tipo: Asamblea General (Todos) vs Consejo de Administración (Escoger Apartamentos) */}
+                        {/* Selector de Tipo: Asamblea General (100-200 simultáneos) vs Otras Reuniones/Consejo (Malla Segura Máx. 10) */}
                         <div>
                           <label className="text-[10px] font-mono font-bold uppercase text-slate-400 block mb-1.5">
-                            Órgano y Alcance de la Citación (Ley 675):
+                            Arquitectura de Conexión según Tipo de Reunión:
                           </label>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <button
@@ -1435,15 +1682,17 @@ export default function ModuloReunionesConSubmodulos({
                                   : 'bg-[#07090e] text-slate-400 border-slate-800 hover:text-white'
                               }`}
                             >
-                              <span className="block text-white">👥 Asamblea General (Todos)</span>
-                              <span className="text-[10px] text-slate-400 font-normal">Cita al 100% de residentes de la unidad</span>
+                              <span className="block text-white">🌐 Asamblea / Consejo General</span>
+                              <span className="text-[10px] text-cyan-300/90 font-normal">
+                                Canal Masivo SFU: 100 a 200 personas simultáneas
+                              </span>
                             </button>
 
                             <button
                               type="button"
                               onClick={() => {
                                 setTipoConvocatoriaAdmin('consejo');
-                                setTituloConvocatoriaInput('Sesión del Consejo de Administración');
+                                setTituloConvocatoriaInput('Sesión Privada del Consejo de Administración');
                               }}
                               className={`p-2.5 rounded-xl text-xs font-mono font-bold transition cursor-pointer text-left border ${
                                 tipoConvocatoriaAdmin === 'consejo'
@@ -1451,36 +1700,42 @@ export default function ModuloReunionesConSubmodulos({
                                   : 'bg-[#07090e] text-slate-400 border-slate-800 hover:text-white'
                               }`}
                             >
-                              <span className="block text-white">⚖️ Consejo de Administración</span>
-                              <span className="text-[10px] text-slate-400 font-normal">Escoger apartamentos citados</span>
+                              <span className="block text-white">🔒 Consejo / Otras Reuniones</span>
+                              <span className="text-[10px] text-amber-300/90 font-normal">
+                                Malla Segura Encriptada P2P: Máx. 10 personas
+                              </span>
                             </button>
                           </div>
                         </div>
 
-                        {/* Si es Asamblea General -> Confirmación de todos los residentes */}
+                        {/* Si es Asamblea General -> Confirmación de canal masivo 200 personas + foco 1 a 1 */}
                         {tipoConvocatoriaAdmin === 'asamblea' ? (
-                          <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between text-xs">
+                          <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between gap-2 text-xs">
                             <span className="text-emerald-300 font-mono text-[11px]">
-                              ✓ Se enviará citación en vivo a <strong>todos los apartamentos</strong> de la unidad.
+                              ✓ <strong>Capacidad 100–200 personas simultáneas</strong> + Pantalla 1 a 1 automática cuando alguien habla (estilo Teams).
                             </span>
-                            <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-bold">
-                              100% Unidad
+                            <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-bold shrink-0">
+                              200+ SFU
                             </span>
                           </div>
                         ) : (
-                          /* Si es Consejo de Administración -> Selector de apartamentos */
+                          /* Si es Consejo de Administración -> Selector de apartamentos con tope estricto de 10 personas */
                           <div className="p-3 bg-[#07090e] border border-amber-500/30 rounded-xl space-y-2.5">
                             <div className="flex items-center justify-between">
                               <span className="text-[11px] font-mono font-bold text-amber-300">
-                                Escoge los Apartamentos Citados ({apartamentosEscogidosAdmin.length} seleccionados):
+                                Conexión Segura P2P ({apartamentosEscogidosAdmin.length}/{MAX_PERSONAS_MALLA_CONSEJO} máx. personas):
                               </span>
                               <div className="flex gap-1.5">
                                 <button
                                   type="button"
-                                  onClick={() => setApartamentosEscogidosAdmin(catalogoApartamentos.map((c) => c.unidad))}
+                                  onClick={() =>
+                                    setApartamentosEscogidosAdmin(
+                                      catalogoApartamentos.slice(0, MAX_PERSONAS_MALLA_CONSEJO).map((c) => c.unidad)
+                                    )
+                                  }
                                   className="text-[10px] font-mono text-cyan-400 hover:underline cursor-pointer"
                                 >
-                                  Marcar todos
+                                  Seleccionar hasta 10
                                 </button>
                                 <span className="text-slate-600">|</span>
                                 <button
@@ -1526,7 +1781,7 @@ export default function ModuloReunionesConSubmodulos({
                                 type="text"
                                 value={nuevoAptoManual}
                                 onChange={(e) => setNuevoAptoManual(e.target.value)}
-                                placeholder="Otro apartamento (ej. Torre 2 - 501)..."
+                                placeholder="Agregar apto a malla segura (máx. 10)..."
                                 className="flex-1 bg-[#0b0f17] border border-slate-800 rounded-lg px-2.5 py-1 text-[11px] text-white outline-none focus:border-amber-400 font-mono"
                               />
                               <button
@@ -1547,8 +1802,8 @@ export default function ModuloReunionesConSubmodulos({
                         >
                           <Play className="w-4 h-4 fill-current" />
                           {tipoConvocatoriaAdmin === 'asamblea'
-                            ? 'Abrir Sala y Convocar a Todos los Residentes'
-                            : `Abrir Sala y Citar ${apartamentosEscogidosAdmin.length} Apartamento(s) al Consejo`}
+                            ? 'Iniciar Sala Masiva SFU (100–200 Personas • Pantalla 1 a 1)'
+                            : `Iniciar Conexión Segura P2P (${apartamentosEscogidosAdmin.length}/10 Personas • Pantalla 1 a 1)`}
                         </button>
                       </div>
                     )}

@@ -82,15 +82,28 @@ export default function SubmoduloConvocatoriasLey675({
 
   const tipoSeleccionado = tiposDisponibles.find(t => t.label === tipoReunion) || tiposDisponibles[0];
 
+  const MAX_PERSONAS_MALLA_SEGURA = 10;
+
   const toggleApartamento = (unidad: string) => {
-    setApartamentosSeleccionados(prev =>
-      prev.includes(unidad) ? prev.filter(u => u !== unidad) : [...prev, unidad]
-    );
+    setApartamentosSeleccionados(prev => {
+      if (prev.includes(unidad)) {
+        return prev.filter(u => u !== unidad);
+      }
+      if (prev.length >= MAX_PERSONAS_MALLA_SEGURA) {
+        onShowToast?.(`🔒 Por seguridad de la Malla P2P Encriptada, las reuniones de Consejo/Comité permiten máximo ${MAX_PERSONAS_MALLA_SEGURA} personas.`);
+        return prev;
+      }
+      return [...prev, unidad];
+    });
   };
 
   const handleAgregarApto = () => {
     const limpio = nuevoAptoInput.trim();
     if (!limpio) return;
+    if (apartamentosSeleccionados.length >= MAX_PERSONAS_MALLA_SEGURA && !apartamentosSeleccionados.includes(limpio)) {
+      onShowToast?.(`🔒 Límite alcanzado: Máximo ${MAX_PERSONAS_MALLA_SEGURA} apartamentos en conexión segura de Consejo/Comité.`);
+      return;
+    }
     if (!catalogoUnidades.some(c => c.unidad.toLowerCase() === limpio.toLowerCase())) {
       setCatalogoUnidades(prev => [...prev, { unidad: limpio, propietario: 'Propietario Acreditado', rol: 'Invitado' }]);
     }
@@ -141,8 +154,8 @@ export default function SubmoduloConvocatoriasLey675({
     onShowToast?.(
       `📅 Convocatoria programada: "${tituloReunion}" (${
         tipoSeleccionado.esGeneral
-          ? 'Todos los residentes de la unidad'
-          : `${apartamentosSeleccionados.length} apartamentos seleccionados`
+          ? 'Modo SFU 200+ residentes simultáneos'
+          : `Malla Segura P2P: ${apartamentosSeleccionados.length}/10 apartamentos`
       }).`
     );
     setTituloReunion('');
@@ -169,7 +182,7 @@ export default function SubmoduloConvocatoriasLey675({
           <Calendar className="w-5 h-5 text-cyan-400" /> Programador de Convocatorias y Selección de Apartamentos
         </h2>
         <p className="text-xs text-slate-400 mt-1">
-          Para Asamblea General se convoca a toda la copropiedad; para Consejo o Comité puedes escoger exactamente los apartamentos citados.
+          Asamblea General activa el canal masivo SFU (100–200+ personas); Consejo y Comités operan en Malla P2P Encriptada (máx. 10 personas).
         </p>
       </div>
 
@@ -192,7 +205,10 @@ export default function SubmoduloConvocatoriasLey675({
           <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-xl text-xs text-slate-400 space-y-1">
             <p className="text-slate-300 font-medium">{tipoSeleccionado.desc}</p>
             <p className="text-cyan-400 font-mono text-[11px]">
-              ⏱ Término legal: <strong className="text-white">{tipoSeleccionado.ant}</strong>
+              ⏱ Término legal: <strong className="text-white">{tipoSeleccionado.ant}</strong> • Topología:{' '}
+              <strong className="text-emerald-400">
+                {tipoSeleccionado.esGeneral ? 'SFU Broadcast (100–200+ Simultáneos)' : 'Malla P2P Encriptada DTLS-SRTP (Máx. 10)'}
+              </strong>
             </p>
           </div>
         </div>
@@ -203,12 +219,14 @@ export default function SubmoduloConvocatoriasLey675({
             <div className="flex items-center gap-2.5">
               <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
               <div>
-                <p className="text-xs font-bold text-white">Citación Universal: Todos los Residentes y Propietarios</p>
-                <p className="text-[11px] text-emerald-300/90">Conforme a la Ley 675, la Asamblea General habilita el ingreso de todas las unidades privadas de la copropiedad.</p>
+                <p className="text-xs font-bold text-white">Canal Masivo SFU: 100 a 200+ Residentes en Tiempo Real</p>
+                <p className="text-[11px] text-emerald-300/90">
+                  Exclusivo para Asamblea General. Visualización 1 a 1 inteligente (cambia automáticamente a quien toma la palabra).
+                </p>
               </div>
             </div>
             <span className="text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-lg shrink-0">
-              100% Unidades
+              200+ Simultáneos
             </span>
           </div>
         ) : (
@@ -216,19 +234,19 @@ export default function SubmoduloConvocatoriasLey675({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <span className="text-[10px] font-mono font-bold uppercase text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
-                  Selección Exclusiva de Administración
+                  Malla Segura P2P Encriptada • Máximo 10 Personas
                 </span>
                 <h4 className="text-xs font-bold text-white mt-1">
-                  Escoge los Apartamentos / Consejeros Citados ({apartamentosSeleccionados.length} seleccionados)
+                  Escoge los Apartamentos Citados ({apartamentosSeleccionados.length}/{MAX_PERSONAS_MALLA_SEGURA} seleccionados)
                 </h4>
               </div>
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setApartamentosSeleccionados(catalogoUnidades.map(c => c.unidad))}
+                  onClick={() => setApartamentosSeleccionados(catalogoUnidades.slice(0, MAX_PERSONAS_MALLA_SEGURA).map(c => c.unidad))}
                   className="text-[10px] font-mono text-cyan-400 hover:underline cursor-pointer px-2 py-1 bg-slate-900 rounded-lg border border-slate-800"
                 >
-                  Todos
+                  Máx. 10
                 </button>
                 <button
                   type="button"

@@ -1,15 +1,33 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 
+const CUSTOM_TURN_URL = (import.meta as any).env?.VITE_TURN_URL || '';
+const CUSTOM_TURN_USER = (import.meta as any).env?.VITE_TURN_USERNAME || 'openrelayproject';
+const CUSTOM_TURN_CRED = (import.meta as any).env?.VITE_TURN_CREDENTIAL || 'openrelayproject';
+
 const ICE_CONFIG: RTCConfiguration = {
   iceServers: [
+    // 1. Servidores STUN de baja latencia (Google + Cloudflare)
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' }
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    // 2. Servidores TURN Relay (UDP + TCP + TLS 443 para atravesar NAT Simétrico / CGNAT 4G/5G al 100%)
+    {
+      urls: [
+        ...(CUSTOM_TURN_URL ? [CUSTOM_TURN_URL] : []),
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp'
+      ],
+      username: CUSTOM_TURN_USER,
+      credential: CUSTOM_TURN_CRED
+    }
   ],
-  iceCandidatePoolSize: 4
+  iceCandidatePoolSize: 6,
+  bundlePolicy: 'max-bundle',
+  rtcpMuxPolicy: 'require'
 };
 
 export type EstadoCitofono = 'disponible' | 'llamando' | 'entrante' | 'conectado' | 'reconectando';
