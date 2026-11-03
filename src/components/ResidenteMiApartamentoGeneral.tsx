@@ -32,10 +32,11 @@ export default function ResidenteMiApartamentoGeneral({
     estadoCartera: 'Al Día • Paz y Salvo Vigente'
   };
 
-  // Censo de residentes / habitantes autorizados
+  // Censo de residentes / habitantes autorizados (3 Residentes Demo)
   const [habitantes, setHabitantes] = useState([
-    { id: '1', nombre: 'Esteban Ochoa Mesa', parentesco: 'Propietario Principal', celular: '+57 300 481 9021', citofonia: 'Línea 1 Directa' },
-    { id: '2', nombre: 'Valentina Restrepo Giraldo', parentesco: 'Cónyuge / Residente', celular: '+57 312 774 8190', citofonia: 'Línea 2 Secundario' }
+    { id: '1', nombre: 'Martha Lucía Gómez (Demo 1)', parentesco: 'Propietaria Principal • T2-301', celular: '+57 300 481 9021', citofonia: 'Línea 1 Directa' },
+    { id: '2', nombre: 'Dr. Mauricio Restrepo (Demo 2)', parentesco: 'Consejero Principal • T1-302', celular: '+57 312 774 8190', citofonia: 'Línea 2 Secundario' },
+    { id: '3', nombre: 'Andrés Gómez (Demo 3)', parentesco: 'Consejero Suplente • T1-201', celular: '+57 315 882 3410', citofonia: 'Línea 3 Directa' }
   ]);
   const [showModalHabitante, setShowModalHabitante] = useState(false);
   const [nuevoNombreHab, setNuevoNombreHab] = useState('');

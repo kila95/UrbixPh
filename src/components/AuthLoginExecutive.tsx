@@ -30,6 +30,9 @@ export default function AuthLoginExecutive({
 
     let resolvedRole = 'admin_ph';
     let resolvedName = 'Carlos Mario Pineda';
+    let resolvedUnit = 'Torre 2 - 301';
+    let resolvedCoef = 1.15;
+
     if (cleanEmail.includes('supervisor') || cleanEmail.includes('julian')) {
       resolvedRole = 'supervisor';
       resolvedName = 'Julián Arango';
@@ -39,9 +42,21 @@ export default function AuthLoginExecutive({
     } else if (cleanEmail.includes('aseo') || cleanEmail.includes('servicios')) {
       resolvedRole = 'servicios_generales';
       resolvedName = 'Personal Servicios Generales';
+    } else if (cleanEmail.includes('mauricio') || cleanEmail.includes('residente2')) {
+      resolvedRole = 'residente';
+      resolvedName = 'Dr. Mauricio Restrepo';
+      resolvedUnit = 'Torre 1 - 302';
+      resolvedCoef = 1.05;
+    } else if (cleanEmail.includes('andres') || cleanEmail.includes('residente3')) {
+      resolvedRole = 'residente';
+      resolvedName = 'Andrés Gómez';
+      resolvedUnit = 'Torre 1 - 201';
+      resolvedCoef = 0.95;
     } else if (cleanEmail.includes('residente') || cleanEmail.includes('martha')) {
       resolvedRole = 'residente';
       resolvedName = 'Martha Lucía Gómez';
+      resolvedUnit = 'Torre 2 - 301';
+      resolvedCoef = 1.15;
     }
 
     return {
@@ -49,6 +64,8 @@ export default function AuthLoginExecutive({
       email: cleanEmail,
       full_name: resolvedName,
       role: resolvedRole,
+      unidad: resolvedUnit,
+      coeficiente: resolvedCoef,
       tenant_id: 'ten_01',
       is_active: true
     };
@@ -364,14 +381,16 @@ export default function AuthLoginExecutive({
           </span>
           <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono">
             {[
-              { label: '🚀 Master Owner', email: 'estebanochoamesa@gmail.com', role: 'master_owner', name: 'Esteban Ochoa Mesa' },
-              { label: '🛡️ Admin PH', email: 'carlos.admin@reservatesoro.com', role: 'admin_ph', name: 'Carlos Mario Pineda' },
-              { label: '⚡ Supervisor', email: 'supervisor@urbix.ph', role: 'supervisor', name: 'Julián Arango' },
-              { label: '🚨 Portería', email: 'porteria@urbix.ph', role: 'porteria', name: 'Guarda en Turno' },
-              { label: '🏡 Residente', email: 'martha.residente@reservatesoro.com', role: 'residente', name: 'Martha Lucía Gómez (Apto 301)' }
+              { idKey: 'master', label: '🚀 Master Owner', email: 'estebanochoamesa@gmail.com', role: 'master_owner', name: 'Esteban Ochoa Mesa', unidad: undefined, coeficiente: undefined },
+              { idKey: 'admin', label: '🛡️ Admin PH', email: 'carlos.admin@reservatesoro.com', role: 'admin_ph', name: 'Carlos Mario Pineda', unidad: undefined, coeficiente: undefined },
+              { idKey: 'supervisor', label: '⚡ Supervisor', email: 'supervisor@urbix.ph', role: 'supervisor', name: 'Julián Arango', unidad: undefined, coeficiente: undefined },
+              { idKey: 'porteria', label: '🚨 Portería', email: 'porteria@urbix.ph', role: 'porteria', name: 'Guarda en Turno', unidad: undefined, coeficiente: undefined },
+              { idKey: 'residente_1', label: '🏡 Residente Demo 1 (T2-301)', email: 'martha.residente@reservatesoro.com', role: 'residente', name: 'Martha Lucía Gómez', unidad: 'Torre 2 - 301', coeficiente: 1.15 },
+              { idKey: 'residente_2', label: '🏡 Residente Demo 2 (T1-302)', email: 'mauricio.residente@reservatesoro.com', role: 'residente', name: 'Dr. Mauricio Restrepo', unidad: 'Torre 1 - 302', coeficiente: 1.05 },
+              { idKey: 'residente_3', label: '🏡 Residente Demo 3 (T1-201)', email: 'andres.residente@reservatesoro.com', role: 'residente', name: 'Andrés Gómez', unidad: 'Torre 1 - 201', coeficiente: 0.95 }
             ].map((demo) => (
               <button
-                key={demo.role}
+                key={demo.idKey}
                 type="button"
                 onClick={() => {
                   setEmail(demo.email);
@@ -380,17 +399,23 @@ export default function AuthLoginExecutive({
                   } else {
                     setPassword('••••••••••••');
                   }
-                  onShowToast?.(`Bienvenido a Urbix PH, ${demo.name} (${demo.role === 'master_owner' ? 'SaaS Master Owner' : 'Administrador PH'})`);
+                  onShowToast?.(
+                    `Bienvenido a Urbix PH, ${demo.name}${demo.unidad ? ` (${demo.unidad})` : ''}`
+                  );
                   onLoginSuccess({
-                    id: demo.role === 'master_owner' ? 'usr_esteban_master' : `usr_${demo.role}`,
+                    id: demo.role === 'master_owner' ? 'usr_esteban_master' : `usr_${demo.idKey}`,
                     email: demo.email,
                     full_name: demo.name,
                     role: demo.role,
+                    unidad: demo.unidad,
+                    coeficiente: demo.coeficiente,
                     tenant_id: demo.role === 'master_owner' ? undefined : 'ten_01',
                     is_active: true
                   });
                 }}
-                className="bg-[#07090e] hover:bg-[#00f2fe]/10 border border-slate-800 hover:border-[#00f2fe]/40 text-slate-300 hover:text-[#00f2fe] py-1.5 px-2 rounded-lg transition cursor-pointer text-left truncate"
+                className={`bg-[#07090e] hover:bg-[#00f2fe]/10 border border-slate-800 hover:border-[#00f2fe]/40 text-slate-300 hover:text-[#00f2fe] py-1.5 px-2 rounded-lg transition cursor-pointer text-left truncate ${
+                  demo.idKey === 'residente_3' ? 'col-span-2 text-center border-cyan-500/30 text-cyan-200' : ''
+                }`}
               >
                 {demo.label}
               </button>

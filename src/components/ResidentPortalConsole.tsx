@@ -202,11 +202,52 @@ export default function ResidentPortalConsole({
   const [asuntoPqrsdInput, setAsuntoPqrsdInput] = useState('');
   const [descPqrsdInput, setDescPqrsdInput] = useState(''); 
 
-  const unidadResidente = unidadesAsamblea.find(u => u.esResidenteActual) || {
-    id: 'u1',
-    unidad: 'Torre 2 - 301',
-    propietario: 'Esteban Ochoa',
-    coeficiente: 18.5,
+  // Catálogo oficial de los 3 Residentes Demo para ensayar Videoconferencia, Control de Palabra y Citofonía
+  const RESIDENTES_DEMO_CATALOGO = [
+    {
+      id: 'res_demo_1',
+      label: 'Residente Demo 1',
+      unidad: 'Torre 2 - 301',
+      propietario: 'Martha Lucía Gómez',
+      coeficiente: 1.15,
+      cargo: 'Presidente Consejo',
+      cuotaMensual: 450000
+    },
+    {
+      id: 'res_demo_2',
+      label: 'Residente Demo 2',
+      unidad: 'Torre 1 - 302',
+      propietario: 'Dr. Mauricio Restrepo',
+      coeficiente: 1.05,
+      cargo: 'Consejero Principal',
+      cuotaMensual: 420000
+    },
+    {
+      id: 'res_demo_3',
+      label: 'Residente Demo 3',
+      unidad: 'Torre 1 - 201',
+      propietario: 'Andrés Gómez',
+      coeficiente: 0.95,
+      cargo: 'Consejero Suplente',
+      cuotaMensual: 395000
+    }
+  ];
+
+  const initialDemoResidente =
+    RESIDENTES_DEMO_CATALOGO.find(
+      (r) =>
+        (userProfile?.unidad && r.unidad === userProfile.unidad) ||
+        (userProfile?.full_name &&
+          r.propietario.toLowerCase().includes(String(userProfile.full_name).toLowerCase().split(' ')[0]))
+    ) || RESIDENTES_DEMO_CATALOGO[0];
+
+  const [residenteDemoActivo, setResidenteDemoActivo] = useState(initialDemoResidente);
+
+  const unidadResidente = {
+    id: residenteDemoActivo.id,
+    unidad: residenteDemoActivo.unidad,
+    propietario: residenteDemoActivo.propietario,
+    coeficiente: residenteDemoActivo.coeficiente,
     presente: true,
     poder: false,
     esResidenteActual: true
@@ -481,19 +522,31 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
     }
   };
 
-  // Estado financiero de la unidad (Fase 3)
+  // Estado financiero de la unidad (Fase 3) sincronizado con el Residente Demo Activo
   const [miEstadoCuenta, setMiEstadoCuenta] = useState({
-    unidad: 'Torre 2 - 301',
-    propietario: 'Esteban Ochoa',
-    coeficiente: '18.5%',
-    cuotaMensual: 450000,
+    unidad: initialDemoResidente.unidad,
+    propietario: initialDemoResidente.propietario,
+    coeficiente: `${initialDemoResidente.coeficiente}%`,
+    cuotaMensual: initialDemoResidente.cuotaMensual,
     saldoActual: 0,
     estadoCartera: 'Al día',
     movimientos: [
-      { id: '1', concepto: 'Cuota Ordinaria Octubre 2026', cargo: 450000, abono: 450000, fecha: '2026-10-02', ref: 'CUS-98312' },
-      { id: '2', concepto: 'Cuota Ordinaria Septiembre 2026', cargo: 450000, abono: 450000, fecha: '2026-09-03', ref: 'CUS-87120' }
+      { id: '1', concepto: 'Cuota Ordinaria Octubre 2026', cargo: initialDemoResidente.cuotaMensual, abono: initialDemoResidente.cuotaMensual, fecha: '2026-10-02', ref: 'CUS-98312' },
+      { id: '2', concepto: 'Cuota Ordinaria Septiembre 2026', cargo: initialDemoResidente.cuotaMensual, abono: initialDemoResidente.cuotaMensual, fecha: '2026-09-03', ref: 'CUS-87120' }
     ]
   });
+
+  const cambiarResidenteDemo = (demo: typeof RESIDENTES_DEMO_CATALOGO[number]) => {
+    setResidenteDemoActivo(demo);
+    setMiEstadoCuenta((prev) => ({
+      ...prev,
+      unidad: demo.unidad,
+      propietario: demo.propietario,
+      coeficiente: `${demo.coeficiente}%`,
+      cuotaMensual: demo.cuotaMensual
+    }));
+    onShowToast?.(`🏡 Cambiado a ${demo.label}: ${demo.unidad} (${demo.propietario})`);
+  };
 
   // Función para generar pase QR y sincronizarlo en tiempo real con Portería
   const generarPaseQRResidente = (e: any) => {
@@ -508,8 +561,8 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
         nombreVisitante: visitante,
         cedula: cedula,
         tipo: 'Visita / Familiar',
-        unidad: 'Torre 2 - 301',
-        residenteAnfitrion: 'Esteban Ochoa Mesa',
+        unidad: miEstadoCuenta.unidad,
+        residenteAnfitrion: miEstadoCuenta.propietario,
         tipoVehiculo: 'Peatonal',
         observaciones: `Pase QR generado para el ${fecha}`
       });
@@ -525,8 +578,8 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
         nombreVisitante: visitante,
         cedula,
         tipo: 'Visita / Familiar',
-        unidad: 'Torre 2 - 301',
-        residenteAnfitrion: 'Esteban Ochoa Mesa',
+        unidad: miEstadoCuenta.unidad,
+        residenteAnfitrion: miEstadoCuenta.propietario,
         tipoVehiculo: 'Peatonal',
         estado: 'Autorizado',
         horaIngreso: 'Pendiente de escaneo en portería',
@@ -602,34 +655,66 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
   return (
     <div className="min-h-screen bg-[#07090e] text-slate-100 font-sans p-3 sm:p-5 md:p-6 space-y-4 sm:space-y-6 flex flex-col">
       
-      {/* 1. CABECERA SIEMPRE ARRIBA */}
-      <header className="w-full shrink-0 bg-[#1c1c1f] border border-[#262629] rounded-2xl px-4 sm:px-6 py-3.5 sm:py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 shadow-lg">
-        <div className="flex items-center space-x-3">
-          <div className="bg-cyan-500/10 p-2 rounded-lg border border-cyan-500/30 shrink-0">
-            <Building2 className="w-5 h-5 sm:w-6 sm:h-6 text-cyan-400" />
+      {/* 1. CABECERA SIEMPRE ARRIBA + SELECTOR RÁPIDO DE LOS 3 RESIDENTES DEMO */}
+      <header className="w-full shrink-0 bg-[#1c1c1f] border border-[#262629] rounded-2xl px-4 sm:px-6 py-3.5 sm:py-4 flex flex-col gap-3 shadow-lg">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+          <div className="flex items-center space-x-3">
+            <div className="bg-cyan-500/10 p-2 rounded-lg border border-cyan-500/30 shrink-0">
+              <Building2 className="w-5 h-5 sm:w-6 sm:h-6 text-cyan-400" />
+            </div>
+            <div>
+              <h1 className="text-base sm:text-lg font-bold tracking-tight text-white flex flex-wrap items-center gap-2">
+                URBIX PH <span className="text-[10px] sm:text-xs px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono">Portal Residente + IA Ley 675</span>
+              </h1>
+              <p className="text-xs text-gray-400">
+                <strong className="text-white">{miEstadoCuenta.unidad}</strong> • {miEstadoCuenta.propietario} ({residenteDemoActivo.cargo}) • Coeficiente:{' '}
+                <span className="text-cyan-400 font-mono font-bold">{unidadResidente.coeficiente}%</span>
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-base sm:text-lg font-bold tracking-tight text-white flex flex-wrap items-center gap-2">
-              URBIX PH <span className="text-[10px] sm:text-xs px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono">Portal Residente + IA Ley 675</span>
-            </h1>
-            <p className="text-xs text-gray-400">{miEstadoCuenta.unidad} • {miEstadoCuenta.propietario} • Coeficiente: <span className="text-cyan-400 font-mono font-bold">{unidadResidente.coeficiente}%</span></p>
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <span className={`px-3 py-1.5 rounded font-mono text-xs font-bold ${miEstadoCuenta.saldoActual === 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+              {miEstadoCuenta.saldoActual === 0 ? '🟢 Paz y Salvo Vigente' : '🔴 En Mora'}
+            </span>
+            {onCerrarSesion && (
+              <button
+                type="button"
+                onClick={onCerrarSesion}
+                className="px-3.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 hover:border-rose-500/60 text-rose-300 hover:text-white rounded-xl text-xs font-mono font-bold transition-all duration-200 flex items-center gap-1.5 cursor-pointer shrink-0 shadow-[0_0_15px_rgba(244,63,94,0.15)] hover:shadow-[0_0_20px_rgba(244,63,94,0.35)]"
+                title="Cerrar sesión de Residente"
+              >
+                <LogOut className="w-3.5 h-3.5 text-rose-400" />
+                <span>Cerrar Sesión</span>
+              </button>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0 flex-wrap">
-          <span className={`px-3 py-1.5 rounded font-mono text-xs font-bold ${miEstadoCuenta.saldoActual === 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-            {miEstadoCuenta.saldoActual === 0 ? '🟢 Paz y Salvo Vigente' : '🔴 En Mora'}
+
+        {/* Barra de cambio instantáneo entre los 3 Residentes Demo para ensayar Videoconferencia y Control de Palabra */}
+        <div className="pt-2.5 border-t border-[#262629] flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+          <span className="text-[11px] text-cyan-400 font-bold flex items-center gap-1.5">
+            🏡 Alternar entre los 3 Residentes Demo (Ensayo Videoconferencia &amp; Citofonía):
           </span>
-          {onCerrarSesion && (
-            <button
-              type="button"
-              onClick={onCerrarSesion}
-              className="px-3.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 hover:border-rose-500/60 text-rose-300 hover:text-white rounded-xl text-xs font-mono font-bold transition-all duration-200 flex items-center gap-1.5 cursor-pointer shrink-0 shadow-[0_0_15px_rgba(244,63,94,0.15)] hover:shadow-[0_0_20px_rgba(244,63,94,0.35)]"
-              title="Cerrar sesión de Residente"
-            >
-              <LogOut className="w-3.5 h-3.5 text-rose-400" />
-              <span>Cerrar Sesión</span>
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {RESIDENTES_DEMO_CATALOGO.map((demo, idx) => {
+              const activo = residenteDemoActivo.unidad === demo.unidad;
+              return (
+                <button
+                  key={demo.id}
+                  type="button"
+                  onClick={() => cambiarResidenteDemo(demo)}
+                  className={`px-3 py-1.5 rounded-xl text-[11px] font-mono font-bold border transition cursor-pointer flex items-center gap-1.5 ${
+                    activo
+                      ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.25)]'
+                      : 'bg-[#141416] text-slate-400 border-[#262629] hover:text-white hover:border-slate-600'
+                  }`}
+                >
+                  <span>{idx + 1}. {demo.unidad}</span>
+                  <span className="text-[10px] opacity-85">({demo.propietario})</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </header>
 
