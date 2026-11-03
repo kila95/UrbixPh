@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
 import { 
   Users, 
@@ -17,7 +17,7 @@ export interface StaffMember {
   user_id: string;
   nombre: string;
   email: string;
-  role: 'supervisor' | 'porteria' | 'aseo';
+  role: 'supervisor' | 'vigilante' | 'porteria' | 'aseo' | 'mantenimiento' | string;
   turno: string;
   is_active: boolean;
 }
@@ -35,12 +35,47 @@ export default function GestionCuadrillaAdminModal({
   onShowToast?: (msg: string) => void;
   onColaboradorAsignado?: (miembro: StaffMember) => void;
 }) {
-  // Lista de personal asignado a este conjunto
-  const [personalAsignado, setPersonalAsignado] = useState<StaffMember[]>([
-    { id: 'st-1', user_id: 'usr-1', nombre: 'Juan Camilo Restrepo', email: 'jrestrepo@seguridad.com', role: 'supervisor', turno: 'Día (6:00 - 18:00)', is_active: true },
-    { id: 'st-2', user_id: 'usr-2', nombre: 'Nelson Gómez', email: 'ngomez@garita.com', role: 'porteria', turno: 'Noche (18:00 - 6:00)', is_active: true },
-    { id: 'st-3', user_id: 'usr-3', nombre: 'Luz Dary Agudelo', email: 'lagudelo@servicios.com', role: 'aseo', turno: 'Mañana (7:00 - 15:00)', is_active: true }
-  ]);
+  // ✅ AHORA (Base Real):
+  const [personalAsignado, setPersonalAsignado] = useState<StaffMember[]>([]);
+  const [cargandoStaff, setCargandoStaff] = useState<boolean>(true);
+
+  // Cargar personal real asignado a este tenant desde la base de datos
+  useEffect(() => {
+    const cargarPersonalReal = async () => {
+      try {
+        setCargandoStaff(true);
+        if (!tenantId) return;
+
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, full_name, email, role, is_active')
+          .eq('tenant_id', tenantId)
+          .in('role', ['supervisor', 'vigilante', 'porteria', 'aseo', 'mantenimiento']);
+
+        if (error) throw error;
+
+        if (data) {
+          setPersonalAsignado(
+            data.map(p => ({
+              id: p.id,
+              user_id: p.id,
+              nombre: p.full_name || 'Sin nombre',
+              email: p.email || '',
+              role: p.role,
+              turno: p.role === 'vigilante' ? 'Turno Rotativo 12h' : 'Jornada Diurna',
+              is_active: p.is_active ?? true
+            }))
+          );
+        }
+      } catch (err: any) {
+        console.error('Error cargando personal real:', err.message);
+      } finally {
+        setCargandoStaff(false);
+      }
+    };
+
+    cargarPersonalReal();
+  }, [tenantId]);
 
   // Formulario para dar de alta y asignar a un nuevo miembro
   const [nuevoNombre, setNuevoNombre] = useState('');
@@ -251,44 +286,52 @@ export default function GestionCuadrillaAdminModal({
             </div>
 
             <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
-              {personalAsignado.map((persona) => {
-                const badgeColor = 
-                  persona.role === 'supervisor' ? 'bg-purple-500/10 text-purple-400 border-purple-500/30' :
-                  persona.role === 'porteria' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30' :
-                  'bg-teal-500/10 text-teal-400 border-teal-500/30';
+              {cargandoStaff ? (
+                <div className="text-center py-6 text-slate-500 font-mono text-xs">Cargando personal de la copropiedad...</div>
+              ) : personalAsignado.length === 0 ? (
+                <div className="text-center py-6 bg-slate-950/40 rounded-xl border border-dashed border-slate-800 text-slate-500 font-mono text-xs">
+                  No hay personal asignado a este conjunto. Utiliza el formulario de la izquierda para registrar a los vigilantes o personal de aseo reales.
+                </div>
+              ) : (
+                personalAsignado.map((persona) => {
+                  const badgeColor = 
+                    persona.role === 'supervisor' ? 'bg-purple-500/10 text-purple-400 border-purple-500/30' :
+                    persona.role === 'porteria' || persona.role === 'vigilante' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30' :
+                    'bg-teal-500/10 text-teal-400 border-teal-500/30';
 
-                return (
-                  <div
-                    key={persona.id}
-                    className="p-3.5 bg-[#07090e] border border-slate-800 rounded-2xl flex items-center justify-between gap-3 hover:border-slate-700 transition"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <strong className="text-white text-xs">{persona.nombre}</strong>
-                        <span className={`text-[9px] font-mono font-bold uppercase px-2 py-0.5 rounded border ${badgeColor}`}>
-                          {persona.role.toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400">
-                        <span>{persona.email}</span>
-                        <span>•</span>
-                        <span className="flex items-center gap-1 text-slate-300">
-                          <Clock className="w-3 h-3 text-slate-500" /> {persona.turno}
-                        </span>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleRemoverCargo(persona.id, persona.nombre)}
-                      className="p-2 text-rose-400 hover:text-white hover:bg-rose-500/20 rounded-xl transition cursor-pointer border border-rose-500/20"
-                      title="Revocar asignación de este conjunto"
+                  return (
+                    <div
+                      key={persona.id}
+                      className="p-3.5 bg-[#07090e] border border-slate-800 rounded-2xl flex items-center justify-between gap-3 hover:border-slate-700 transition"
                     >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                );
-              })}
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <strong className="text-white text-xs">{persona.nombre}</strong>
+                          <span className={`text-[9px] font-mono font-bold uppercase px-2 py-0.5 rounded border ${badgeColor}`}>
+                            {persona.role.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400">
+                          <span>{persona.email}</span>
+                          <span>•</span>
+                          <span className="flex items-center gap-1 text-slate-300">
+                            <Clock className="w-3 h-3 text-slate-500" /> {persona.turno}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRemoverCargo(persona.id, persona.nombre)}
+                        className="p-2 text-rose-400 hover:text-white hover:bg-rose-500/20 rounded-xl transition cursor-pointer border border-rose-500/20"
+                        title="Revocar asignación de este conjunto"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
             </div>
 
             <p className="text-[11px] font-mono text-slate-500 pt-2 border-t border-slate-800">

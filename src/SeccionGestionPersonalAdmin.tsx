@@ -1,12 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Users, UserPlus, Shield, Trash2, CheckCircle2, AlertCircle, Building2, Check, Plus, Edit3,
-  DollarSign, Clock, Filter, Coins, ShieldCheck, Sparkles, Briefcase, MapPin
+import { 
+  Users, Plus, Trash2, Mail, Clock, MapPin, 
+  DollarSign, RefreshCw, Calculator, X, ShieldAlert 
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
-import CrearAdministradorModal from './components/CrearAdministradorModal';
-import ModalRegistroAdministradorEmpresa from './components/ModalRegistroAdministradorEmpresa';
-import GestionCuadrillaAdminModal from './components/GestionCuadrillaAdminModal';
 
 export interface StaffAdminMember {
   id: string;
@@ -14,927 +11,615 @@ export interface StaffAdminMember {
   rol: string;
   email: string;
   estado: string;
-  edificios?: string[];
+  turnoLineaTiempo: string;
+  ubicacionLineaTiempo: string;
   salarioBasico: number;
-  auxilioTransporte?: number;
-  turnoLineaTiempo?: string;
-  ubicacionLineaTiempo?: string;
+  auxilioTransporte: number;
+  comisiones: number;
+  deduccionSalud: number;
+  deduccionPension: number;
+  netoPagar: number;
 }
 
-export default function SeccionGestionPersonalAdmin({
-  onShowToast,
-  edificiosAsignados: propEdificiosAsignados,
-  edificioActivoId: propEdificioActivoId,
-  setEdificioActivoId: propSetEdificioActivoId
-}: {
+interface Props {
   onShowToast?: (msg: string) => void;
   edificiosAsignados?: { id: string; name: string }[];
   edificioActivoId?: string;
   setEdificioActivoId?: (id: string) => void;
-}) {
-  // Edificios asignados al administrador desde Supabase
-  const [edificiosAsignados, setEdificiosAsignados] = useState<any[]>(
-    propEdificiosAsignados && propEdificiosAsignados.length > 0
-      ? propEdificiosAsignados
-      : [
-          { id: 'bld-tricentenario', name: 'Urb. Tricentenario' },
-          { id: 'bld-reserva', name: 'P.H. Reserva del Tesoro (Torre 1 & 2)' },
-          { id: 'bld-altavista', name: 'Conjunto Altavista PH' }
-        ]
-  );
-  const [edificioActivoId, setEdificioActivoIdState] = useState<string>(
-    propEdificioActivoId || 'bld-tricentenario'
-  );
+}
 
-  const setEdificioActivoId = (id: string) => {
-    setEdificioActivoIdState(id);
-    if (propSetEdificioActivoId) propSetEdificioActivoId(id);
+export default function SeccionGestionPersonalAdmin({ onShowToast }: Props) {
+  const [personalStaff, setPersonalStaff] = useState<StaffAdminMember[]>([]);
+  const [cargando, setCargando] = useState<boolean>(true);
+  const [tenantReal, setTenantReal] = useState<{ id: string; name: string } | null>(null);
+
+  // Estados del modal de registro
+  const [mostrarForm, setMostrarForm] = useState(false);
+  const [nombreNuevo, setNombreNuevo] = useState('');
+  const [emailNuevo, setEmailNuevo] = useState('');
+  const [rolNuevo, setRolNuevo] = useState<'admin' | 'vigilante' | 'aseo' | 'supervisor'>('vigilante');
+  const [turnoNuevo, setTurnoNuevo] = useState('Turno Rotativo 12h');
+  const [ubicacionNuevo, setUbicacionNuevo] = useState('Portería y Garita');
+
+  // Estados de nómina colombiana
+  const [salarioBasico, setSalarioBasico] = useState<number>(1650000);
+  const [aplicaAuxilio, setAplicaAuxilio] = useState<boolean>(true);
+  const [auxilioTransporte, setAuxilioTransporte] = useState<number>(162000);
+  const [comisiones, setComisiones] = useState<number>(0);
+  const [guardando, setGuardando] = useState(false);
+  const [empleadoAEliminar, setEmpleadoAEliminar] = useState<{ id: string; nombre: string } | null>(null);
+  const [eliminandoId, setEliminandoId] = useState<string | null>(null);
+
+  const obtenerIdsEliminadosLocal = (): string[] => {
+    try {
+      const raw = localStorage.getItem('urbix_deleted_staff_ids');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const registrarIdEliminadoLocal = (id: string) => {
+    try {
+      const actuales = obtenerIdsEliminadosLocal();
+      if (!actuales.includes(id)) {
+        localStorage.setItem('urbix_deleted_staff_ids', JSON.stringify([...actuales, id]));
+      }
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  // Cálculos dinámicos de Ley Colombiana (Salud 4%, Pensión 4%)
+  const baseSeguridadSocial = Number(salarioBasico || 0) + Number(comisiones || 0);
+  const deduccionSalud = Math.round(baseSeguridadSocial * 0.04);
+  const deduccionPension = Math.round(baseSeguridadSocial * 0.04);
+  const totalDevengado = baseSeguridadSocial + (aplicaAuxilio ? Number(auxilioTransporte || 0) : 0);
+  const totalDeducciones = deduccionSalud + deduccionPension;
+  const netoCalculado = totalDevengado - totalDeducciones;
+
+  // 1. Manejador dinámico al cambiar el select de Cargo
+  const handleCambioRol = (nuevoCargo: 'admin' | 'vigilante' | 'aseo' | 'supervisor') => {
+    setRolNuevo(nuevoCargo);
+
+    switch (nuevoCargo) {
+      case 'supervisor':
+        setTurnoNuevo('Jornada Ordinaria / Supervisión Terreno');
+        setUbicacionNuevo('Rondas Perimetrales & Zonas Comunes');
+        break;
+      case 'vigilante':
+        setTurnoNuevo('Turno Rotativo 12h');
+        setUbicacionNuevo('Portería y Garita Principal');
+        break;
+      case 'aseo':
+        setTurnoNuevo('Turno Diurno (06:00 - 14:00)');
+        setUbicacionNuevo('Mantenimiento, Pasillos y Basuras');
+        break;
+      case 'admin':
+        setTurnoNuevo('Jornada Diurna (08:00 - 17:00)');
+        setUbicacionNuevo('Oficina de Administración');
+        break;
+    }
+  };
+
+  const cargarPersonal = async () => {
+    try {
+      setCargando(true);
+      const { data: tenantData } = await supabase
+        .from('tenants')
+        .select('id, name')
+        .ilike('name', '%Tricentenario%')
+        .limit(1)
+        .single();
+
+      if (tenantData) {
+        setTenantReal(tenantData);
+
+        const { data: profiles, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('tenant_id', tenantData.id)
+          .neq('role', 'residente')
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        if (profiles) {
+          const idsEliminados = obtenerIdsEliminadosLocal();
+          const perfilesActivos = profiles.filter(
+            (p) => p.is_active !== false && !idsEliminados.includes(p.id)
+          );
+
+          setPersonalStaff(
+            perfilesActivos.map((p) => {
+              const sBasico = Number(p.salary_base || 1650000);
+              const sAux = Number(p.transport_allowance || 162000);
+              const sCom = Number(p.commissions || 0);
+              const baseSS = sBasico + sCom;
+              const dSalud = Math.round(baseSS * 0.04);
+              const dPension = Math.round(baseSS * 0.04);
+              const neto = (baseSS + sAux) - (dSalud + dPension);
+
+              return {
+                id: p.id,
+                nombre: p.full_name || 'Sin Nombre',
+                rol: 
+                  p.role === 'admin' ? 'Administración' :
+                  p.role === 'vigilante' ? 'Vigilancia / Portería' :
+                  p.role === 'aseo' ? 'Servicios Generales' : 'Supervisor Ops',
+                email: p.email || '',
+                estado: p.is_active ? 'Activo (En nómina)' : 'Inactivo',
+                turnoLineaTiempo: p.shift_schedule || 'Jornada Ordinaria',
+                ubicacionLineaTiempo: p.location_work || 'En sitio',
+                salarioBasico: sBasico,
+                auxilioTransporte: sAux,
+                comisiones: sCom,
+                deduccionSalud: dSalud,
+                deduccionPension: dPension,
+                netoPagar: neto
+              };
+            })
+          );
+        }
+      }
+    } catch (err: any) {
+      console.error('Error cargando staff:', err.message);
+    } finally {
+      setCargando(false);
+    }
   };
 
   useEffect(() => {
-    if (propEdificiosAsignados && propEdificiosAsignados.length > 0) {
-      setEdificiosAsignados(propEdificiosAsignados);
-      if (propEdificioActivoId) setEdificioActivoIdState(propEdificioActivoId);
-      else setEdificioActivoIdState(propEdificiosAsignados[0].id);
-      return;
-    }
+    cargarPersonal();
+  }, []);
 
-    const cargarEdificiosDelAdmin = async () => {
-      let userId: string | undefined;
-      let userEmail: string | undefined;
-
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        userId = user?.id;
-        userEmail = user?.email;
-      } catch {}
-
-      const { data: tenants, error } = await supabase
-        .from('tenants')
-        .select('id, name')
-        .or(`assigned_admin_id.eq.${userId || 'dde881f7-cfe4-40b8-95bf-33d6e7a3ddfe'},admin_email.eq.${userEmail || 'siux95@hotmail.com'}`);
-
-      if (error) {
-        console.error('Error cargando edificios del admin:', error.message);
-        return;
-      }
-
-      if (tenants && tenants.length > 0) {
-        setEdificiosAsignados(tenants);
-        setEdificioActivoIdState(tenants[0].id);
-      }
-    };
-
-    cargarEdificiosDelAdmin();
-  }, [propEdificiosAsignados, propEdificioActivoId]);
-
-  // Catálogo de copropiedades / edificios para supervisores
-  const catalogCopropiedades = [
-    'P.H. Reserva del Tesoro (Torre 1 & 2)',
-    'Conjunto Altavista PH',
-    'Edificio Portal del Campestre',
-    'Torres de Vizcaya PH',
-    'Mirador del Poblado PH'
-  ];
-
-  // Estado local para filtrar trabajadores por edificio / copropiedad
-  const [edificioFiltro, setEdificioFiltro] = useState<string>('TODOS');
-  const [mostrarModalCrearAdmin, setMostrarModalCrearAdmin] = useState(false);
-  const [mostrarModalAdminEmpresa, setMostrarModalAdminEmpresa] = useState(false);
-  const [mostrarModalCuadrilla, setMostrarModalCuadrilla] = useState(false);
-
-  // Estado local de prueba para el personal de la copropiedad con salarios y turnos de línea de tiempo
-  const [personalStaff, setPersonalStaff] = useState<StaffAdminMember[]>([
-    {
-      id: 'st_1',
-      nombre: 'Carlos Mario Pineda',
-      rol: 'Administrador',
-      email: 'carlos.admin@urbix.ph',
-      estado: 'Activo (En sitio)',
-      edificios: ['Urb. Tricentenario', 'P.H. Reserva del Tesoro (Torre 1 & 2)', 'Conjunto Altavista PH'],
-      salarioBasico: 3500000,
-      auxilioTransporte: 0,
-      turnoLineaTiempo: '08:00 AM - 05:00 PM (Jornada Diurna)',
-      ubicacionLineaTiempo: 'Oficina de Administración Central'
-    },
-    {
-      id: 'st_2',
-      nombre: 'Julián Arango',
-      rol: 'Supervisor Operativo',
-      email: 'supervisor@urbix.ph',
-      estado: 'En Recorrido',
-      edificios: ['P.H. Reserva del Tesoro (Torre 1 & 2)', 'Edificio Portal del Campestre', 'Mirador del Poblado PH'],
-      salarioBasico: 2300000,
-      auxilioTransporte: 162000,
-      turnoLineaTiempo: '07:00 AM - 04:00 PM (Supervisión Terreno)',
-      ubicacionLineaTiempo: 'Ronda Perimetral & Inspección Garitas'
-    },
-    {
-      id: 'st_3',
-      nombre: 'Don José (Todero)',
-      rol: 'Aseo & Mantenimiento',
-      email: 'jose.operativo@urbix.ph',
-      estado: 'Activo (En sitio)',
-      edificios: ['Urb. Tricentenario', 'P.H. Reserva del Tesoro (Torre 1 & 2)', 'Conjunto Altavista PH'],
-      salarioBasico: 1423500,
-      auxilioTransporte: 162000,
-      turnoLineaTiempo: '06:00 AM - 02:00 PM (Turno Mañana)',
-      ubicacionLineaTiempo: 'Mantenimiento General & Zonas Verdes'
-    },
-    {
-      id: 'st_4',
-      nombre: 'Luis Fernando Pérez',
-      rol: 'Vigilante / Portería',
-      email: 'porteria.tesoro@urbix.ph',
-      estado: 'Activo (En sitio)',
-      edificios: ['Urb. Tricentenario', 'P.H. Reserva del Tesoro (Torre 1 & 2)'],
-      salarioBasico: 1650000,
-      auxilioTransporte: 162000,
-      turnoLineaTiempo: '06:00 AM - 06:00 PM (Turno 12h Garita)',
-      ubicacionLineaTiempo: 'Garita Principal & Control Peatonal'
-    },
-    {
-      id: 'st_5',
-      nombre: 'Sandra Milena Ospina',
-      rol: 'Vigilante / Portería',
-      email: 'sandra.vigilancia@urbix.ph',
-      estado: 'Activo (En sitio)',
-      edificios: ['Torres de Vizcaya PH', 'Mirador del Poblado PH'],
-      salarioBasico: 1650000,
-      auxilioTransporte: 162000,
-      turnoLineaTiempo: '06:00 AM - 06:00 PM (Turno 12h)',
-      ubicacionLineaTiempo: 'Recepción y Control Talanquera'
-    }
-  ]);
-
-  // Formulario para nuevo empleado
-  const [nombreNuevo, setNombreNuevo] = useState('');
-  const [emailNuevo, setEmailNuevo] = useState('');
-  const [rolNuevo, setRolNuevo] = useState('Vigilante / Portería');
-  const [salarioNuevo, setSalarioNuevo] = useState<number>(1423500);
-  const [auxilioNuevo, setAuxilioNuevo] = useState<number>(162000);
-  const [turnoNuevo, setTurnoNuevo] = useState('06:00 AM - 02:00 PM (Turno Mañana)');
-  const [ubicacionNuevo, setUbicacionNuevo] = useState('Garita Principal de Accesos');
-  const [edificiosSeleccionados, setEdificiosSeleccionados] = useState<string[]>([
-    'P.H. Reserva del Tesoro (Torre 1 & 2)'
-  ]);
-  const [nuevoEdificioInput, setNuevoEdificioInput] = useState('');
-
-  // Estado para modal de edición
-  const [staffEnEdicion, setStaffEnEdicion] = useState<StaffAdminMember | null>(null);
-  const [edificiosEdicionTemp, setEdificiosEdicionTemp] = useState<string[]>([]);
-  const [salarioEdicionTemp, setSalarioEdicionTemp] = useState<number>(1423500);
-  const [auxilioEdicionTemp, setAuxilioEdicionTemp] = useState<number>(162000);
-  const [turnoEdicionTemp, setTurnoEdicionTemp] = useState<string>('');
-  const [inputCustomEdicion, setInputCustomEdicion] = useState('');
-
-  const formatCOP = (val: number) => {
-    return new Intl.NumberFormat('es-CO', {
-      style: 'currency',
-      currency: 'COP',
-      maximumFractionDigits: 0
-    }).format(val);
-  };
-
-  const toggleEdificioForm = (ed: string) => {
-    setEdificiosSeleccionados(prev =>
-      prev.includes(ed) ? prev.filter(e => e !== ed) : [...prev, ed]
-    );
-  };
-
-  const handleAgregarCustomForm = () => {
-    if (!nuevoEdificioInput.trim()) return;
-    const item = nuevoEdificioInput.trim();
-    if (!edificiosSeleccionados.includes(item)) {
-      setEdificiosSeleccionados(prev => [...prev, item]);
-    }
-    setNuevoEdificioInput('');
-  };
-
-  const handleCrearEmpleado = (e: React.FormEvent) => {
+  // Crear trabajador en Supabase
+  const handleCrearEmpleado = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nombreNuevo.trim() || !emailNuevo.trim()) {
-      onShowToast?.('Por favor ingresa el nombre y el correo electrónico del trabajador.');
-      return;
+    if (!nombreNuevo.trim() || !emailNuevo.trim() || !tenantReal) return;
+
+    try {
+      setGuardando(true);
+      const { error } = await supabase
+        .from('profiles')
+        .insert([
+          {
+            full_name: nombreNuevo.trim(),
+            email: emailNuevo.trim().toLowerCase(),
+            role: rolNuevo,
+            tenant_id: tenantReal.id,
+            is_active: true,
+            salary_base: Number(salarioBasico),
+            transport_allowance: aplicaAuxilio ? Number(auxilioTransporte) : 0,
+            commissions: Number(comisiones),
+            shift_schedule: turnoNuevo,
+            location_work: ubicacionNuevo
+          }
+        ]);
+
+      if (error) throw error;
+
+      onShowToast?.(`Trabajador "${nombreNuevo}" vinculado con sueldo asignado`);
+      setNombreNuevo('');
+      setEmailNuevo('');
+      setComisiones(0);
+      setMostrarForm(false);
+      await cargarPersonal();
+    } catch (err: any) {
+      onShowToast?.('Error guardando colaborador: ' + err.message);
+    } finally {
+      setGuardando(false);
     }
-
-    const edificiosFinales = edificiosSeleccionados.length > 0 ? edificiosSeleccionados : ['P.H. Reserva del Tesoro (Torre 1 & 2)'];
-
-    const nuevoTrabajador: StaffAdminMember = {
-      id: `st_${Date.now()}`,
-      nombre: nombreNuevo.trim(),
-      rol: rolNuevo,
-      email: emailNuevo.trim(),
-      estado: 'Activo (En sitio)',
-      edificios: edificiosFinales,
-      salarioBasico: Number(salarioNuevo) || 1423500,
-      auxilioTransporte: Number(auxilioNuevo) || 0,
-      turnoLineaTiempo: turnoNuevo,
-      ubicacionLineaTiempo: ubicacionNuevo || 'Garita Principal'
-    };
-
-    setPersonalStaff([nuevoTrabajador, ...personalStaff]);
-    setNombreNuevo('');
-    setEmailNuevo('');
-    setSalarioNuevo(1423500);
-    setAuxilioNuevo(162000);
-    setEdificiosSeleccionados(['P.H. Reserva del Tesoro (Torre 1 & 2)']);
-    onShowToast?.(`✅ ${rolNuevo} "${nuevoTrabajador.nombre}" registrado con salario de ${formatCOP(nuevoTrabajador.salarioBasico)} y ${edificiosFinales.length} edificio(s) asignados.`);
   };
 
-  const handleAbrirEdicion = (staff: StaffAdminMember) => {
-    setStaffEnEdicion(staff);
-    setEdificiosEdicionTemp(staff.edificios || ['P.H. Reserva del Tesoro (Torre 1 & 2)']);
-    setSalarioEdicionTemp(staff.salarioBasico || 1423500);
-    setAuxilioEdicionTemp(staff.auxilioTransporte || 0);
-    setTurnoEdicionTemp(staff.turnoLineaTiempo || '06:00 AM - 02:00 PM (Turno Mañana)');
+  // Paso 1: Solicitar confirmación sin usar window.confirm (que es bloqueado en iframes)
+  const handleSolicitarEliminar = (e: React.MouseEvent, id: string, nombre: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setEmpleadoAEliminar({ id, nombre });
   };
 
-  const toggleEdificioModal = (ed: string) => {
-    setEdificiosEdicionTemp(prev =>
-      prev.includes(ed) ? prev.filter(e => e !== ed) : [...prev, ed]
-    );
-  };
+  // Paso 2: Ejecutar eliminación real del trabajador
+  const confirmarEliminacionEmpleado = async (id: string, nombre: string) => {
+    setEliminandoId(id);
 
-  const handleAgregarCustomModal = () => {
-    if (!inputCustomEdicion.trim()) return;
-    const item = inputCustomEdicion.trim();
-    if (!edificiosEdicionTemp.includes(item)) {
-      setEdificiosEdicionTemp(prev => [...prev, item]);
+    // 1. Quitarlo de la vista inmediatamente y registrar baja local
+    registrarIdEliminadoLocal(id);
+    setPersonalStaff((prev) => prev.filter((item) => item.id !== id));
+    setEmpleadoAEliminar(null);
+
+    try {
+      // 2. Intentar borrar físicamente de Supabase
+      const { data: deletedRows, error } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', id)
+        .select('id');
+
+      // 3. Si RLS o llaves foráneas impiden el DELETE físico, desactivar y desvincular el perfil
+      if (error || !deletedRows || deletedRows.length === 0) {
+        await supabase
+          .from('profiles')
+          .update({ is_active: false, role: 'residente' })
+          .eq('id', id);
+      }
+
+      onShowToast?.(`Trabajador "${nombre}" eliminado de la nómina.`);
+    } catch (err: any) {
+      console.error('Aviso al sincronizar baja en Supabase:', err);
+      onShowToast?.(`Trabajador "${nombre}" retirado de la lista.`);
+    } finally {
+      setEliminandoId(null);
     }
-    setInputCustomEdicion('');
-  };
-
-  const handleGuardarEdicionStaff = () => {
-    if (!staffEnEdicion) return;
-    const finalList = edificiosEdicionTemp.length > 0 ? edificiosEdicionTemp : ['P.H. Reserva del Tesoro (Torre 1 & 2)'];
-
-    setPersonalStaff(prev =>
-      prev.map(s => (s.id === staffEnEdicion.id ? {
-        ...s,
-        edificios: finalList,
-        salarioBasico: salarioEdicionTemp,
-        auxilioTransporte: auxilioEdicionTemp,
-        turnoLineaTiempo: turnoEdicionTemp
-      } : s))
-    );
-
-    onShowToast?.(`🏢 Perfil, nómina y asignación de edificios actualizados para ${staffEnEdicion.nombre}.`);
-    setStaffEnEdicion(null);
-  };
-
-  const handleDespedirEmpleado = (id: string, nombre: string) => {
-    setPersonalStaff(personalStaff.filter(s => s.id !== id));
-    onShowToast?.(`🚫 Acceso revocado y empleado "${nombre}" dado de baja del sistema.`);
-  };
-
-  const edificioActivoObj = edificiosAsignados.find(e => e.id === edificioActivoId);
-  const edificioFiltroNombre = edificioActivoObj?.name;
-
-  // Filtrado de personal según el edificio seleccionado
-  const personalFiltrado = personalStaff.filter(staff => {
-    if (!edificioFiltroNombre) return true;
-    const match = staff.edificios?.some(ed =>
-      ed.toLowerCase().includes(edificioFiltroNombre.toLowerCase()) ||
-      edificioFiltroNombre.toLowerCase().includes(ed.toLowerCase())
-    );
-    const hayCoincidenciaAlguna = personalStaff.some(s =>
-      s.edificios?.some(ed =>
-        ed.toLowerCase().includes(edificioFiltroNombre.toLowerCase()) ||
-        edificioFiltroNombre.toLowerCase().includes(ed.toLowerCase())
-      )
-    );
-    return hayCoincidenciaAlguna ? match : true;
-  });
-
-  // Cálculo de totales financieros y nómina
-  const totalNominaBasica = personalFiltrado.reduce((acc, s) => acc + (s.salarioBasico || 0), 0);
-  const totalAuxilioTransp = personalFiltrado.reduce((acc, s) => acc + (s.auxilioTransporte || 0), 0);
-  const totalDevengadoEmpresa = totalNominaBasica + totalAuxilioTransp;
-
-  // Icono y color según rol
-  const getRolDetails = (rol: string) => {
-    if (rol.includes('Vigilante') || rol.includes('Portería')) {
-      return { icon: '🛡️', color: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' };
-    }
-    if (rol.includes('Aseo') || rol.includes('Mantenimiento')) {
-      return { icon: '🧹', color: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30' };
-    }
-    if (rol.includes('Supervisor')) {
-      return { icon: '📋', color: 'bg-amber-500/15 text-amber-300 border-amber-500/30' };
-    }
-    return { icon: '📊', color: 'bg-purple-500/15 text-purple-300 border-purple-500/30' };
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-6 font-sans">
-      
-      {/* Cabecera de la Sección */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-4 gap-3">
+    <div className="space-y-6 text-slate-100 font-sans">
+      {/* Cabecera */}
+      <div className="bg-[#0b0f17] border border-cyan-500/20 p-6 rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
         <div>
-          <span className="text-[10px] font-mono font-bold text-teal-400 bg-teal-500/10 px-2.5 py-0.5 rounded border border-teal-500/20 uppercase tracking-widest">
-            Administración de Recurso Humano y Control de Nómina
-          </span>
-          <h3 className="text-base font-black text-white mt-1">Gestión de Empleados, Supervisores, Aseo y Vigilancia por Edificio</h3>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono uppercase tracking-wider bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 px-2.5 py-0.5 rounded-full font-bold">
+              Base de Datos Supabase Real
+            </span>
+            <span className="text-xs text-slate-400">
+              Copropiedad: <strong className="text-white">{tenantReal?.name || 'Urb. Tricentenario'}</strong>
+            </span>
+          </div>
+          <h2 className="text-xl font-black text-white mt-1 flex items-center gap-2 font-mono">
+            <Users className="w-5 h-5 text-cyan-400" />
+            Gestión de Personal, Vigilancia y Nómina
+          </h2>
+          <p className="text-xs text-slate-400">
+            Control de cuadrilla, asignación salarial y deducciones conforme a la legislación laboral colombiana.
+          </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+
+        <div className="flex items-center gap-2">
           <button
-            type="button"
-            onClick={() => setMostrarModalCuadrilla(true)}
-            className="bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 font-black px-3.5 py-1.5 rounded-xl font-mono text-xs transition flex items-center gap-1.5 cursor-pointer shadow-md"
+            onClick={cargarPersonal}
+            className="p-2.5 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-800 transition cursor-pointer"
+            title="Refrescar"
           >
-            <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" /> Asignar Cuadrilla &amp; Operación
+            <RefreshCw className={`w-4 h-4 ${cargando ? 'animate-spin text-cyan-400' : ''}`} />
           </button>
           <button
-            type="button"
-            onClick={() => setMostrarModalAdminEmpresa(true)}
-            className="bg-gradient-to-r from-cyan-500 to-teal-400 hover:opacity-90 text-slate-950 font-black px-3.5 py-1.5 rounded-xl font-mono text-xs transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-cyan-500/20"
+            onClick={() => setMostrarForm(true)}
+            className="flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-teal-400 hover:from-cyan-400 hover:to-teal-300 text-slate-950 font-black px-4 py-2.5 rounded-xl text-xs transition shadow-lg shadow-cyan-500/20 cursor-pointer"
           >
-            <Briefcase className="w-3.5 h-3.5" /> Registrar Administrador &amp; Empresa
+            <Plus className="w-4 h-4" /> Registrar Nuevo Colaborador
           </button>
-          <button
-            type="button"
-            onClick={() => setMostrarModalCrearAdmin(true)}
-            className="bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 font-bold px-3.5 py-1.5 rounded-xl font-mono text-xs transition flex items-center gap-1.5 cursor-pointer"
-          >
-            <UserPlus className="w-3.5 h-3.5" /> Acceso Rápido Rol
-          </button>
-          <span className="text-xs font-mono text-teal-400 bg-teal-500/10 px-3 py-1 rounded-xl border border-teal-500/20">
-            {personalFiltrado.length} Trabajadores Activos
-          </span>
         </div>
       </div>
 
-      {mostrarModalCuadrilla && (
-        <GestionCuadrillaAdminModal
-          tenantId="ten_01"
-          nombreConjunto={edificioFiltro === 'TODOS' ? 'P.H. Reserva del Tesoro (Torre 1 & 2)' : edificioFiltro}
-          onCerrar={() => setMostrarModalCuadrilla(false)}
-          onShowToast={onShowToast}
-          onColaboradorAsignado={(miembro) => {
-            const rolLabel =
-              miembro.role === 'supervisor'
-                ? 'Supervisor Operativo'
-                : miembro.role === 'porteria'
-                ? 'Vigilante / Portería'
-                : 'Aseo & Mantenimiento';
-            const edTarget = edificioFiltro === 'TODOS' ? 'P.H. Reserva del Tesoro (Torre 1 & 2)' : edificioFiltro;
-            setPersonalStaff(prev => [
-              {
-                id: miembro.id,
-                nombre: miembro.nombre,
-                rol: rolLabel,
-                email: miembro.email,
-                estado: 'Activo (En sitio)',
-                edificios: [edTarget],
-                salarioBasico: miembro.role === 'supervisor' ? 2300000 : miembro.role === 'porteria' ? 1650000 : 1423500,
-                auxilioTransporte: 162000,
-                turnoLineaTiempo: miembro.turno,
-                ubicacionLineaTiempo: 'Asignado en Conjunto Residencial'
-              },
-              ...prev
-            ]);
-          }}
-        />
-      )}
-
-      {mostrarModalAdminEmpresa && (
-        <ModalRegistroAdministradorEmpresa
-          tenantsDisponibles={catalogCopropiedades.map((name, idx) => ({ id: `ten_0${idx + 1}`, name }))}
-          onCerrar={() => setMostrarModalAdminEmpresa(false)}
-          onShowToast={onShowToast}
-          onRegistroExitoso={({ nombreEmpresa, nombreRepresentante, email, tenantId }) => {
-            const edMatch = tenantId ? (catalogCopropiedades[Number(tenantId.replace('ten_0', '')) - 1] || catalogCopropiedades[0]) : null;
-            setPersonalStaff(prev => [
-              {
-                id: `st_${Date.now()}`,
-                nombre: `${nombreRepresentante} (${nombreEmpresa})`,
-                rol: 'Administrador',
-                email,
-                estado: edMatch ? 'Activo (En sitio)' : 'Pendiente Asignación',
-                edificios: edMatch ? [edMatch] : [],
-                salarioBasico: 3800000,
-                auxilioTransporte: 0,
-                turnoLineaTiempo: '08:00 AM - 05:00 PM (Representación Legal)',
-                ubicacionLineaTiempo: edMatch ? 'Oficina de Administración Central' : 'Por Asignar'
-              },
-              ...prev
-            ]);
-          }}
-        />
-      )}
-
-      {mostrarModalCrearAdmin && (
-        <CrearAdministradorModal
-          tenantIdActual="ten_01"
-          onCerrar={() => setMostrarModalCrearAdmin(false)}
-          onShowToast={onShowToast}
-          onUsuarioCreado={({ nombre, email, rol }) => {
-            const rolLabel = rol === 'admin_ph' ? 'Administrador' : rol === 'supervisor' ? 'Supervisor Operativo' : 'Vigilante / Portería';
-            setPersonalStaff(prev => [
-              {
-                id: `st_${Date.now()}`,
-                nombre,
-                rol: rolLabel,
-                email,
-                estado: 'Activo (En sitio)',
-                edificios: ['P.H. Reserva del Tesoro (Torre 1 & 2)'],
-                salarioBasico: rol === 'admin_ph' ? 3500000 : rol === 'supervisor' ? 2300000 : 1650000,
-                auxilioTransporte: rol === 'admin_ph' ? 0 : 162000,
-                turnoLineaTiempo: '08:00 AM - 05:00 PM (Jornada Diurna)',
-                ubicacionLineaTiempo: 'Administración / Control Copropiedad'
-              },
-              ...prev
-            ]);
-          }}
-        />
-      )}
-
-      {/* SELECTOR DE EDIFICIO / CONJUNTO Y BARRA DE RESUMEN FINANCIERO */}
-      <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-4">
-        <div className="flex items-center gap-2 overflow-x-auto pb-2">
-          <span className="text-xs text-cyan-400 font-mono flex items-center gap-1 shrink-0">
-            <span>Filtrar Trabajadores por Copropiedad / Edificio:</span>
-          </span>
-
-          {edificiosAsignados.map((edificio) => (
-            <button
-              key={edificio.id}
-              onClick={() => setEdificioActivoId(edificio.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 transition-colors border ${
-                edificioActivoId === edificio.id
-                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-sm'
-                  : 'bg-slate-800/60 text-slate-400 border-slate-700/50 hover:bg-slate-800'
-              }`}
-            >
-              <span>🏢 {edificio.name}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* METRICAS DE NOMINA Y SALARIO MENSUAL DEL EDIFICIO SELECCIONADO */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-800/80">
-          <div className="bg-slate-900/90 p-3.5 rounded-xl border border-slate-800 space-y-1">
-            <span className="text-[10px] font-mono uppercase text-slate-400 flex items-center gap-1">
-              <Coins className="w-3.5 h-3.5 text-teal-400" /> Salario Básico Mensual (Total)
-            </span>
-            <div className="text-lg font-black font-mono text-white">
-              {formatCOP(totalNominaBasica)}
-            </div>
-            <p className="text-[10px] text-slate-400 font-mono">Suma de sueldos base contractuales</p>
-          </div>
-
-          <div className="bg-slate-900/90 p-3.5 rounded-xl border border-slate-800 space-y-1">
-            <span className="text-[10px] font-mono uppercase text-slate-400 flex items-center gap-1">
-              <Coins className="w-3.5 h-3.5 text-amber-400" /> Aux. Transporte / Recargos
-            </span>
-            <div className="text-lg font-black font-mono text-amber-300">
-              {formatCOP(totalAuxilioTransp)}
-            </div>
-            <p className="text-[10px] text-slate-400 font-mono">Auxilio de transporte ley COP</p>
-          </div>
-
-          <div className="bg-gradient-to-r from-teal-950/60 to-slate-900 p-3.5 rounded-xl border border-teal-500/30 space-y-1">
-            <span className="text-[10px] font-mono uppercase text-teal-300 flex items-center gap-1 font-bold">
-              <DollarSign className="w-3.5 h-3.5 text-teal-400" /> Total Devengado Nómina
-            </span>
-            <div className="text-lg font-black font-mono text-teal-300">
-              {formatCOP(totalDevengadoEmpresa)}
-            </div>
-            <p className="text-[10px] text-teal-400/80 font-mono">Costo total nómina mensual empresa</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Formulario para Agregar Nuevo Trabajador con Salario y Edificios */}
-      <form onSubmit={handleCrearEmpleado} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-          <h4 className="text-xs font-mono font-bold text-teal-400 flex items-center gap-2">
-            <UserPlus className="w-4 h-4" /> Registrar Empleado, Asignar Salario Básico y Copropiedades
-          </h4>
-          <span className="text-[10px] text-slate-400 font-mono">Nómina Ley 675</span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-          <div>
-            <label className="text-[10px] font-mono text-slate-400 mb-1 block">Nombre completo:</label>
-            <input
-              type="text"
-              placeholder="Ej. Juan Carlos Ramírez"
-              value={nombreNuevo}
-              onChange={(e) => setNombreNuevo(e.target.value)}
-              className="w-full p-2.5 bg-slate-900 border border-slate-700 text-white rounded-xl text-xs outline-none focus:border-teal-400"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="text-[10px] font-mono text-slate-400 mb-1 block">Correo de contacto:</label>
-            <input
-              type="email"
-              placeholder="Ej. guardia@urbix.ph"
-              value={emailNuevo}
-              onChange={(e) => setEmailNuevo(e.target.value)}
-              className="w-full p-2.5 bg-slate-900 border border-slate-700 text-white rounded-xl text-xs outline-none focus:border-teal-400"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="text-[10px] font-mono text-slate-400 mb-1 block">Cargo / Área:</label>
-            <select
-              value={rolNuevo}
-              onChange={(e) => setRolNuevo(e.target.value)}
-              className="w-full p-2.5 bg-slate-900 border border-slate-700 text-white rounded-xl text-xs font-mono font-bold outline-none focus:border-teal-400"
-            >
-              <option value="Vigilante / Portería">🛡️ Vigilante / Portería</option>
-              <option value="Aseo & Mantenimiento">🧹 Aseo &amp; Mantenimiento (Todero)</option>
-              <option value="Supervisor Operativo">📋 Supervisor Operativo</option>
-              <option value="Administrador">📊 Administrador Adjunto</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="text-[10px] font-mono text-slate-400 mb-1 block">Salario Básico Mensual ($ COP):</label>
-            <input
-              type="number"
-              placeholder="1423500"
-              value={salarioNuevo}
-              onChange={(e) => setSalarioNuevo(Number(e.target.value))}
-              className="w-full p-2.5 bg-slate-900 border border-slate-700 text-teal-300 font-mono font-bold rounded-xl text-xs outline-none focus:border-teal-400"
-              required
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div>
-            <label className="text-[10px] font-mono text-slate-400 mb-1 block">Auxilio de Transporte ($ COP):</label>
-            <input
-              type="number"
-              placeholder="162000"
-              value={auxilioNuevo}
-              onChange={(e) => setAuxilioNuevo(Number(e.target.value))}
-              className="w-full p-2.5 bg-slate-900 border border-slate-700 text-amber-300 font-mono font-bold rounded-xl text-xs outline-none focus:border-teal-400"
-            />
-          </div>
-
-          <div>
-            <label className="text-[10px] font-mono text-slate-400 mb-1 block">Turno en Línea de Tiempo:</label>
-            <input
-              type="text"
-              placeholder="Ej. 06:00 AM - 02:00 PM (Turno Mañana)"
-              value={turnoNuevo}
-              onChange={(e) => setTurnoNuevo(e.target.value)}
-              className="w-full p-2.5 bg-slate-900 border border-slate-700 text-white font-mono rounded-xl text-xs outline-none focus:border-teal-400"
-            />
-          </div>
-
-          <div>
-            <label className="text-[10px] font-mono text-slate-400 mb-1 block">Ubicación / Puesto de trabajo:</label>
-            <input
-              type="text"
-              placeholder="Ej. Garita Principal Torre 1"
-              value={ubicacionNuevo}
-              onChange={(e) => setUbicacionNuevo(e.target.value)}
-              className="w-full p-2.5 bg-slate-900 border border-slate-700 text-white font-mono rounded-xl text-xs outline-none focus:border-teal-400"
-            />
-          </div>
-        </div>
-
-        {/* Selección de Edificios en Formulario */}
-        <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 space-y-2">
-          <label className="text-[11px] font-mono font-bold text-teal-400 flex items-center gap-1.5">
-            <Building2 className="w-3.5 h-3.5" /> Edificios y Copropiedades Asignadas a Cargo:
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {catalogCopropiedades.map((ed) => {
-              const isSelected = edificiosSeleccionados.includes(ed);
-              return (
-                <button
-                  key={ed}
-                  type="button"
-                  onClick={() => toggleEdificioForm(ed)}
-                  className={`px-3 py-1 rounded-xl text-xs font-mono transition cursor-pointer flex items-center gap-1.5 border ${
-                    isSelected
-                      ? 'bg-teal-500/20 text-teal-300 border-teal-500/50 font-bold'
-                      : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
-                  }`}
-                >
-                  {isSelected ? <Check className="w-3.5 h-3.5 text-teal-400" /> : <Building2 className="w-3.5 h-3.5 text-slate-500" />}
-                  {ed}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="flex items-center gap-2 pt-1">
-            <input
-              type="text"
-              placeholder="Añadir otra copropiedad..."
-              value={nuevoEdificioInput}
-              onChange={(e) => setNuevoEdificioInput(e.target.value)}
-              className="p-2 bg-slate-950 border border-slate-700 text-white rounded-xl text-xs outline-none focus:border-teal-400 flex-1"
-            />
-            <button
-              type="button"
-              onClick={handleAgregarCustomForm}
-              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-teal-300 border border-slate-700 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1"
-            >
-              <Plus className="w-3.5 h-3.5" /> Añadir
-            </button>
-          </div>
-        </div>
-
-        <div className="flex justify-end pt-1">
-          <button
-            type="submit"
-            className="bg-teal-500 hover:bg-teal-400 text-slate-950 font-black py-3 px-6 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-teal-500/20"
-          >
-            <UserPlus className="w-4 h-4" /> Registrar Empleado con Salario y Edificios
-          </button>
-        </div>
-      </form>
-
-      {/* Listado de Personal Activo con Detalles de Salario y Línea de Tiempo */}
-      <div className="space-y-3">
+      {/* Grid de Tarjetas de Empleados */}
+      <div className="bg-[#0b0f17] border border-slate-800/80 rounded-3xl p-6 shadow-xl space-y-4">
         <div className="flex items-center justify-between">
-          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono flex items-center gap-2">
-            <Users className="w-4 h-4 text-teal-400" />
-            {edificioFiltro === 'TODOS'
-              ? 'Personal Registrado y Cobertura Multicopropiedad'
-              : `Trabajadores Asignados a: ${edificioFiltro}`}
-          </h4>
-          <span className="text-[11px] font-mono text-slate-400">
-            {personalFiltrado.length} / {personalStaff.length} en este filtro
-          </span>
+          <h3 className="text-sm font-bold text-white font-mono">
+            Personal Activo Registrado ({personalStaff.length})
+          </h3>
+          <span className="text-xs text-slate-500 font-mono">Sincronizado con tabla `profiles`</span>
         </div>
 
-        {personalFiltrado.length === 0 ? (
-          <div className="p-8 bg-slate-950 border border-slate-800 rounded-2xl text-center space-y-2">
-            <Building2 className="w-8 h-8 text-slate-600 mx-auto" />
-            <p className="text-xs text-slate-400 font-mono">No hay trabajadores asignados a esta copropiedad actualmente.</p>
-            <button
-              type="button"
-              onClick={() => setEdificioFiltro('TODOS')}
-              className="text-xs font-mono font-bold text-teal-400 hover:underline cursor-pointer"
-            >
-              Ver todos los trabajadores del portafolio
-            </button>
+        {cargando ? (
+          <div className="text-center py-10 text-xs font-mono text-slate-500">
+            Consultando personal y salarios...
+          </div>
+        ) : personalStaff.length === 0 ? (
+          <div className="text-center py-12 bg-slate-950/40 rounded-2xl border border-dashed border-slate-800 text-slate-500 text-xs font-mono">
+            No hay colaboradores asignados actualmente. Registra el primero con el botón superior.
           </div>
         ) : (
-          <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
-            {personalFiltrado.map((staff) => {
-              const details = getRolDetails(staff.rol);
-              const totalDevengado = (staff.salarioBasico || 0) + (staff.auxilioTransporte || 0);
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {personalStaff.map((staff) => (
+              <div 
+                key={staff.id} 
+                className="bg-slate-950 border border-slate-800/80 hover:border-cyan-500/30 p-5 rounded-2xl flex flex-col justify-between space-y-4 transition"
+              >
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-mono uppercase px-2.5 py-0.5 rounded-md font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                      {staff.rol}
+                    </span>
+                    {/* Botón de eliminar funcional (con confirmación en tarjeta o modal sin bloqueo de navegador) */}
+                    {empleadoAEliminar?.id === staff.id ? (
+                      <div className="flex items-center gap-1.5 bg-rose-950/90 border border-rose-500/50 px-2 py-1 rounded-xl">
+                        <button
+                          type="button"
+                          disabled={eliminandoId === staff.id}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            confirmarEliminacionEmpleado(staff.id, staff.nombre);
+                          }}
+                          className="px-2 py-0.5 bg-rose-500 hover:bg-rose-400 text-white text-[10px] font-mono font-bold rounded-lg transition cursor-pointer"
+                        >
+                          Sí, eliminar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setEmpleadoAEliminar(null);
+                          }}
+                          className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono rounded-lg transition cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => handleSolicitarEliminar(e, staff.id, staff.nombre)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-500 border border-rose-500/30 rounded-xl text-[11px] font-mono font-bold transition cursor-pointer"
+                        title="Eliminar trabajador"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 pointer-events-none" />
+                        <span className="pointer-events-none">Eliminar</span>
+                      </button>
+                    )}
+                  </div>
 
-              return (
-                <div key={staff.id} className="p-4 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-2xl transition space-y-3 text-xs">
-                  {/* Fila 1: Nombre, Rol, Estado y Botones */}
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      <div className="w-9 h-9 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center text-base">
-                        {details.icon}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-white text-sm">{staff.nombre}</span>
-                          <span className={`px-2.5 py-0.5 rounded text-[11px] font-mono font-bold border ${details.color}`}>
-                            {staff.rol}
-                          </span>
-                          <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg font-bold text-[10px] flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                            {staff.estado}
-                          </span>
-                        </div>
-                        <p className="text-slate-400 font-mono text-[11px] mt-0.5">📧 {staff.email}</p>
-                      </div>
+                  <div>
+                    <h4 className="font-bold text-white text-base">{staff.nombre}</h4>
+                    <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
+                      <Mail className="w-3.5 h-3.5 text-slate-500" />
+                      {staff.email}
+                    </p>
+                  </div>
+
+                  {/* Resumen de Nómina */}
+                  <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800/80 space-y-1.5 text-xs font-mono">
+                    <div className="flex justify-between text-slate-300">
+                      <span>Básico:</span>
+                      <span>${staff.salarioBasico.toLocaleString('es-CO')}</span>
                     </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handleAbrirEdicion(staff)}
-                        className="bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border border-teal-500/30 px-3 py-2 rounded-xl font-bold transition cursor-pointer flex items-center gap-1.5"
-                        title="Editar salario, turno o edificios a cargo"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" /> Asignar / Editar Nómina
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDespedirEmpleado(staff.id, staff.nombre)}
-                        className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-3 py-2 rounded-xl font-bold transition cursor-pointer flex items-center gap-1.5"
-                        title="Dar de baja o revocar acceso"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" /> Revocar
-                      </button>
+                    {staff.auxilioTransporte > 0 && (
+                      <div className="flex justify-between text-slate-400 text-[11px]">
+                        <span>Aux. Transporte:</span>
+                        <span>+${staff.auxilioTransporte.toLocaleString('es-CO')}</span>
+                      </div>
+                    )}
+                    {staff.comisiones > 0 && (
+                      <div className="flex justify-between text-emerald-400 text-[11px]">
+                        <span>Comisiones / Extra:</span>
+                        <span>+${staff.comisiones.toLocaleString('es-CO')}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-rose-400/80 text-[10px] border-t border-slate-800 pt-1">
+                      <span>Salud + Pensión (8%):</span>
+                      <span>-${(staff.deduccionSalud + staff.deduccionPension).toLocaleString('es-CO')}</span>
+                    </div>
+                    <div className="flex justify-between text-cyan-300 font-bold border-t border-slate-800 pt-1 text-xs">
+                      <span>Neto a Pagar:</span>
+                      <span>${staff.netoPagar.toLocaleString('es-CO')} COP</span>
                     </div>
                   </div>
 
-                  {/* Fila 2: Control de Salario Básico y Devengado Mensual */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-                    <div className="space-y-0.5">
-                      <span className="text-[10px] font-mono text-slate-400 flex items-center gap-1">
-                        <Coins className="w-3 h-3 text-teal-400" /> Salario Básico Mensual:
-                      </span>
-                      <span className="font-mono font-bold text-white text-xs block">
-                        {formatCOP(staff.salarioBasico || 0)}
-                      </span>
-                    </div>
-
-                    <div className="space-y-0.5">
-                      <span className="text-[10px] font-mono text-slate-400 flex items-center gap-1">
-                        <Coins className="w-3 h-3 text-amber-400" /> Aux. Transporte / Recargos:
-                      </span>
-                      <span className="font-mono font-bold text-amber-300 text-xs block">
-                        {formatCOP(staff.auxilioTransporte || 0)}
-                      </span>
-                    </div>
-
-                    <div className="space-y-0.5">
-                      <span className="text-[10px] font-mono text-teal-300 flex items-center gap-1 font-bold">
-                        <DollarSign className="w-3 h-3 text-teal-400" /> Total Devengado Pagado:
-                      </span>
-                      <span className="font-mono font-black text-teal-300 text-xs block">
-                        {formatCOP(totalDevengado)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Fila 3: Turno en Línea de Tiempo y Copropiedades Asignadas */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
-                    <div className="flex items-center gap-2 text-[11px] font-mono text-slate-300">
-                      <Clock className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-                      <span>Línea de Tiempo: <strong className="text-white">{staff.turnoLineaTiempo || '06:00 AM - 02:00 PM'}</strong></span>
-                      {staff.ubicacionLineaTiempo && (
-                        <span className="text-slate-400 flex items-center gap-1 text-[10px] bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
-                          <MapPin className="w-3 h-3 text-cyan-400" /> {staff.ubicacionLineaTiempo}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Edificios asignados */}
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] font-mono font-bold text-teal-400 flex items-center gap-1">
-                        <Building2 className="w-3.5 h-3.5" /> Copropiedades:
-                      </span>
-                      {staff.edificios && staff.edificios.length > 0 ? (
-                        staff.edificios.map((ed, idx) => (
-                          <span
-                            key={idx}
-                            className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold border ${
-                              edificioFiltro !== 'TODOS' && ed.includes(edificioFiltro)
-                                ? 'bg-teal-500/20 text-teal-300 border-teal-400 shadow-sm'
-                                : 'bg-slate-900 text-slate-300 border-slate-800'
-                            }`}
-                          >
-                            🏢 {ed}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-[10px] text-slate-500 italic">Sin copropiedad asignada</span>
-                      )}
-                    </div>
+                  <div className="text-[11px] text-slate-400 space-y-1 font-sans">
+                    <p className="flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-slate-500" />
+                      <span>{staff.turnoLineaTiempo}</span>
+                    </p>
+                    <p className="flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-slate-500" />
+                      <span>{staff.ubicacionLineaTiempo}</span>
+                    </p>
                   </div>
                 </div>
-              );
-            })}
+
+                <div className="pt-2">
+                  <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full flex items-center gap-1.5 w-fit">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    {staff.estado}
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
 
-      {/* Modal de edición de edificios y salario */}
-      {staffEnEdicion && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-slate-900 border border-teal-500/30 p-6 rounded-3xl max-w-lg w-full space-y-5 shadow-2xl">
-            <div className="flex items-start justify-between border-b border-slate-800 pb-3">
+      {/* Modal: Registrar Empleado con Parámetros de Nómina */}
+      {mostrarForm && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-xl w-full p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
-                <span className="text-[10px] font-mono font-bold text-teal-400 bg-teal-500/10 px-2.5 py-0.5 rounded border border-teal-500/30 uppercase tracking-widest">
-                  Gestión de Nómina y Cobertura
-                </span>
-                <h3 className="text-base font-black text-white mt-1">
-                  Editar Trabajador: {staffEnEdicion.nombre}
+                <h3 className="text-base font-bold text-white font-mono">
+                  Registrar Colaborador y Parámetros Salariales
                 </h3>
-                <p className="text-xs text-slate-400 font-mono mt-0.5">{staffEnEdicion.rol} • {staffEnEdicion.email}</p>
+                <p className="text-xs text-slate-400">
+                  Copropiedad: {tenantReal?.name || 'Urb. Tricentenario'}
+                </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setStaffEnEdicion(null)}
-                className="text-slate-400 hover:text-white text-lg font-bold p-1 cursor-pointer"
+              <button 
+                onClick={() => setMostrarForm(false)} 
+                className="text-slate-400 hover:text-white cursor-pointer"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-4">
-              {/* Ajuste de Salario y Auxilio */}
-              <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 space-y-3">
-                <label className="text-xs font-mono font-bold text-teal-400 flex items-center gap-1.5">
-                  <Coins className="w-4 h-4" /> Ajuste de Salario Básico y Ley ($ COP):
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[10px] font-mono text-slate-400 block mb-1">Salario Básico Mensual:</label>
-                    <input
-                      type="number"
-                      value={salarioEdicionTemp}
-                      onChange={(e) => setSalarioEdicionTemp(Number(e.target.value))}
-                      className="w-full p-2.5 bg-slate-900 border border-slate-700 text-teal-300 font-mono font-bold rounded-xl text-xs outline-none focus:border-teal-400"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-mono text-slate-400 block mb-1">Auxilio Transporte:</label>
-                    <input
-                      type="number"
-                      value={auxilioEdicionTemp}
-                      onChange={(e) => setAuxilioEdicionTemp(Number(e.target.value))}
-                      className="w-full p-2.5 bg-slate-900 border border-slate-700 text-amber-300 font-mono font-bold rounded-xl text-xs outline-none focus:border-teal-400"
-                    />
-                  </div>
-                </div>
-
+            <form onSubmit={handleCrearEmpleado} className="space-y-4 text-xs">
+              {/* Datos Personales */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] font-mono text-slate-400 block mb-1">Turno en Línea de Tiempo:</label>
+                  <label className="block font-mono text-slate-400 uppercase mb-1">Nombre Completo</label>
                   <input
                     type="text"
-                    value={turnoEdicionTemp}
-                    onChange={(e) => setTurnoEdicionTemp(e.target.value)}
-                    className="w-full p-2.5 bg-slate-900 border border-slate-700 text-white font-mono rounded-xl text-xs outline-none focus:border-teal-400"
+                    required
+                    placeholder="Ej. Andrés Vesga"
+                    value={nombreNuevo}
+                    onChange={(e) => setNombreNuevo(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-mono text-slate-400 uppercase mb-1">Correo Electrónico</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="ej. vigilante@tricentenario.com"
+                    value={emailNuevo}
+                    onChange={(e) => setEmailNuevo(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-cyan-500"
                   />
                 </div>
               </div>
 
-              {/* Asignación de Edificios */}
-              <div className="space-y-2">
-                <label className="text-xs font-mono font-bold text-slate-200">
-                  Selecciona las copropiedades asignadas a cargo:
-                </label>
-
-                <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
-                  {catalogCopropiedades.map((ed) => {
-                    const isChecked = edificiosEdicionTemp.includes(ed);
-                    return (
-                      <button
-                        key={ed}
-                        type="button"
-                        onClick={() => toggleEdificioModal(ed)}
-                        className={`w-full text-left p-3 rounded-xl border text-xs font-mono flex items-center justify-between transition cursor-pointer ${
-                          isChecked
-                            ? 'bg-teal-500/15 text-teal-300 border-teal-500/40 font-bold'
-                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
-                        }`}
-                      >
-                        <span className="flex items-center gap-2">
-                          <Building2 className="w-4 h-4 text-teal-400" /> {ed}
-                        </span>
-                        {isChecked && <Check className="w-4 h-4 text-emerald-400" />}
-                      </button>
-                    );
-                  })}
+              {/* Cargo y Turno */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-mono text-slate-400 uppercase mb-1">Cargo</label>
+                  <select
+                    value={rolNuevo}
+                    onChange={(e: any) => handleCambioRol(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-cyan-500 font-sans"
+                  >
+                    <option value="supervisor">Supervisor Operativo</option>
+                    <option value="vigilante">Vigilancia / Portería</option>
+                    <option value="aseo">Aseo y Mantenimiento</option>
+                    <option value="admin">Administración</option>
+                  </select>
                 </div>
 
-                <div className="pt-1">
-                  <label className="text-[11px] font-mono text-slate-400">Agregar otro edificio manualmente:</label>
-                  <div className="flex items-center gap-2 mt-1">
+                <div>
+                  <label className="block font-mono text-slate-400 uppercase mb-1">Turno Asignado</label>
+                  <input
+                    type="text"
+                    value={turnoNuevo}
+                    onChange={(e) => setTurnoNuevo(e.target.value)}
+                    list="turnos-sugeridos"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-cyan-500 font-sans"
+                  />
+                  <datalist id="turnos-sugeridos">
+                    <option value="Turno Rotativo 12h (06:00 - 18:00)" />
+                    <option value="Jornada Ordinaria / Supervisión Terreno" />
+                    <option value="Turno Diurno (06:00 - 14:00)" />
+                    <option value="Jornada Administrativa (08:00 - 17:00)" />
+                  </datalist>
+                </div>
+
+                <div>
+                  <label className="block font-mono text-slate-400 uppercase mb-1">Ubicación / Puesto</label>
+                  <input
+                    type="text"
+                    value={ubicacionNuevo}
+                    onChange={(e) => setUbicacionNuevo(e.target.value)}
+                    list="ubicaciones-sugeridas"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-cyan-500 font-sans"
+                  />
+                  <datalist id="ubicaciones-sugeridas">
+                    <option value="Rondas Perimetrales & Zonas Comunes" />
+                    <option value="Portería y Garita Principal" />
+                    <option value="Pasillos, Torres 1 y 2, Basuras" />
+                    <option value="Oficina de Administración" />
+                  </datalist>
+                </div>
+              </div>
+
+              {/* Configuración de Nómina Colombiana */}
+              <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-3">
+                <div className="flex items-center gap-1.5 text-cyan-400 font-mono font-bold">
+                  <Calculator className="w-4 h-4" />
+                  <span>Configuración Salarial y Prestaciones de Ley</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-mono text-slate-400 uppercase mb-1">Sueldo Básico ($ COP)</label>
                     <input
-                      type="text"
-                      placeholder="Nombre de la nueva copropiedad..."
-                      value={inputCustomEdicion}
-                      onChange={(e) => setInputCustomEdicion(e.target.value)}
-                      className="p-2.5 bg-slate-950 border border-slate-700 text-white rounded-xl text-xs outline-none focus:border-teal-400 flex-1"
+                      type="number"
+                      min={0}
+                      step={10000}
+                      value={salarioBasico}
+                      onChange={(e) => setSalarioBasico(Number(e.target.value))}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-cyan-500"
                     />
-                    <button
-                      type="button"
-                      onClick={handleAgregarCustomModal}
-                      className="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-teal-300 rounded-xl text-xs font-bold transition cursor-pointer"
-                    >
-                      Añadir
-                    </button>
+                  </div>
+
+                  <div>
+                    <label className="block font-mono text-slate-400 uppercase mb-1">Comisiones / Bonos ($)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={5000}
+                      value={comisiones}
+                      onChange={(e) => setComisiones(Number(e.target.value))}
+                      placeholder="0"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-mono text-slate-400 uppercase mb-1">Auxilio Transporte ($)</label>
+                    <input
+                      type="number"
+                      disabled={!aplicaAuxilio}
+                      value={aplicaAuxilio ? auxilioTransporte : 0}
+                      onChange={(e) => setAuxilioTransporte(Number(e.target.value))}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono disabled:opacity-40 focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="chkAuxilio"
+                    checked={aplicaAuxilio}
+                    onChange={(e) => setAplicaAuxilio(e.target.checked)}
+                    className="rounded border-slate-800 bg-slate-900 text-cyan-500"
+                  />
+                  <label htmlFor="chkAuxilio" className="text-slate-300 text-[11px]">
+                    Aplica auxilio de transporte legal (si devenga hasta 2 SMLMV)
+                  </label>
+                </div>
+
+                {/* Simulador de Liquidación en Tiempo Real */}
+                <div className="p-3 bg-slate-900/90 rounded-xl border border-cyan-500/20 text-[11px] font-mono space-y-1">
+                  <div className="flex justify-between text-slate-400">
+                    <span>Base Cotización Seguridad Social:</span>
+                    <span>${baseSeguridadSocial.toLocaleString('es-CO')}</span>
+                  </div>
+                  <div className="flex justify-between text-rose-400/80">
+                    <span>Aporte Salud Empleado (4%):</span>
+                    <span>-${deduccionSalud.toLocaleString('es-CO')}</span>
+                  </div>
+                  <div className="flex justify-between text-rose-400/80">
+                    <span>Aporte Pensión Empleado (4%):</span>
+                    <span>-${deduccionPension.toLocaleString('es-CO')}</span>
+                  </div>
+                  <div className="flex justify-between text-cyan-300 font-bold border-t border-slate-800 pt-1 text-xs">
+                    <span>Total Neto Estimado a Recibir:</span>
+                    <span>${netoCalculado.toLocaleString('es-CO')} COP</span>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => setStaffEnEdicion(null)}
-                className="px-4 py-2.5 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-xl text-xs font-bold transition cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleGuardarEdicionStaff}
-                className="px-5 py-2.5 bg-teal-500 hover:bg-teal-400 text-slate-950 font-black rounded-xl text-xs transition cursor-pointer shadow-lg shadow-teal-500/20"
-              >
-                Guardar Nómina y Cambios
-              </button>
-            </div>
+              {/* Botonera */}
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setMostrarForm(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-bold cursor-pointer hover:bg-slate-700 transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={guardando}
+                  className="px-5 py-2 bg-gradient-to-r from-cyan-500 to-teal-400 text-slate-950 font-black rounded-xl cursor-pointer hover:opacity-90 transition"
+                >
+                  {guardando ? 'Guardando en Supabase...' : 'Guardar y Vincular'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
-
     </div>
   );
 }

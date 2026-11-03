@@ -62,7 +62,9 @@ export default function ConsolaGerencialUrbixPH({
   onCerrarSesion,
   onShowToast
 }: ConsolaGerencialUrbixPHProps) {
-  const [activeTab, setActiveTab] = useState<'general' | 'comunicados' | 'asamblea' | 'actas' | 'contractors' | 'cartera' | 'facturas_ocr' | 'exogena_dian' | 'mantenimiento' | 'personal' | 'reservas' | 'pqrs' | 'porteria'>('general');
+  const [saldoCajaMenor, setSaldoCajaMenor] = useState<number>(1880000);
+  const [porcentajeRecaudo, setPorcentajeRecaudo] = useState<number>(2.0);
+  const [activeTab, setActiveTab] = useState<'general' | 'cartelera' | 'porteria' | 'comunicados' | 'asamblea' | 'actas' | 'contractors' | 'cartera' | 'facturas_ocr' | 'exogena_dian' | 'mantenimiento' | 'personal' | 'reservas' | 'pqrs'>('general');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [mostrarModalCuadrilla, setMostrarModalCuadrilla] = useState(false);
@@ -149,10 +151,6 @@ export default function ConsolaGerencialUrbixPH({
   const tenantId = tenantActivoId;
   const resolvedAdminName = userProfile?.full_name || adminName || 'Esteban Ochoa';
 
-  // 1. Estados compartidos o consulta directa a Supabase
-  const [saldoCajaMenor, setSaldoCajaMenor] = useState<number>(0);
-  const [porcentajeRecaudo, setPorcentajeRecaudo] = useState<number>(0);
-
   const syncMetricasGenerales = async () => {
     if (!tenantId) return;
 
@@ -177,7 +175,7 @@ export default function ConsolaGerencialUrbixPH({
         const savedLocal = localStorage.getItem('urbix_caja_menor_tricentenario_v1');
         if (savedLocal) {
           const parsed = JSON.parse(savedLocal);
-          if (Array.isArray(parsed)) {
+          if (Array.isArray(parsed) && parsed.length > 0) {
             const ing = parsed.filter((m: any) => m.tipo === 'ingreso').reduce((s: number, m: any) => s + Number(m.monto || 0), 0);
             const egr = parsed.filter((m: any) => m.tipo === 'egreso').reduce((s: number, m: any) => s + Number(m.monto || 0), 0);
             setSaldoCajaMenor(ing - egr);
@@ -197,7 +195,9 @@ export default function ConsolaGerencialUrbixPH({
 
       if (unidades && unidades.length > 0) {
         const alDia = unidades.filter(u => u.debt_status === 'al_dia' || u.debt_status === 'Al día').length;
-        setPorcentajeRecaudo((alDia / unidades.length) * 100);
+        if (alDia > 0) {
+          setPorcentajeRecaudo((alDia / unidades.length) * 100);
+        }
       }
     } catch (err) {
       console.warn('Error sincronizando porcentaje de recaudo:', err);
@@ -217,41 +217,66 @@ export default function ConsolaGerencialUrbixPH({
     'Mirador del Poblado PH'
   ];
 
-  // Personal / Staff operativo con edificios asignados a cargo
-  const [personalStaff, setPersonalStaff] = useState<StaffMember[]>([
-    {
-      id: 'st_1',
-      nombre: 'Carlos Mario Pineda',
-      rol: 'Administrador',
-      email: 'carlos.admin@urbix.ph',
-      estado: 'Activo',
-      edificios: ['P.H. Reserva del Tesoro (Torre 1 & 2)', 'Conjunto Altavista PH']
-    },
-    {
-      id: 'st_2',
-      nombre: 'Julián Arango',
-      rol: 'Supervisor Operativo',
-      email: 'supervisor@urbix.ph',
-      estado: 'Activo',
-      edificios: ['P.H. Reserva del Tesoro (Torre 1 & 2)', 'Edificio Portal del Campestre', 'Mirador del Poblado PH']
-    },
-    {
-      id: 'st_3',
-      nombre: 'Don José (Todero)',
-      rol: 'Aseo & Mantenimiento',
-      email: 'jose.operativo@urbix.ph',
-      estado: 'Activo',
-      edificios: ['P.H. Reserva del Tesoro (Torre 1 & 2)']
-    },
-    {
-      id: 'st_4',
-      nombre: 'Luis Fernando Pérez',
-      rol: 'Vigilante / Portería',
-      email: 'porteria.tesoro@urbix.ph',
-      estado: 'Activo',
-      edificios: ['Garita Principal - Reserva del Tesoro']
-    }
-  ]);
+  // ✅ AHORA (Base Real desde Supabase):
+  const [personalStaff, setPersonalStaff] = useState<StaffMember[]>([]);
+  const [cargandoStaff, setCargandoStaff] = useState<boolean>(true);
+
+  useEffect(() => {
+    const cargarNominaReal = async () => {
+      try {
+        setCargandoStaff(true);
+        const { data: tenantData } = await supabase
+          .from('tenants')
+          .select('id, name')
+          .ilike('name', '%Tricentenario%')
+          .limit(1)
+          .single();
+
+        if (tenantData) {
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id, full_name, email, role, is_active')
+            .eq('tenant_id', tenantData.id)
+            .neq('role', 'residente')
+            .order('role', { ascending: true });
+
+          if (profiles && profiles.length > 0) {
+            let idsEliminados: string[] = [];
+            try {
+              const raw = localStorage.getItem('urbix_deleted_staff_ids');
+              if (raw) idsEliminados = JSON.parse(raw);
+            } catch {
+              // ignore
+            }
+            const perfilesActivos = profiles.filter(
+              p => p.is_active !== false && !idsEliminados.includes(p.id)
+            );
+            setPersonalStaff(
+              perfilesActivos.map(p => ({
+                id: p.id,
+                nombre: p.full_name || 'Sin Nombre',
+                rol:
+                  p.role === 'admin' ? 'Administración' :
+                  p.role === 'vigilante' ? 'Vigilancia / Portería' :
+                  p.role === 'aseo' ? 'Servicios Generales' : 'Supervisor Ops',
+                email: p.email || '',
+                estado: p.is_active ? 'Activo (En nómina)' : 'Inactivo',
+                edificios: [tenantData.name]
+              }))
+            );
+          } else {
+            setPersonalStaff([]);
+          }
+        }
+      } catch (err: any) {
+        console.error('Error cargando nómina real en ConsolaGerencialUrbixPH:', err.message);
+      } finally {
+        setCargandoStaff(false);
+      }
+    };
+
+    cargarNominaReal();
+  }, [activeTab]);
   const [nombreNuevo, setNombreNuevo] = useState('');
   const [emailNuevo, setEmailNuevo] = useState('');
   const [rolNuevo, setRolNuevo] = useState('Supervisor Operativo');
@@ -559,7 +584,7 @@ export default function ConsolaGerencialUrbixPH({
           {/* Botón Detalle Recaudo Dinámico */}
           <button 
             onClick={() => setAbrirModalRecaudo(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 border border-emerald-500/30 text-emerald-400 rounded-xl text-xs font-mono cursor-pointer shrink-0"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 border border-emerald-500/30 text-emerald-400 rounded-xl text-xs font-mono"
           >
             <span>📊</span>
             <span>Detalle Recaudo ({porcentajeRecaudo.toFixed(1)}%)</span>
@@ -568,7 +593,7 @@ export default function ConsolaGerencialUrbixPH({
           {/* Botón Caja Menor Dinámico */}
           <button 
             onClick={() => setAbrirModalCajaMenor(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 border border-amber-500/30 text-amber-400 rounded-xl text-xs font-mono cursor-pointer shrink-0"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 border border-amber-500/30 text-amber-400 rounded-xl text-xs font-mono"
           >
             <span>💼</span>
             <span>Caja Menor (${saldoCajaMenor.toLocaleString('es-CO')} COP)</span>
@@ -600,7 +625,7 @@ export default function ConsolaGerencialUrbixPH({
 
       {mostrarModalCuadrilla && (
         <GestionCuadrillaAdminModal
-          tenantId={currentTenant?.id || 'ten_01'}
+          tenantId={tenantActivoId}
           nombreConjunto={resolvedTenantName}
           onCerrar={() => setMostrarModalCuadrilla(false)}
           onShowToast={onShowToast}
@@ -659,7 +684,7 @@ export default function ConsolaGerencialUrbixPH({
           className="bg-slate-900 text-cyan-300 font-bold text-xs p-2 rounded-xl border border-slate-700 w-full outline-none focus:border-cyan-400 cursor-pointer"
         >
           <option value="general">🏢 General (Portafolio & Macro-Salud)</option>
-          <option value="comunicados">📢 Cartelera Virtual y Circulares Oficiales</option>
+          <option value="cartelera">📢 Cartelera Virtual y Circulares Oficiales</option>
           <option value="asamblea">🗳️ Asambleas & Actas Legales (Ley 675)</option>
           <option value="contractors">🛡️ Contratistas & Obras (SG-SST)</option>
           <option value="cartera">💰 Tesorería, OCR & Exógena DIAN</option>
@@ -676,10 +701,38 @@ export default function ConsolaGerencialUrbixPH({
         <span className="text-xs font-bold text-cyan-400 font-mono px-3 py-1.5 bg-cyan-500/10 rounded-xl border border-cyan-500/30 shrink-0">
           ⚡ Módulos Sincronizados (Executive Glass)
         </span>
+        <div className="flex items-center gap-2 overflow-x-auto py-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab('general')}
+            className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer shrink-0 ${
+              activeTab === 'general' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            📊 General
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('cartelera')}
+            className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer shrink-0 ${
+              activeTab === 'cartelera' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            📢 Cartelera & Circulares
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('porteria')}
+            className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer shrink-0 ${
+              activeTab === 'porteria' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            🛡️ Portería (Tiempo Real)
+          </button>
+        </div>
         {[
-          { id: 'general', label: 'General', icon: Building2, color: 'text-cyan-400' },
-          { id: 'comunicados', label: 'Cartelera & Circulares', icon: MessageSquare, color: 'text-cyan-400' },
-          { id: 'porteria', label: 'Portería (Tiempo Real)', icon: Radio, color: 'text-[#00f2fe]' },
           { id: 'asamblea', label: 'Asambleas & Actas Legales', icon: Users, color: 'text-cyan-400' },
           { id: 'contractors', label: 'Contratistas & Obras', icon: HardHat, color: 'text-emerald-400' },
           { id: 'cartera', label: 'Tesorería, OCR & DIAN', icon: DollarSign, color: 'text-teal-400' },
@@ -797,30 +850,36 @@ export default function ConsolaGerencialUrbixPH({
                   </div>
                 </div>
                 <div className="space-y-2">
-                  {personalStaff.slice(0, 3).map((s) => (
-                    <div key={s.id} className="p-3 bg-[#07090e] border border-slate-800 rounded-2xl flex items-center justify-between text-xs gap-2">
-                      <div>
-                        <span className="font-bold text-white">{s.nombre}</span>
-                        <p className="text-slate-400 font-mono text-[11px]">{s.rol} • {s.email}</p>
-                      </div>
-                      <span className="text-[10px] font-bold px-2 py-1 rounded border bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shrink-0">
-                        🟢 {s.estado}
-                      </span>
+                  {cargandoStaff ? (
+                    <div className="text-center py-6 text-slate-500 font-mono text-xs">
+                      Cargando personal de la copropiedad...
                     </div>
-                  ))}
+                  ) : personalStaff.length === 0 ? (
+                    <div className="text-center py-6 bg-slate-950/40 rounded-xl border border-dashed border-slate-800 text-slate-500 font-mono text-xs">
+                      No hay personal asignado a este conjunto. Haz clic en "Asignar Cuadrilla" o "Gestionar Staff" para registrar a los vigilantes o personal de aseo reales.
+                    </div>
+                  ) : (
+                    personalStaff.slice(0, 3).map((s) => (
+                      <div key={s.id} className="p-3 bg-[#07090e] border border-slate-800 rounded-2xl flex items-center justify-between text-xs gap-2">
+                        <div>
+                          <span className="font-bold text-white">{s.nombre}</span>
+                          <p className="text-slate-400 font-mono text-[11px]">{s.rol} • {s.email}</p>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-1 rounded border bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shrink-0">
+                          🟢 {s.estado}
+                        </span>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* CARTELERA VIRTUAL Y CIRCULARES OFICIALES (SUPABASE REALTIME) */}
-            <TableroComunicados tenantId={tenantActivoId} />
           </div>
         )}
 
         {/* 1B. CARTELERA VIRTUAL Y CIRCULARES OFICIALES */}
-        {activeTab === 'comunicados' && (
-          <TableroComunicados tenantId={tenantActivoId} />
-        )}
+        {activeTab === 'cartelera' && <TableroComunicados tenantId={tenantId} />}
 
         {/* 2. CENTRO INTEGRAL DE ASAMBLEAS & ACTAS LEGALES (LEY 675 DE 2001) */}
         {(activeTab === 'asamblea' || activeTab === 'actas') && (

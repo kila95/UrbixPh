@@ -12,9 +12,9 @@ interface LoginScreenProps {
 
 export default function LoginScreen({ onLoginSuccess, onContinueAsGuest }: LoginScreenProps) {
   const [esSuperAdmin, setEsSuperAdmin] = useState(false);
-  const [codigoUnidad, setCodigoUnidad] = useState('tesoro');
-  const [usuarioOApto, setUsuarioOApto] = useState('admin');
-  const [password, setPassword] = useState('123456');
+  const [codigoUnidad, setCodigoUnidad] = useState('tricentenario');
+  const [usuarioOApto, setUsuarioOApto] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isBrandKitOpen, setIsBrandKitOpen] = useState(false);
