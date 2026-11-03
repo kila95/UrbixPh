@@ -114,6 +114,69 @@ async function startServer() {
     }
   );
 
+  // Bus de señalización en tiempo real en memoria (SSE + POST) para respaldar WebRTC multi-participante y control de palabra entre dispositivos
+  const asambleaSseClients = new Set<express.Response>();
+  let ultimaConvocatoriaCache: any = null;
+  let ultimoControlPalabraCache: any = null;
+
+  app.get("/api/asamblea-events", (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
+    asambleaSseClients.add(res);
+
+    // Si hay una convocatoria o estado de palabra activo, sincronizar al recién conectado
+    if (ultimaConvocatoriaCache) {
+      res.write(`data: ${JSON.stringify({ event: "asamblea_convocatoria_abierta", payload: ultimaConvocatoriaCache })}\n\n`);
+    }
+    if (ultimoControlPalabraCache) {
+      res.write(`data: ${JSON.stringify({ event: "asamblea_control_palabra", payload: ultimoControlPalabraCache })}\n\n`);
+    }
+
+    const keepAlive = setInterval(() => {
+      try {
+        res.write(`: ping\n\n`);
+      } catch {
+        clearInterval(keepAlive);
+      }
+    }, 15000);
+
+    req.on("close", () => {
+      clearInterval(keepAlive);
+      asambleaSseClients.delete(res);
+    });
+  });
+
+  app.post("/api/asamblea-signal", (req, res) => {
+    const { event, payload } = req.body || {};
+    if (!event) {
+      res.status(400).json({ error: "Falta event" });
+      return;
+    }
+
+    if (event === "asamblea_convocatoria_abierta") {
+      ultimaConvocatoriaCache = payload;
+    } else if (event === "asamblea_cerrada") {
+      ultimaConvocatoriaCache = null;
+      ultimoControlPalabraCache = null;
+    } else if (event === "asamblea_control_palabra") {
+      ultimoControlPalabraCache = payload;
+    }
+
+    const packet = `data: ${JSON.stringify({ event, payload })}\n\n`;
+    for (const client of asambleaSseClients) {
+      try {
+        client.write(packet);
+      } catch {
+        asambleaSseClients.delete(client);
+      }
+    }
+
+    res.json({ ok: true, peers: asambleaSseClients.size });
+  });
+
   // Endpoint server-side compatible con las Edge Functions `process-meeting` y `process-meeting-audio` (soporta 1 o múltiples jornadas `audio_segments`)
   app.post(["/api/process-meeting-audio", "/api/process-meeting"], async (req, res) => {
     try {
