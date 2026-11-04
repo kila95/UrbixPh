@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
 import { Lock, Mail, ShieldCheck, ArrowRight, Eye, EyeOff, Building2, MessageSquare } from 'lucide-react';
 import FooterLoginInteractivo from './FooterLoginInteractivo';
+import { UrbixLogoMark, UrbixFullLogo } from '../UrbixLogo';
 
 export default function AuthLoginExecutive({
   onLoginSuccess,
@@ -60,13 +61,13 @@ export default function AuthLoginExecutive({
     }
 
     return {
-      id: `usr_${Date.now()}`,
+      id: 'dde881f7-cfe4-40b8-95bf-33d6e7a3ddfe',
       email: cleanEmail,
       full_name: resolvedName,
       role: resolvedRole,
       unidad: resolvedUnit,
       coeficiente: resolvedCoef,
-      tenant_id: 'ten_01',
+      tenant_id: '22079bb5-6ac7-4a15-be89-c53d14e4221b',
       is_active: true
     };
   };
@@ -259,11 +260,11 @@ export default function AuthLoginExecutive({
         <div className="absolute -top-12 left-1/2 -translate-x-1/2 w-48 h-32 bg-[#00f2fe]/15 blur-3xl pointer-events-none rounded-full" />
 
         {/* 1. ÍCONO SUPERIOR: CUADRO INTERNO ILUMINADO AZUL NEÓN */}
-        <div className="relative flex items-center justify-center">
+        <div className="relative flex flex-col items-center justify-center mb-1">
           <img
-            src="/assets/aistudio/urbix_logo_square_neon.png"
-            alt="Logo Urbix PH"
-            className="w-28 h-28 sm:w-32 sm:h-32 rounded-2xl object-cover drop-shadow-[0_0_25px_rgba(0,242,254,0.45)]"
+            src="/assets/aistudio/Gemini_Generated_Image_pyhwpzpyhwpzpyhw_f4f1c70b.jfif"
+            alt="Logo Principal Urbix PH"
+            className="w-28 h-28 sm:w-32 sm:h-32 rounded-3xl object-cover border border-[#00f2fe]/50 shadow-[0_0_30px_rgba(0,242,254,0.45)]"
           />
         </div>
 
@@ -292,14 +293,24 @@ export default function AuthLoginExecutive({
         </div>
 
         {/* 4. ESLOGAN CON TEXT-SHADOW MULTICAPA EN CIAN */}
-        <p 
-          className="text-xs sm:text-sm font-mono tracking-wide text-[#00f2fe] font-semibold"
-          style={{
-            textShadow: '0 0 5px #00f2fe, 0 0 10px rgba(0, 242, 254, 0.6), 0 0 20px rgba(0, 242, 254, 0.4), 0 0 30px rgba(0, 242, 254, 0.2)'
-          }}
-        >
-          Consola Ejecutiva de Propiedad Horizontal
-        </p>
+        <div className="space-y-1.5">
+          <p 
+            className="text-xs sm:text-sm font-mono tracking-wide text-[#00f2fe] font-semibold uppercase"
+            style={{
+              textShadow: '0 0 5px #00f2fe, 0 0 10px rgba(0, 242, 254, 0.6), 0 0 20px rgba(0, 242, 254, 0.4), 0 0 30px rgba(0, 242, 254, 0.2)'
+            }}
+          >
+            GESTIÓN INTELIGENTE DE PROPIEDAD HORIZONTAL
+          </p>
+          <p 
+            className="text-[10px] sm:text-xs font-mono tracking-widest text-[#00f2fe] font-semibold uppercase"
+            style={{
+              textShadow: '0 0 5px #00f2fe, 0 0 10px rgba(0, 242, 254, 0.6), 0 0 20px rgba(0, 242, 254, 0.4), 0 0 30px rgba(0, 242, 254, 0.2)'
+            }}
+          >
+            EL CENTRO DE CONTROL DE TU COPROPIEDAD
+          </p>
+        </div>
 
         {/* Formulario */}
         <form onSubmit={handleSubmit} className="w-full text-left space-y-4 pt-1">
@@ -403,13 +414,19 @@ export default function AuthLoginExecutive({
                     `Bienvenido a Urbix PH, ${demo.name}${demo.unidad ? ` (${demo.unidad})` : ''}`
                   );
                   onLoginSuccess({
-                    id: demo.role === 'master_owner' ? 'usr_esteban_master' : `usr_${demo.idKey}`,
+                    id:
+                      demo.role === 'master_owner'
+                        ? 'usr_esteban_master'
+                        : 'dde881f7-cfe4-40b8-95bf-33d6e7a3ddfe',
                     email: demo.email,
                     full_name: demo.name,
                     role: demo.role,
                     unidad: demo.unidad,
                     coeficiente: demo.coeficiente,
-                    tenant_id: demo.role === 'master_owner' ? undefined : 'ten_01',
+                    tenant_id:
+                      demo.role === 'master_owner'
+                        ? undefined
+                        : '22079bb5-6ac7-4a15-be89-c53d14e4221b',
                     is_active: true
                   });
                 }}
@@ -424,6 +441,14 @@ export default function AuthLoginExecutive({
         </div>
 
         <FooterLoginInteractivo />
+
+        {/* CÁPSULA SUBTIL Y DISCRETA DE BLINDAJE DE VERSIÓN Y PROPIEDAD AL FINAL DE LA PANTALLA */}
+        <div className="w-full max-w-xs px-2.5 py-1 rounded-full bg-[#05080e]/90 border border-purple-500/30 shadow-[0_0_8px_rgba(168,85,247,0.15)] flex items-center justify-center gap-1.5 text-center mt-1">
+          <ShieldCheck className="w-3 h-3 text-purple-400 shrink-0" />
+          <span className="text-[9px] font-mono font-bold text-purple-300 tracking-tight">
+            VERSIÓN v1.0.0 BLINDADA • CÓDIGO Y ARQUITECTURA RESERVADOS PARA ESTEBAN OCHOA MESA
+          </span>
+        </div>
 
       </div>
     </div>

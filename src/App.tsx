@@ -6,6 +6,7 @@ import AdminConsoleView from './components/AdminConsoleView';
 import ConsolaSupervisorAnalisisCompleto from './components/ConsolaSupervisorAnalisisCompleto';
 import ConsolaUnificadaPorteria from './components/ConsolaUnificadaPorteria';
 import ResidentPortalConsole from './components/ResidentPortalConsole';
+import { PortalPublicoPreRegistroContratista } from './components/PortalPublicoPreRegistroContratista';
 
 // Tipos exportados para compatibilidad del ecosistema Urbix PH
 export interface GuardIncidentReport {
@@ -85,6 +86,11 @@ export default function App() {
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
   const [splashMode, setSplashMode] = useState<'login' | 'logout' | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Mantener activa la ruta pública para que los contratistas suban su PDF
+  if (typeof window !== 'undefined' && window.location.pathname.includes('/registro-contratista')) {
+    return <PortalPublicoPreRegistroContratista />;
+  }
 
   const showToast = (msg: string) => {
     setToastMessage(msg);

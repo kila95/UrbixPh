@@ -12,6 +12,10 @@ import SalaAsambleaVirtualExecutive from './SalaAsambleaVirtualExecutive';
 import ModuloReunionesConSubmodulos from './ModuloReunionesConSubmodulos';
 import CitofonoVirtualUrbix from './CitofonoVirtualUrbix';
 import VentanaFlotanteCitofono from './VentanaFlotanteCitofono';
+import CitofoniaWebRTCPorteria from './CitofoniaWebRTCPorteria';
+import ModuloMisPaquetesResidente from './ModuloMisPaquetesResidente';
+import LogoUrbix from './LogoUrbix';
+import { UrbixLogoMark, UrbixFullLogo } from '../UrbixLogo';
 import { useCitofonoEngine } from '../useCitofonoEngine';
 import { UnidadCarteraPH, ReformaMudanzaPH, SancionConvivenciaPH } from '../PanelAdministradorModulo3';
 import type { VisitaQrPH, EncomiendaPH } from '../App';
@@ -713,12 +717,11 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
       <header className="w-full shrink-0 bg-[#1c1c1f] border border-[#262629] rounded-2xl px-4 sm:px-6 py-3.5 sm:py-4 flex flex-col gap-3 shadow-lg">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
           <div className="flex items-center space-x-3">
-            <div className="bg-cyan-500/10 p-2 rounded-lg border border-cyan-500/30 shrink-0">
-              <Building2 className="w-5 h-5 sm:w-6 sm:h-6 text-cyan-400" />
-            </div>
+            <LogoUrbix size="sm" rolBadge="RESIDENTE" />
+            <div className="hidden sm:block h-7 w-px bg-slate-800 mx-1" />
             <div>
-              <h1 className="text-base sm:text-lg font-bold tracking-tight text-white flex flex-wrap items-center gap-2">
-                URBIX PH <span className="text-[10px] sm:text-xs px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono">Portal Residente + IA Ley 675</span>
+              <h1 className="text-sm sm:text-base font-bold tracking-tight text-white flex flex-wrap items-center gap-2">
+                <span className="text-[10px] sm:text-xs px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono">Portal Residente + IA Ley 675</span>
               </h1>
               <p className="text-xs text-gray-400">
                 <strong className="text-white">{miEstadoCuenta.unidad}</strong> • {miEstadoCuenta.propietario} ({residenteDemoActivo.cargo}) • Coeficiente:{' '}
@@ -904,12 +907,10 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
 
         {/* PESTAÑA: CITÓFONO VIRTUAL DIRECTO (RESIDENTE ⇄ GARITA) */}
         {activeTabResidente === 'citofono' && (
-          <CitofonoVirtualUrbix 
-            unidadResidenteActual={miEstadoCuenta.unidad || unidadResidente.unidad || 'Torre 2 - 301'}
-            nombreResidenteActual={miEstadoCuenta.propietario || unidadResidente.propietario}
-            cargoResidenteActual={residenteDemoActivo.cargo}
+          <CitofoniaWebRTCPorteria
+            modo="residente"
+            unidadResidente={userProfile?.unit_number || miEstadoCuenta.unidad || 'Torre 1 - 302'}
             onShowToast={onShowToast}
-            engineExternal={citofonoResidentEngine}
           />
         )}
 
@@ -1420,22 +1421,12 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
           </div>
         )}
 
-        {/* PESTAÑA: PAQUETES */}
+        {/* PESTAÑA: PAQUETES CON TIEMPO REAL, PIN, QR Y AUTORIZACIÓN DE TERCEROS */}
         {activeTabResidente === 'mispaquetes' && (
-          <div className="bg-[#1c1c1f] p-6 rounded-2xl border border-[#262629]">
-            <h3 className="text-md font-semibold text-white mb-4">Paquetes en Custodia</h3>
-            <div className="space-y-4">
-              {misPaquetes.map(pq => (
-                <div key={pq.id} className="bg-[#141416] p-4 rounded-xl border border-[#262629] flex items-center gap-4 font-mono text-xs">
-                  <img src={pq.fotoLlegada} alt="Paquete" className="w-16 h-16 rounded-lg object-cover border border-[#262629]" />
-                  <div>
-                    <p className="font-bold text-white text-sm">{pq.empresa} - {pq.descripcion}</p>
-                    <p className="text-gray-400 mt-1">Llegada: {pq.fechaLlegada} | Estado: <span className="text-amber-400">{pq.estado}</span></p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <ModuloMisPaquetesResidente
+            unidadResidente={userProfile?.unit_number || miEstadoCuenta?.unidad || 'Torre 1 - 302'}
+            onShowToast={onShowToast}
+          />
         )}
 
         {/* PESTAÑA: FINANCIERO */}

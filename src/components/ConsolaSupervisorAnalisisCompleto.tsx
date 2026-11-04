@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { ShieldCheck, Sliders, Wrench, Radio, Clock, AlertTriangle, Users, FileCheck, CheckCircle2, PlusCircle, Bell, ArrowRight, ShieldAlert, Sparkles, LogOut } from 'lucide-react';
+import VersionShieldGuardBanner from './VersionShieldGuardBanner';
+import { UrbixLogoMark, UrbixFullLogo } from '../UrbixLogo';
+import LogoUrbix from './LogoUrbix';
 
 export interface ConsolaSupervisorAnalisisCompletoProps {
   checklistConfig?: any[];
@@ -227,13 +230,15 @@ export default function ConsolaSupervisorAnalisisCompleto({
   return (
     <div className="min-h-screen bg-[#07090e] text-slate-100 font-sans p-3 sm:p-5 md:p-6 space-y-4 sm:space-y-6 flex flex-col">
       
+      {/* BANNER DE BLINDAJE DE VERSIÓN Y ARQUITECTURA */}
+      <VersionShieldGuardBanner currentUserEmail={userProfile?.email} onShowToast={onShowToast} compact />
+
       {/* 1. CABECERA SIEMPRE ARRIBA */}
       <header className="w-full shrink-0">
         <div className="bg-[#0b0f17] border border-cyan-500/30 p-4 sm:p-6 rounded-2xl sm:rounded-3xl shadow-[0_0_30px_rgba(34,211,238,0.15)] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-cyan-500/10 text-cyan-400 rounded-2xl border border-cyan-500/30 shadow-[0_0_15px_rgba(34,211,238,0.2)] shrink-0">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
+          <div className="flex items-center gap-4">
+            <LogoUrbix size="sm" rolBadge="SUPERVISOR" />
+            <div className="hidden sm:block h-7 w-px bg-slate-800" />
             <div>
               <span className="text-[10px] font-mono font-bold text-cyan-400 bg-cyan-500/10 px-2.5 py-0.5 rounded border border-cyan-500/30 uppercase tracking-widest">
                 Supervisor Operativo • Análisis Integral

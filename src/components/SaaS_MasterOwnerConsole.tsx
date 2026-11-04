@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { CORE_MANIFEST, verifyCoreIntegrity } from '../core/coreFreezeGuard';
+import { CORE_MANIFEST, verifyCoreIntegrity, OWNER_EMAIL_CANONICAL } from '../core/coreFreezeGuard';
 import { DEFAULT_THEME_CONFIG, UIThemeConfig, ThemePalette, FontFamilyOption } from '../config/themeConfig';
 import SaaSCotizadorYSuspensionMaster from './SaaSCotizadorYSuspensionMaster';
 import CrearAdministradorModal from './CrearAdministradorModal';
@@ -8,8 +8,12 @@ import ModalInscribirCopropiedadConIA from './ModalInscribirCopropiedadConIA';
 import { MatrizGlobalTenantsSoporte } from './MatrizGlobalTenantsSoporte';
 import SoporteTecnicoImpersonacion from './SoporteTecnicoImpersonacion';
 import TarjetasKpiInteractivas from './TarjetasKpiInteractivas';
+import VersionShieldGuardBanner from './VersionShieldGuardBanner';
+import SoftwareArchitectureShieldSuite from './SoftwareArchitectureShieldSuite';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
 import { desactivarUsuarioSeguro } from '../authService';
+import { UrbixLogoMark, UrbixFullLogo } from '../UrbixLogo';
+import LogoUrbix from './LogoUrbix';
 
 interface SaaS_MasterOwnerConsoleProps {
   onImpersonateAdmin?: (copropiedadName: string) => void;
@@ -388,8 +392,8 @@ export default function SaaS_MasterOwnerConsole({
     cargarDirectorioCompleto();
   }, []);
 
-  // ÚNICOS 7 SUBMÓDULOS DEL DUEÑO DEL SOFTWARE
-  const [activeTab, setActiveTab] = useState<'tenants' | 'pricing_tiers' | 'feature_flags' | 'support_impersonate' | 'gateway' | 'billing_dunning' | 'infrastructure'>('tenants');
+  // SUBMÓDULOS DEL DUEÑO DEL SOFTWARE E INTEGRIDAD DE ARQUITECTURA
+  const [activeTab, setActiveTab] = useState<'tenants' | 'pricing_tiers' | 'feature_flags' | 'support_impersonate' | 'gateway' | 'billing_dunning' | 'infrastructure' | 'architecture_shield'>('tenants');
   const [gatewayProvider, setGatewayProvider] = useState<'Wompi Bancolombia' | 'Stripe Global' | 'PayU Latam' | 'PSE Corporativo'>('Wompi Bancolombia');
   const [autoBillingEnabled, setAutoBillingEnabled] = useState<boolean>(true);
 
@@ -598,16 +602,18 @@ export default function SaaS_MasterOwnerConsole({
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans space-y-6">
       
+      {/* BANNER FLOTANTE DE BLINDAJE DE VERSIÓN Y ARQUITECTURA DEL SOFTWARE */}
+      <VersionShieldGuardBanner currentUserEmail={OWNER_EMAIL_CANONICAL} onShowToast={onShowToast} />
+
       {/* Cabecera Principal Master */}
       <div className="bg-slate-900 border border-purple-500/30 rounded-2xl p-6 mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 transform translate-x-8 -translate-y-8 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl pointer-events-none"></div>
         
         <div className="flex items-center space-x-4 relative z-10">
-          <div className="w-14 h-14 bg-purple-950 border border-purple-500/50 rounded-xl flex items-center justify-center text-3xl shadow-inner">
-            🚀
-          </div>
+          <LogoUrbix size="md" rolBadge="MASTER" />
+          <div className="hidden sm:block h-9 w-px bg-slate-800" />
           <div>
             <div className="flex items-center space-x-2">
               <span className="text-[10px] font-mono bg-purple-950 text-purple-300 border border-purple-500/40 px-2.5 py-0.5 rounded-full font-bold">
@@ -761,6 +767,7 @@ export default function SaaS_MasterOwnerConsole({
           >
             {[
               { id: 'tenants', label: '🏢 Matriz Global de Copropiedades (Tenants)' },
+              { id: 'architecture_shield', label: '🛡️ Blindaje de Versión y Arquitectura (Owner Lock)' },
               { id: 'pricing_tiers', label: '💎 Planes, Tarifas & Proyección MRR' },
               { id: 'feature_flags', label: '🎛️ Licenciamiento & Módulos (Feature Flags)' },
               { id: 'support_impersonate', label: '🛠️ Soporte Técnico & Impersonación' },
@@ -797,6 +804,17 @@ export default function SaaS_MasterOwnerConsole({
           </div>
         </div>
       </div>
+
+      {/* =========================================================================
+          MÓDULO DE BLINDAJE DE VERSIÓN Y ARQUITECTURA (OWNER LOCK)
+         ========================================================================= */}
+      {activeTab === 'architecture_shield' && (
+        <SoftwareArchitectureShieldSuite
+          currentUserEmail={OWNER_EMAIL_CANONICAL}
+          onShowToast={onShowToast}
+          onAppendAuditLog={onAppendAuditLog}
+        />
+      )}
 
       {/* =========================================================================
           DIRECTORIO DUAL: ADMINISTRADORES (IZQUIERDA) vs COPROPIEDADES (DERECHA)

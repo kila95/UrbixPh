@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import type { GuardIncidentReport, CommonAreaReservation } from './App';
 import { supabase, type UserProfile } from './supabaseClient';
+import VersionShieldGuardBanner from './components/VersionShieldGuardBanner';
 import ContractorsModule from './ContractorsModule';
 import MeetingMinutesModule from './MeetingMinutesModule';
 import AdminGeneralInteractive from './components/AdminGeneralInteractive';
@@ -25,6 +26,8 @@ import DetalleCajaMenorModal from './components/DetalleCajaMenorModal';
 import PorteriaSupabaseSync from './PorteriaSupabaseSync';
 import { TableroComunicados } from './components/TableroComunicados';
 import { cargarMetricasTenant, MetricasTenant } from './lib/metricasTenant';
+import LogoUrbix from './LogoUrbix';
+import WhatsAppConfigCard from './WhatsAppConfigCard';
 
 
 export interface StaffMember {
@@ -75,6 +78,22 @@ export default function ConsolaGerencialUrbixPH({
   const setAbrirModalRecaudo = setModalRecaudoAbierto;
   const setAbrirModalCajaMenor = setModalCajaMenorAbierto;
 
+  // Panel de configuración de WhatsApp para el Administrador PH
+  const [whatsappEnabled, setWhatsappEnabled] = useState(true);
+  const [whatsappToken, setWhatsappToken] = useState('token_copropiedad_xyz');
+
+  const handleSaveWhatsAppConfig = () => {
+    try {
+      localStorage.setItem(
+        'urbix_whatsapp_config',
+        JSON.stringify({ enabled: whatsappEnabled, token: whatsappToken })
+      );
+    } catch {
+      // ignore
+    }
+    onShowToast?.('Configuración de WhatsApp actualizada para la copropiedad');
+  };
+
   // Edificios asignados al administrador desde Supabase (Tricentenario por defecto)
   const TRICENTENARIO_ID = '22079bb5-6ac7-4a15-be89-c53d14e4221b';
   const [edificiosAsignados, setEdificiosAsignados] = useState<any[]>([
@@ -99,7 +118,9 @@ export default function ConsolaGerencialUrbixPH({
       
       // Traer los tenants donde ella es la administradora asignada o Tricentenario
       try {
-        const adminIdFiltro = userId || 'dde881f7-cfe4-40b8-95bf-33d6e7a3ddfe';
+        const isUuid = (val?: string | null) =>
+          Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val));
+        const adminIdFiltro = isUuid(userId) ? userId : 'dde881f7-cfe4-40b8-95bf-33d6e7a3ddfe';
         const adminEmailFiltro = userEmail || 'siux95@hotmail.com';
 
         const { data: tenants, error } = await supabase
@@ -108,7 +129,7 @@ export default function ConsolaGerencialUrbixPH({
           .or(`assigned_admin_id.eq.${adminIdFiltro},admin_email.eq.${adminEmailFiltro},id.eq.${TRICENTENARIO_ID}`);
 
         if (error) {
-          console.error('Error cargando edificios del admin:', error.message);
+          console.warn('Aviso cargando edificios del admin:', error.message);
           return;
         }
 
@@ -118,7 +139,7 @@ export default function ConsolaGerencialUrbixPH({
           setEdificioActivoId(tricentenarioMatch ? tricentenarioMatch.id : tenants[0].id);
         }
       } catch (err: any) {
-        console.error('Error en cargarEdificiosDelAdmin:', err?.message);
+        console.warn('Aviso en cargarEdificiosDelAdmin:', err?.message);
       }
     };
 
@@ -145,9 +166,14 @@ export default function ConsolaGerencialUrbixPH({
     }
   }, [edificioActivoId]);
 
+  const isUuidTenant = (val?: string | null) =>
+    Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val));
   const edificioActivo = edificiosAsignados.find(e => e.id === edificioActivoId) || edificiosAsignados[0];
   const resolvedTenantName = edificioActivo?.name || currentTenant?.name || tenantName || 'urb Tricentenario';
-  const tenantActivoId = edificioActivoId || currentTenant?.id || TRICENTENARIO_ID;
+  const tenantActivoId =
+    (isUuidTenant(edificioActivoId) && edificioActivoId) ||
+    (isUuidTenant(currentTenant?.id) && currentTenant?.id) ||
+    TRICENTENARIO_ID;
   const tenantId = tenantActivoId;
   const resolvedAdminName = userProfile?.full_name || adminName || 'Esteban Ochoa';
 
@@ -505,20 +531,19 @@ export default function ConsolaGerencialUrbixPH({
   return (
     <div className="min-h-screen bg-[#07090e] text-slate-100 font-sans p-3 sm:p-5 md:p-6 space-y-4 sm:space-y-6 flex flex-col rounded-2xl sm:rounded-3xl border border-slate-800/80 shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden">
       
+      {/* BANNER DE BLINDAJE DE VERSIÓN Y ARQUITECTURA */}
+      <VersionShieldGuardBanner currentUserEmail={userProfile?.email} onShowToast={onShowToast} compact />
+
       {/* 1. CABECERA SIEMPRE ARRIBA */}
       <header className="w-full shrink-0 bg-[#0b0f17]/90 backdrop-blur-xl border-b border-cyan-500/20 px-4 sm:px-6 py-3.5 sm:py-4 rounded-xl sm:rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 shadow-[0_4px_25px_rgba(0,0,0,0.5)]">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-tr from-cyan-500 to-teal-400 flex items-center justify-center font-black text-slate-950 text-xl shadow-[0_0_20px_rgba(34,211,238,0.4)] shrink-0">
-            U
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-4">
+            <LogoUrbix size="sm" rolBadge="ADMIN" />
+            <div className="h-6 w-[1px] bg-slate-800" /> {/* Separador visual */}
+            <span className="text-xs text-slate-400 font-mono hidden md:inline">Panel de Control General</span>
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-sm sm:text-base font-black text-white tracking-tight leading-tight">Urbix • Consola Gerencial</h1>
-              <span className="text-[10px] font-black uppercase tracking-widest bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 px-2.5 py-0.5 rounded-full shadow-[0_0_10px_rgba(34,211,238,0.15)]">
-                LEY 675 COLOMBIA
-              </span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 mt-1">
               {edificiosAsignados.length > 0 ? (
                 <div className="flex items-center gap-1.5 bg-[#07090e] border border-cyan-500/40 rounded-xl px-2.5 py-1 shadow-sm">
                   <Building2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
@@ -875,6 +900,13 @@ export default function ConsolaGerencialUrbixPH({
               </div>
             </div>
 
+            {/* Pestaña o Sección de Ajustes de Notificaciones */}
+            <div className="mt-6">
+              <WhatsAppConfigCard 
+                tenantName="Reserva del Tesoro" 
+                onShowToast={onShowToast} 
+              />
+            </div>
           </div>
         )}
 
@@ -1068,11 +1100,31 @@ export default function ConsolaGerencialUrbixPH({
         {/* 7. ÁREAS COMUNES */}
         {activeTab === 'reservas' && (
           <div className="bg-[#0b0f17] border border-slate-800/80 p-6 rounded-3xl space-y-4 shadow-xl">
-            <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-2 font-mono">
-                <Calendar className="w-4 h-4 text-indigo-400" /> Gestión de Áreas Comunes y Depósitos
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">Control de reservas para Salón Social, Zona BBQ y Cancha Sintética con validación de paz y salvo.</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2 font-mono">
+                  <Calendar className="w-4 h-4 text-indigo-400" /> Gestión de Áreas Comunes y Depósitos
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">Control de reservas para Salón Social, Zona BBQ y Cancha Sintética con validación de paz y salvo.</p>
+              </div>
+              <div className="flex items-center gap-2 bg-[#07090e] border border-slate-800 px-3 py-2 rounded-xl text-xs">
+                <label className="flex items-center gap-2 cursor-pointer text-slate-300 font-mono">
+                  <input
+                    type="checkbox"
+                    checked={whatsappEnabled}
+                    onChange={(e) => setWhatsappEnabled(e.target.checked)}
+                    className="accent-emerald-400 cursor-pointer"
+                  />
+                  <span>Alertas WhatsApp ({whatsappEnabled ? 'Activas' : 'Pausadas'})</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleSaveWhatsAppConfig}
+                  className="px-2.5 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 rounded-lg font-bold transition cursor-pointer"
+                >
+                  Guardar
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1099,10 +1151,31 @@ export default function ConsolaGerencialUrbixPH({
                     {res.pazYSalvo && res.estado !== 'Aprobada ✓' && (
                       <button
                         type="button"
-                        onClick={() => {
+                        onClick={async () => {
                           setLocalReservations((prev) =>
                             prev.map((item) => (item.id === res.id ? { ...item, estado: 'Aprobada ✓' } : item))
                           );
+                          try {
+                            await fetch('/api/webhook/whatsapp-alert', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                eventType: 'RESERVATION_APPROVED',
+                                record: {
+                                  resident: res.residente,
+                                  amenity: res.zona,
+                                  date: res.fecha
+                                },
+                                tenantName: resolvedTenantName,
+                                whatsappConfig: {
+                                  enabled: whatsappEnabled,
+                                  token: whatsappToken
+                                }
+                              })
+                            });
+                          } catch (e) {
+                            console.warn("No se pudo despachar la notificación por WhatsApp:", e);
+                          }
                           onShowToast?.(`✅ Reserva de ${res.zona} aprobada para ${res.apto}`);
                         }}
                         className="px-3 py-1 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold rounded-xl transition cursor-pointer"
@@ -1113,6 +1186,14 @@ export default function ConsolaGerencialUrbixPH({
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Pestaña o Sección de Ajustes de Notificaciones */}
+            <div className="mt-6">
+              <WhatsAppConfigCard 
+                tenantName="Reserva del Tesoro" 
+                onShowToast={onShowToast} 
+              />
             </div>
           </div>
         )}

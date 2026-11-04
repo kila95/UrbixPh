@@ -5,6 +5,7 @@ import SelectorRolesDevEnterprise from './SelectorRolesDevEnterprise';
 import AuthLoginExecutive from './AuthLoginExecutive';
 import FooterLoginInteractivo from './FooterLoginInteractivo';
 import { Eye, EyeOff, ShieldCheck, MessageSquare } from 'lucide-react';
+import { UrbixLogoMark, UrbixFullLogo } from '../UrbixLogo';
 
 interface AuthLoginProps {
   tenants: ClientTenantNode[];
@@ -220,15 +221,12 @@ export default function AuthLogin({
 
         {/* Cabecera oficial Urbix PH basada en identidad corporativa */}
         <div className="text-center mb-6">
-          <div className="flex justify-center mb-3">
-            <div className="relative group">
-              <div className="absolute -inset-1.5 rounded-2xl bg-cyan-500/25 blur-md opacity-80 group-hover:opacity-100 transition duration-500 pointer-events-none" />
-              <img
-                src="/assets/aistudio/urbix_logo_square_neon.png"
-                alt="Urbix PH"
-                className="relative w-24 h-24 rounded-2xl object-cover drop-shadow-[0_0_20px_rgba(0,242,254,0.45)]"
-              />
-            </div>
+          <div className="flex flex-col items-center justify-center mb-4">
+            <img
+              src="/assets/aistudio/Gemini_Generated_Image_pyhwpzpyhwpzpyhw_f4f1c70b.jfif"
+              alt="Logo Principal Urbix PH"
+              className="w-28 h-28 rounded-3xl object-cover border border-[#00f2fe]/50 shadow-[0_0_30px_rgba(0,242,254,0.45)]"
+            />
           </div>
           <p className="text-[11px] uppercase tracking-widest text-zinc-400 font-semibold mb-1">
             Sistema de Gestión de Propiedad Horizontal

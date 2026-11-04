@@ -9,7 +9,6 @@ import ConsolaVigilanteEnterpriseCompleta from './ConsolaVigilanteEnterpriseComp
 import ModuloMinutaDigitalEnterprise from './ModuloMinutaDigitalEnterprise';
 import ModuloContratistasYVisitasTecnicas from './ModuloContratistasYVisitasTecnicas';
 import FormularioIngresoTecnicoPorteria from './FormularioIngresoTecnicoPorteria';
-import ModuloEncomiendasConBusquedaPinEnterprise from './ModuloEncomiendasConBusquedaPinEnterprise';
 import ConsolaPorteriaExecutive from './ConsolaPorteriaExecutive';
 import CitofonoVirtualEnterprise from './CitofonoVirtualEnterprise';
 import ModuloParqueaderosVisitantesEnterprise from './ModuloParqueaderosVisitantesEnterprise';
@@ -17,6 +16,9 @@ import GaritaParqueaderosYSosHub, { CeldaParqueadero, INITIAL_CELDAS_GARITA } fr
 import LectorQrConAsignacionParqueadero from './LectorQrConAsignacionParqueadero';
 import { useCitofonoEngine } from '../useCitofonoEngine';
 import VentanaFlotanteCitofono from './VentanaFlotanteCitofono';
+import CitofoniaWebRTCPorteria from './CitofoniaWebRTCPorteria';
+import LogoUrbix from './LogoUrbix';
+import { UrbixLogoMark, UrbixFullLogo } from '../UrbixLogo';
 
 export default function ConsolaUnificadaPorteria({
   visitasQrShared = [],
@@ -310,6 +312,23 @@ export default function ConsolaUnificadaPorteria({
     onShowToast?.('Estado de acceso actualizado en tiempo real.');
   };
 
+  // Función auxiliar para disparar la alerta de WhatsApp desde el cliente o servidor
+  const dispararAlertaWhatsApp = async (tipoEvento: 'NEW_PACKAGE' | 'RESERVATION_APPROVED', datosRegistro: any, nombreConjunto: string) => {
+    try {
+      await fetch('/api/webhook/whatsapp-alert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventType: tipoEvento,
+          record: datosRegistro,
+          tenantName: nombreConjunto
+        })
+      });
+    } catch (e) {
+      console.warn("No se pudo despachar la notificación por WhatsApp:", e);
+    }
+  };
+
   const handleRegistrarPaquete = (e: React.FormEvent) => {
     e.preventDefault();
     if (!torreApto.trim() || !destinatario.trim()) return;
@@ -317,7 +336,9 @@ export default function ConsolaUnificadaPorteria({
     const pinRetiro = Math.floor(1000 + Math.random() * 9000);
     const nuevoPaquete = {
       id: `pkg_${Date.now()}`,
+      guia: `GUIA-${pinRetiro}`,
       codigoPin: `PKG-${pinRetiro}`,
+      pinRetiro: `PKG-${pinRetiro}`,
       unidad: torreApto.trim(),
       destinatario: destinatario.trim(),
       empresa: transportadora,
@@ -328,6 +349,8 @@ export default function ConsolaUnificadaPorteria({
     if (setEncomiendasShared) {
       setEncomiendasShared((prev: any[]) => [nuevoPaquete, ...prev]);
     }
+
+    dispararAlertaWhatsApp('NEW_PACKAGE', nuevoPaquete, 'urb Tricentenario');
 
     setTorreApto('');
     setDestinatario('');
@@ -398,9 +421,8 @@ export default function ConsolaUnificadaPorteria({
       <header className="w-full shrink-0">
         <div className="bg-[#141416] border border-[#262629] p-4 sm:p-6 rounded-2xl shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-cyan-500/10 text-cyan-400 rounded-2xl border border-cyan-500/30 shadow-[0_0_15px_rgba(34,211,238,0.2)] shrink-0">
-              <QrCode className="w-6 h-6" />
-            </div>
+            <LogoUrbix size="sm" rolBadge="PORTERO" />
+            <div className="hidden sm:block h-7 w-px bg-slate-800 mx-1" />
             <div>
               <span className="text-[10px] font-mono font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 uppercase tracking-widest">
                 Consola Central de Portería &amp; Escáner QR
@@ -784,12 +806,96 @@ export default function ConsolaUnificadaPorteria({
 
         {/* 3. ENCOMIENDAS & CORREO (SOLAMENTE GESTIÓN DE PAQUETES) */}
         {submoduloPorteriaActivo === 3 && (
-          <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-2xl animate-fadeIn">
-            <ModuloEncomiendasConBusquedaPinEnterprise
-              encomiendasShared={encomiendasShared}
-              setEncomiendasShared={setEncomiendasShared}
-              onShowToast={onShowToast}
-            />
+          <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-2xl animate-fadeIn space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-amber-500/10 text-amber-400 rounded-2xl border border-amber-500/25">
+                  <Package className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-mono font-bold text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded border border-amber-500/20 uppercase tracking-widest">
+                    Control de Portería • Logística y Encomiendas
+                  </span>
+                  <h3 className="text-base font-black text-white mt-1">Gestión de Casilleros y Encomiendas</h3>
+                </div>
+              </div>
+              <input
+                type="text"
+                placeholder="Filtrar por unidad o PIN..."
+                value={filtroApartamentoEncomienda}
+                onChange={(e) => setFiltroApartamentoEncomienda(e.target.value)}
+                className="px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-mono outline-none focus:border-amber-500"
+              />
+            </div>
+
+            <form onSubmit={handleRegistrarPaquete} className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-950/70 p-4 rounded-2xl border border-slate-800">
+              <input
+                type="text"
+                placeholder="Unidad (Ej: Torre 1 - 302)"
+                value={torreApto}
+                onChange={(e) => setTorreApto(e.target.value)}
+                className="p-3 bg-slate-900 border border-slate-700 text-white rounded-xl text-xs outline-none focus:border-amber-500"
+                required
+              />
+              <input
+                type="text"
+                placeholder="Destinatario..."
+                value={destinatario}
+                onChange={(e) => setDestinatario(e.target.value)}
+                className="p-3 bg-slate-900 border border-slate-700 text-white rounded-xl text-xs outline-none focus:border-amber-500"
+                required
+              />
+              <select
+                value={transportadora}
+                onChange={(e) => setTransportadora(e.target.value)}
+                className="p-3 bg-slate-900 border border-slate-700 text-white rounded-xl text-xs font-mono outline-none focus:border-amber-500"
+              >
+                <option>Mercado Libre</option>
+                <option>Amazon Prime</option>
+                <option>Servientrega</option>
+                <option>Coordinadora</option>
+                <option>Interrapidísimo</option>
+              </select>
+              <button
+                type="submit"
+                className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black py-3 px-4 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-2"
+              >
+                <PlusCircle className="w-4 h-4" /> Registrar Paquete
+              </button>
+            </form>
+
+            <div className="space-y-3">
+              {(encomiendasShared || [])
+                .filter((p: any) =>
+                  `${p.unidad || ''} ${p.destinatario || ''} ${p.codigoPin || p.pinRetiro || ''}`
+                    .toLowerCase()
+                    .includes(filtroApartamentoEncomienda.toLowerCase())
+                )
+                .map((p: any) => (
+                  <div key={p.id} className="p-4 bg-slate-950 border border-slate-800 rounded-2xl flex items-center justify-between gap-4 text-xs">
+                    <div>
+                      <p className="font-bold text-white text-sm">{p.destinatario} ({p.unidad})</p>
+                      <p className="text-slate-400 font-mono mt-0.5">
+                        {p.empresa} • PIN: <span className="text-amber-400 font-bold">{p.codigoPin || p.pinRetiro}</span> • {p.fechaIngreso || p.fechaLlegada}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2.5 py-1 rounded-lg font-bold text-[10px] border ${p.estado === 'En Custodia' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'}`}>
+                        {p.estado}
+                      </span>
+                      {p.estado === 'En Custodia' && (
+                        <button
+                          type="button"
+                          onClick={() => handleEntregarPaquete(p.id)}
+                          className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl transition cursor-pointer"
+                        >
+                          Entregar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+            </div>
           </div>
         )}
 
@@ -826,12 +932,10 @@ export default function ConsolaUnificadaPorteria({
 
         {/* 6. CITÓFONO VIRTUAL DIRECTO (RESIDENTE ⇄ GARITA) */}
         {submoduloPorteriaActivo === 6 && (
-          <CitofonoVirtualEnterprise
-            unidadResidenteActual="Torre 2 - 301"
-            rolUsuario="vigilante"
+          <CitofoniaWebRTCPorteria
+            modo="porteria"
+            guardaNombre={userProfile?.full_name || 'Guarda en Turno'}
             onShowToast={onShowToast}
-            engineExternal={citofonoGuardEngine}
-            unidadesDirectorio={unidades}
           />
         )}
 

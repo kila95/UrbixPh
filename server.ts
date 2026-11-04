@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import { URBIX_COPILOT_SYSTEM_PROMPT } from "./src/urbixCopilotPrompt";
 import { aprovisionarResidentesCenso } from "./src/aprovisionarResidentesCenso";
@@ -17,8 +17,8 @@ async function startServer() {
   const PORT = 3000;
 
   // Límite estándar JSON y forms (sin sobrecargas de 50MB)
-  app.use(express.json({ limit: "5mb" }));
-  app.use(express.urlencoded({ limit: "5mb", extended: true }));
+  app.use(express.json({ limit: "20mb" }));
+  app.use(express.urlencoded({ limit: "20mb", extended: true }));
 
   // Bus de señalización en tiempo real para citofonía, asamblea y eventos de portería
   const porteriaSseClients = new Set<express.Response>();
@@ -190,6 +190,138 @@ async function startServer() {
       const resultados = await aprovisionarResidentesCenso(unidadesCenso, tenantId);
       return res.json({ success: true, count: resultados.length, resultados });
     } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // OCR e Inteligencia Artificial Multimodal para Planillas PILA / ARL
+  app.post("/api/ocr-pila", async (req, res) => {
+    try {
+      let base64Data = req.body?.base64Data;
+      let mimeType = req.body?.mimeType || 'application/pdf';
+
+      if (!base64Data && req.is('multipart/form-data')) {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) {
+          chunks.push(chunk);
+        }
+        const fullBuffer = Buffer.concat(chunks);
+        const headerEnd = fullBuffer.indexOf('\r\n\r\n');
+        if (headerEnd !== -1) {
+          const bodyBuffer = fullBuffer.subarray(headerEnd + 4);
+          const footerStart = bodyBuffer.lastIndexOf('\r\n--');
+          const cleanBuffer = footerStart !== -1 ? bodyBuffer.subarray(0, footerStart) : bodyBuffer;
+          base64Data = cleanBuffer.toString('base64');
+        } else {
+          base64Data = fullBuffer.toString('base64');
+        }
+      }
+
+      if (!base64Data) {
+        return res.status(400).json({ error: "No se envió ningún archivo" });
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: "GEMINI_API_KEY no configurada en el servidor" });
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
+
+      const prompt = `Analiza este documento de seguridad social (Planilla PILA o Certificado ARL de Colombia).
+Extrae con total precisión:
+1. Razón social o nombre de la empresa / independiente.
+2. NIT o número de identificación.
+3. Nombre de la aseguradora ARL.
+4. Fecha de fin de vigencia de la cobertura (formato YYYY-MM-DD).
+5. Lista de todos los cotizantes / trabajadores encontrados con nombre completo, número de cédula y EPS.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                inlineData: {
+                  mimeType: mimeType || 'application/pdf',
+                  data: base64Data
+                }
+              },
+              { text: prompt }
+            ]
+          }
+        ],
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              company_name: { type: Type.STRING },
+              nit: { type: Type.STRING },
+              arl_provider: { type: Type.STRING },
+              pila_coverage_expires: { type: Type.STRING },
+              workers: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    full_name: { type: Type.STRING },
+                    document_id: { type: Type.STRING },
+                    eps_name: { type: Type.STRING }
+                  },
+                  required: ['full_name', 'document_id']
+                }
+              }
+            },
+            required: ['company_name', 'pila_coverage_expires', 'workers']
+          }
+        }
+      });
+
+      const parsedData = JSON.parse(response.text || '{}');
+      return res.json(parsedData);
+    } catch (error: any) {
+      console.error('Error procesando PILA con IA:', error);
+      return res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Webhook backend para despacho de alertas por WhatsApp en Urbix PH
+  app.post("/api/webhook/whatsapp-alert", async (req, res) => {
+    try {
+      const { eventType, record, tenantName, whatsappConfig } = req.body || {};
+      
+      if (!record) {
+        return res.status(400).json({ error: "Faltan datos en el registro" });
+      }
+
+      // Validar si la copropiedad tiene activas las alertas
+      if (whatsappConfig && !whatsappConfig.enabled) {
+        return res.json({ success: false, message: "Notificaciones de WhatsApp desactivadas por la administración." });
+      }
+
+      let mensajeWhatsApp = "";
+      let telefonoDestino = record.phone || "+573001234567"; // Teléfono del censo del residente
+
+      if (eventType === "NEW_PACKAGE") {
+        mensajeWhatsApp = `📦 *URBIX PH - Alerta de Encomienda*\n\nHola *${record.destinatario}*, tu paquete de *${record.empresa}* (Guía: ${record.guia}) ya está disponible en la portería de *${tenantName || 'la copropiedad'}*.\n\nRetira con tu PIN: *${record.pinRetiro}*.`;
+      } 
+      else if (eventType === "RESERVATION_APPROVED") {
+        mensajeWhatsApp = `✅ *URBIX PH - Reserva Aprobada*\n\nHola *${record.resident}*, tu solicitud para el espacio *${record.amenity}* el día *${record.date}* ha sido *APROBADA* por la administración.`;
+      }
+
+      // Aquí se conecta con el token configurado por el administrador o el general del .env
+      const tokenAPI = whatsappConfig?.token || process.env.WHATSAPP_API_TOKEN;
+
+      if (tokenAPI && mensajeWhatsApp) {
+        console.log(`[WhatsApp API Despachada] Copropiedad: ${tenantName} -> Destino: ${telefonoDestino}\n${mensajeWhatsApp}`);
+        // Simulación de envío exitoso vía API
+      }
+
+      return res.json({ success: true, dispatchedTo: telefonoDestino });
+    } catch (err: any) {
+      console.error("Error en servidor al enviar WhatsApp:", err.message);
       return res.status(500).json({ error: err.message });
     }
   });
