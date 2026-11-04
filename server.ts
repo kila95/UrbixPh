@@ -20,9 +20,24 @@ async function startServer() {
   app.use(express.json({ limit: "5mb" }));
   app.use(express.urlencoded({ limit: "5mb", extended: true }));
 
-  // Bus de señalización en tiempo real para citofonía y eventos de portería
+  // Bus de señalización en tiempo real para citofonía, asamblea y eventos de portería
   const porteriaSseClients = new Set<express.Response>();
+  const peerSseClients = new Map<express.Response, string>();
   let llamadaCitofonoActivaCache: { payload: any; timestamp: number } | null = null;
+  let asambleaConvocatoriaActivaCache: { payload: any; timestamp: number } | null = null;
+  const asambleaParticipantesActivos = new Map<string, any>();
+
+  app.get("/api/asamblea-state", (_req, res) => {
+    const convocatoriaVigencia =
+      asambleaConvocatoriaActivaCache &&
+      Date.now() - asambleaConvocatoriaActivaCache.timestamp < 7200000
+        ? asambleaConvocatoriaActivaCache.payload
+        : null;
+    res.json({
+      convocatoriaActiva: convocatoriaVigencia,
+      participantes: Array.from(asambleaParticipantesActivos.values())
+    });
+  });
 
   app.get("/api/asamblea-events", (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
@@ -31,8 +46,22 @@ async function startServer() {
     res.flushHeaders?.();
     porteriaSseClients.add(res);
 
+    const queryPeerId = typeof req.query.peerId === "string" ? req.query.peerId : "";
+    if (queryPeerId) {
+      peerSseClients.set(res, queryPeerId);
+    }
+
     if (llamadaCitofonoActivaCache && Date.now() - llamadaCitofonoActivaCache.timestamp < 90000) {
       res.write(`data: ${JSON.stringify({ event: "solicitar_llamada", payload: llamadaCitofonoActivaCache.payload })}\n\n`);
+    }
+
+    if (asambleaConvocatoriaActivaCache && Date.now() - asambleaConvocatoriaActivaCache.timestamp < 7200000) {
+      res.write(`data: ${JSON.stringify({ event: "asamblea_convocatoria_abierta", payload: asambleaConvocatoriaActivaCache.payload })}\n\n`);
+    }
+
+    // Enviar participantes actualmente conectados en la sala de asamblea
+    for (const participante of asambleaParticipantesActivos.values()) {
+      res.write(`data: ${JSON.stringify({ event: "participante_listo", payload: participante })}\n\n`);
     }
 
     const keepAlive = setInterval(() => {
@@ -46,6 +75,28 @@ async function startServer() {
     req.on("close", () => {
       clearInterval(keepAlive);
       porteriaSseClients.delete(res);
+      const disconnectedPeerId = peerSseClients.get(res);
+      peerSseClients.delete(res);
+
+      if (disconnectedPeerId) {
+        setTimeout(() => {
+          const stillConnected = Array.from(peerSseClients.values()).includes(disconnectedPeerId);
+          if (!stillConnected && asambleaParticipantesActivos.has(disconnectedPeerId)) {
+            asambleaParticipantesActivos.delete(disconnectedPeerId);
+            const packet = `data: ${JSON.stringify({
+              event: "asamblea_peer_salio",
+              payload: { peerId: disconnectedPeerId }
+            })}\n\n`;
+            for (const client of porteriaSseClients) {
+              try {
+                client.write(packet);
+              } catch {
+                porteriaSseClients.delete(client);
+              }
+            }
+          }
+        }, 2500);
+      }
     });
   });
 
@@ -60,6 +111,39 @@ async function startServer() {
       llamadaCitofonoActivaCache = { payload, timestamp: Date.now() };
     } else if (event === "webrtc_answer" || event === "terminar_llamada") {
       llamadaCitofonoActivaCache = null;
+    } else if (event === "asamblea_convocatoria_abierta") {
+      asambleaConvocatoriaActivaCache = { payload, timestamp: Date.now() };
+    } else if (event === "participante_listo" && payload?.peerId) {
+      const prev = asambleaParticipantesActivos.get(payload.peerId) || {};
+      asambleaParticipantesActivos.set(payload.peerId, {
+        ...prev,
+        ...payload,
+        timestamp: Date.now()
+      });
+    } else if (event === "asamblea_estado_media" && payload?.peerId) {
+      const prev = asambleaParticipantesActivos.get(payload.peerId);
+      if (prev) {
+        asambleaParticipantesActivos.set(payload.peerId, {
+          ...prev,
+          micActivo: payload.micActivo ?? prev.micActivo,
+          camActiva: payload.camActiva ?? prev.camActiva
+        });
+      }
+    } else if (event === "asamblea_unidad_actualizada" && payload?.peerId) {
+      const prev = asambleaParticipantesActivos.get(payload.peerId);
+      if (prev) {
+        asambleaParticipantesActivos.set(payload.peerId, {
+          ...prev,
+          unidad: payload.unidad || prev.unidad,
+          nombre: payload.nombre || prev.nombre,
+          etiqueta: payload.etiqueta || prev.etiqueta
+        });
+      }
+    } else if (event === "asamblea_peer_salio" && payload?.peerId) {
+      asambleaParticipantesActivos.delete(payload.peerId);
+    } else if (event === "asamblea_cerrada") {
+      asambleaParticipantesActivos.clear();
+      asambleaConvocatoriaActivaCache = null;
     }
 
     const packet = `data: ${JSON.stringify({ event, payload })}\n\n`;

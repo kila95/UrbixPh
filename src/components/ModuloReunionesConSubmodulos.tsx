@@ -37,6 +37,7 @@ import { supabase, isSupabaseConfigured } from '../supabaseClient';
 import { exportActaToLegalPDF } from '../ActaCardWithPDF';
 import ResilientMeetingRecorder from '../ResilientMeetingRecorder';
 import { EditorActaLegal } from './EditorActaLegal';
+import ModalLlamadaEntranteResidente from './ModalLlamadaEntranteResidente';
 
 export interface ModuloReunionesConSubmodulosProps {
   unidadResidenteActual?: string;
@@ -137,6 +138,10 @@ export default function ModuloReunionesConSubmodulos({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksGrabacionRef = useRef<Blob[]>([]);
 
+  // Estados del modal de llamada entrante para residentes
+  const [modalLlamadaDeclino, setModalLlamadaDeclino] = useState(false);
+  const [modalLlamadaEnEspera, setModalLlamadaEnEspera] = useState(false);
+
   // Invitación entrante sincronizada entre Admin y Residente
   const [invitacionEntrante, setInvitacionEntrante] = useState<ConvocatoriaActivaPayload | null>(() => {
     try {
@@ -176,9 +181,14 @@ export default function ModuloReunionesConSubmodulos({
   const [participantesRemotos, setParticipantesRemotos] = useState<
     Array<{
       peerId: string;
+      nombre?: string;
       unidad: string;
       rol: string;
       etiqueta: string;
+      iniciales?: string;
+      micActivo?: boolean;
+      camActiva?: boolean;
+      hablando?: boolean;
       conectado: boolean;
       streamTick: number;
     }>
@@ -186,9 +196,14 @@ export default function ModuloReunionesConSubmodulos({
   const participantesRemotosRef = useRef<
     Array<{
       peerId: string;
+      nombre?: string;
       unidad: string;
       rol: string;
       etiqueta: string;
+      iniciales?: string;
+      micActivo?: boolean;
+      camActiva?: boolean;
+      hablando?: boolean;
       conectado: boolean;
       streamTick: number;
     }>
@@ -198,26 +213,41 @@ export default function ModuloReunionesConSubmodulos({
       updater:
         | Array<{
             peerId: string;
+            nombre?: string;
             unidad: string;
             rol: string;
             etiqueta: string;
+            iniciales?: string;
+            micActivo?: boolean;
+            camActiva?: boolean;
+            hablando?: boolean;
             conectado: boolean;
             streamTick: number;
           }>
         | ((
             prev: Array<{
               peerId: string;
+              nombre?: string;
               unidad: string;
               rol: string;
               etiqueta: string;
+              iniciales?: string;
+              micActivo?: boolean;
+              camActiva?: boolean;
+              hablando?: boolean;
               conectado: boolean;
               streamTick: number;
             }>
           ) => Array<{
             peerId: string;
+            nombre?: string;
             unidad: string;
             rol: string;
             etiqueta: string;
+            iniciales?: string;
+            micActivo?: boolean;
+            camActiva?: boolean;
+            hablando?: boolean;
             conectado: boolean;
             streamTick: number;
           }>)
@@ -253,6 +283,99 @@ export default function ModuloReunionesConSubmodulos({
   useEffect(() => {
     unidadActivaRef.current = unidadActiva;
   }, [unidadActiva]);
+
+  const miNombreReal =
+    rolUsuario === 'admin'
+      ? 'Administración'
+      : (catalogoApartamentos.find((c) => c.unidad === unidadActiva)?.propietario?.split('(')[0]?.trim() || 'Residente');
+  const miUnidadReal = rolUsuario === 'admin' ? 'Admin' : unidadActiva;
+  const misInicialesReales =
+    miNombreReal
+      .split(' ')
+      .filter(Boolean)
+      .map((n: string) => n[0])
+      .slice(0, 2)
+      .join('')
+      .toUpperCase() || 'AD';
+
+  const miNombreRealRef = useRef(miNombreReal);
+  useEffect(() => {
+    miNombreRealRef.current = miNombreReal;
+  }, [miNombreReal]);
+
+  const misInicialesRealesRef = useRef(misInicialesReales);
+  useEffect(() => {
+    misInicialesRealesRef.current = misInicialesReales;
+  }, [misInicialesReales]);
+
+  const micOnRef = useRef(micOn);
+  useEffect(() => {
+    micOnRef.current = micOn;
+  }, [micOn]);
+
+  const camOnRef = useRef(camOn);
+  useEffect(() => {
+    camOnRef.current = camOn;
+  }, [camOn]);
+
+  // Lista unificada de participantes conectados en tiempo real (Yo + Participantes Remotos WebRTC)
+  const participantesReales = enVivo
+    ? [
+        {
+          peerId: miPeerIdRef.current,
+          nombre: miNombreReal,
+          unidad: miUnidadReal,
+          rol: rolUsuario,
+          iniciales: misInicialesReales,
+          micActivo: micOn,
+          camActiva: camOn,
+          hablando: micOn && nivelMic >= 15,
+          conectado: true,
+          esLocal: true,
+          streamTick: 0
+        },
+        ...participantesRemotos.map((p) => {
+          const nombreBase =
+            p.nombre ||
+            (p.rol === 'admin'
+              ? 'Administración'
+              : catalogoApartamentos.find((c) => c.unidad === p.unidad)?.propietario?.split('(')[0]?.trim() ||
+                p.etiqueta ||
+                'Residente');
+          const inicialesCalc =
+            p.iniciales ||
+            nombreBase
+              .split(' ')
+              .filter(Boolean)
+              .map((n: string) => n[0])
+              .slice(0, 2)
+              .join('')
+              .toUpperCase() ||
+            (p.rol === 'admin' ? 'AD' : 'RS');
+          return {
+            peerId: p.peerId,
+            nombre: nombreBase,
+            unidad: p.rol === 'admin' ? 'Admin' : p.unidad,
+            rol: p.rol || 'residente',
+            iniciales: inicialesCalc,
+            micActivo: p.micActivo ?? true,
+            camActiva: p.camActiva ?? true,
+            hablando: Boolean(p.hablando),
+            conectado: p.conectado || remoteStreamsMapRef.current.has(p.peerId),
+            esLocal: false,
+            streamTick: p.streamTick
+          };
+        })
+      ]
+    : [];
+
+  const getGridCols = (total: number) => {
+    if (total <= 1) return 'grid-cols-1 max-w-2xl mx-auto';
+    if (total === 2) return 'grid-cols-1 sm:grid-cols-2';
+    if (total <= 4) return 'grid-cols-2';
+    if (total <= 6) return 'grid-cols-2 md:grid-cols-3';
+    return 'grid-cols-3';
+  };
 
   const rolUsuarioRef = useRef(rolUsuario);
   useEffect(() => {
@@ -410,11 +533,16 @@ export default function ModuloReunionesConSubmodulos({
   // Callback refs para asegurar que el elemento <video> local y cada subcuadro remoto SIEMPRE muestren imagen y reproduzcan audio
   const setVideoLocalElement = useCallback((node: HTMLVideoElement | null) => {
     videoLocalRef.current = node;
-    if (node && streamLocalRef.current) {
-      if (node.srcObject !== streamLocalRef.current) {
-        node.srcObject = streamLocalRef.current;
+    const activeStream = streamPantallaRef.current || streamLocalRef.current;
+    if (node && activeStream) {
+      if (node.srcObject !== activeStream) {
+        node.srcObject = activeStream;
+        node.muted = true;
+        node.play().catch(() => {});
+      } else if (node.paused) {
+        node.muted = true;
+        node.play().catch(() => {});
       }
-      node.play().catch(() => {});
     }
   }, []);
 
@@ -423,10 +551,12 @@ export default function ModuloReunionesConSubmodulos({
     if (node && streamRemotoRef.current) {
       if (node.srcObject !== streamRemotoRef.current) {
         node.srcObject = streamRemotoRef.current;
+        node.muted = true;
+        node.play().catch(() => {});
+      } else if (node.paused) {
+        node.muted = true;
+        node.play().catch(() => {});
       }
-      // Los elementos <video> se mantienen silenciados para que ningún navegador móvil/escritorio bloquee el autoplay de múltiples cámaras; el audio sale por los elementos <audio> dedicados
-      node.muted = true;
-      node.play().catch(() => {});
     }
   }, []);
 
@@ -439,12 +569,15 @@ export default function ModuloReunionesConSubmodulos({
       }
       remoteVideoElementsMapRef.current.set(peerId, node);
       const stream = remoteStreamsMapRef.current.get(peerId);
-      if (stream) {
+      if (stream && stream.getVideoTracks().length > 0) {
         if (node.srcObject !== stream) {
           node.srcObject = stream;
+          node.muted = true;
+          node.play().catch(() => {});
+        } else if (node.paused) {
+          node.muted = true;
+          node.play().catch(() => {});
         }
-        node.muted = true;
-        node.play().catch(() => {});
       }
     },
     []
@@ -458,13 +591,18 @@ export default function ModuloReunionesConSubmodulos({
       }
       remoteAudioElementsMapRef.current.set(peerId, node);
       const stream = remoteStreamsMapRef.current.get(peerId);
-      if (stream) {
+      if (stream && stream.getAudioTracks().length > 0) {
         if (node.srcObject !== stream) {
           node.srcObject = stream;
+          node.muted = !audioRemotoOnRef.current;
+          node.volume = 1.0;
+          node.play().catch(() => {});
+        } else {
+          node.muted = !audioRemotoOnRef.current;
+          if (node.paused) {
+            node.play().catch(() => {});
+          }
         }
-        node.muted = !audioRemotoOnRef.current;
-        node.volume = 1.0;
-        node.play().catch(() => {});
       }
     },
     []
@@ -653,27 +791,30 @@ export default function ModuloReunionesConSubmodulos({
 
       // Cuando llegan las pistas de video y audio de ESTE participante remoto
       pc.ontrack = (evt) => {
-        let remoteStream = remoteStreamsMapRef.current.get(targetKey);
-        if (!remoteStream) {
-          remoteStream = new MediaStream();
-          remoteStreamsMapRef.current.set(targetKey, remoteStream);
+        const prevStream = remoteStreamsMapRef.current.get(targetKey);
+        const trackMap = new Map<string, MediaStreamTrack>();
+        if (prevStream) {
+          prevStream.getTracks().forEach((t) => {
+            if (t.readyState !== 'ended') {
+              trackMap.set(t.id, t);
+            }
+          });
         }
 
         if (evt.streams && evt.streams[0]) {
           evt.streams[0].getTracks().forEach((t) => {
             t.enabled = true;
-            if (!remoteStream!.getTracks().some((existing) => existing.id === t.id)) {
-              remoteStream!.addTrack(t);
-            }
+            trackMap.set(t.id, t);
           });
         }
         if (evt.track) {
           evt.track.enabled = true;
-          if (!remoteStream.getTracks().some((existing) => existing.id === evt.track.id)) {
-            remoteStream.addTrack(evt.track);
-          }
+          trackMap.set(evt.track.id, evt.track);
         }
 
+        // Crear nueva instancia de MediaStream para que los elementos <video> y <audio> detecten siempre la nueva pista de video/audio
+        const remoteStream = new MediaStream(Array.from(trackMap.values()));
+        remoteStreamsMapRef.current.set(targetKey, remoteStream);
         streamRemotoRef.current = remoteStream;
         setRemotoConectado(true);
 
@@ -703,19 +844,19 @@ export default function ModuloReunionesConSubmodulos({
 
         // Asignar inmediatamente a su <video> (muted=true para autoplay garantizado) y <audio> dedicado
         const subVideo = remoteVideoElementsMapRef.current.get(targetKey);
-        if (subVideo) {
+        if (subVideo && remoteStream.getVideoTracks().length > 0) {
           subVideo.srcObject = remoteStream;
           subVideo.muted = true;
           subVideo.play().catch(() => {});
         }
         const subAudio = remoteAudioElementsMapRef.current.get(targetKey);
-        if (subAudio) {
+        if (subAudio && remoteStream.getAudioTracks().length > 0) {
           subAudio.srcObject = remoteStream;
           subAudio.muted = !audioRemotoOnRef.current;
           subAudio.volume = 1.0;
           subAudio.play().catch(() => {});
         }
-        if (videoRemotoRef.current) {
+        if (videoRemotoRef.current && remoteStream.getVideoTracks().length > 0) {
           if (
             !videoRemotoRef.current.srcObject ||
             rolUsuarioRef.current === 'residente' ||
@@ -915,6 +1056,8 @@ export default function ModuloReunionesConSubmodulos({
       }
 
       if (event === 'asamblea_convocatoria_abierta') {
+        setModalLlamadaDeclino(false);
+        setModalLlamadaEnEspera(false);
         const nuevaInvitacion: ConvocatoriaActivaPayload = {
           idSesion: payload.idSesion || `ses-${Date.now()}`,
           tipo: payload.tipo === 'consejo' ? 'consejo' : 'asamblea',
@@ -937,7 +1080,46 @@ export default function ModuloReunionesConSubmodulos({
       } else if (event === 'asamblea_cerrada') {
         setInvitacionEntrante(null);
         setRemotoConectado(false);
+        peersMapRef.current.forEach((pc) => {
+          try {
+            pc.close();
+          } catch {}
+        });
+        peersMapRef.current.clear();
+        remoteStreamsMapRef.current.clear();
         actualizarParticipantesRemotos([]);
+        if (rolUsuarioRef.current !== 'admin') {
+          setEnVivo(false);
+          enVivoRef.current = false;
+        }
+      } else if (event === 'asamblea_peer_salio') {
+        const remotePeerId = payload.peerId || payload._senderPeerId;
+        if (!remotePeerId) return;
+        const pc = peersMapRef.current.get(remotePeerId);
+        if (pc) {
+          try {
+            pc.close();
+          } catch {}
+          peersMapRef.current.delete(remotePeerId);
+        }
+        remoteStreamsMapRef.current.delete(remotePeerId);
+        remoteVideoElementsMapRef.current.delete(remotePeerId);
+        remoteAudioElementsMapRef.current.delete(remotePeerId);
+        actualizarParticipantesRemotos((prev) => prev.filter((p) => p.peerId !== remotePeerId));
+      } else if (event === 'asamblea_estado_media') {
+        const remotePeerId = payload.peerId || payload._senderPeerId;
+        if (!remotePeerId || remotePeerId === miPeerIdRef.current) return;
+        actualizarParticipantesRemotos((prev) =>
+          prev.map((p) =>
+            p.peerId === remotePeerId
+              ? {
+                  ...p,
+                  micActivo: payload.micActivo ?? p.micActivo,
+                  camActiva: payload.camActiva ?? p.camActiva
+                }
+              : p
+          )
+        );
       } else if (event === 'asamblea_unidad_actualizada') {
         const remotePeerId = payload.peerId || payload._senderPeerId;
         if (!remotePeerId || remotePeerId === miPeerIdRef.current || !payload.unidad) return;
@@ -947,25 +1129,67 @@ export default function ModuloReunionesConSubmodulos({
               ? {
                   ...p,
                   unidad: payload.unidad,
+                  nombre: payload.nombre || p.nombre,
                   etiqueta: payload.etiqueta || payload.unidad
                 }
               : p
           )
         );
+      } else if (event === 'participante_presente') {
+        const remotePeerId = payload.peerId || payload._senderPeerId;
+        if (!remotePeerId || remotePeerId === miPeerIdRef.current) return;
+        const esAdminRemoto = payload.rol === 'admin' || payload.unidad === 'ADMIN' || payload.unidad === 'Admin';
+        const unidadRemota = esAdminRemoto ? 'ADMIN' : (payload.unidad || 'Torre 2 - 301');
+        const nombreRemoto = payload.nombre || (esAdminRemoto ? 'Administración' : unidadRemota);
+        actualizarParticipantesRemotos((prev) => {
+          const existe = prev.some((p) => p.peerId === remotePeerId);
+          if (existe) {
+            return prev.map((p) =>
+              p.peerId === remotePeerId
+                ? {
+                    ...p,
+                    nombre: nombreRemoto,
+                    unidad: unidadRemota,
+                    rol: esAdminRemoto ? 'admin' : 'residente',
+                    etiqueta: payload.etiqueta || nombreRemoto,
+                    iniciales: payload.iniciales || p.iniciales,
+                    micActivo: payload.micActivo ?? p.micActivo,
+                    camActiva: payload.camActiva ?? p.camActiva
+                  }
+                : p
+            );
+          }
+          return [
+            ...prev,
+            {
+              peerId: remotePeerId,
+              nombre: nombreRemoto,
+              unidad: unidadRemota,
+              rol: esAdminRemoto ? 'admin' : 'residente',
+              etiqueta: payload.etiqueta || nombreRemoto,
+              iniciales: payload.iniciales,
+              micActivo: payload.micActivo ?? true,
+              camActiva: payload.camActiva ?? true,
+              conectado: remoteStreamsMapRef.current.has(remotePeerId),
+              streamTick: Date.now()
+            }
+          ];
+        });
       } else if (event === 'participante_listo') {
         // Un participante (residente o admin) acaba de entrar o actualizar su unidad y anuncia su peerId
         const remotePeerId = payload.peerId || payload._senderPeerId;
         if (!remotePeerId || remotePeerId === miPeerIdRef.current) return;
 
+        const esAdminRemoto = payload.rol === 'admin' || payload.unidad === 'ADMIN' || payload.unidad === 'Admin';
+
         if (enVivoRef.current && streamLocalRef.current) {
-          let unidadAsignada = payload.unidad || 'Torre 2 - 301';
+          let unidadAsignada = esAdminRemoto ? 'ADMIN' : (payload.unidad || 'Torre 2 - 301');
 
           // Asignación sincrónica usando participantesRemotosRef para que el 2°, 3°+ residente NUNCA colisione con el 1°
-          if (payload.rol !== 'admin') {
+          if (!esAdminRemoto) {
             const listaActual = participantesRemotosRef.current;
             const existentePeer = listaActual.find((p) => p.peerId === remotePeerId);
 
-            // Si este peer ya tenía una unidad asignada y no es un cambio explícito desde su selector, conservarla
             if (existentePeer && !payload.cambioExplicito) {
               unidadAsignada = existentePeer.unidad;
             } else {
@@ -1003,46 +1227,71 @@ export default function ModuloReunionesConSubmodulos({
             }
           }
 
-          if (payload.rol !== 'admin') {
+          if (!esAdminRemoto) {
             setNombreParticipanteRemoto(unidadAsignada);
           }
 
-          // Evitar colisión (glare): si soy residente y quien anuncia es el Admin, anuncio mi presencia para que el Admin inicie la oferta hacia mí
-          if (rolUsuarioRef.current === 'residente' && payload.rol === 'admin') {
-            actualizarParticipantesRemotos((prev) => {
-              if (prev.some((p) => p.peerId === remotePeerId)) return prev;
-              return [
-                ...prev,
-                {
-                  peerId: remotePeerId,
-                  unidad: 'ADMIN',
-                  rol: 'admin',
-                  etiqueta: 'Administración Principal',
-                  conectado: remoteStreamsMapRef.current.has(remotePeerId),
-                  streamTick: Date.now()
-                }
-              ];
-            });
-            if (!peersMapRef.current.has(remotePeerId)) {
-              emitirEventoSenalizacion('participante_listo', {
-                peerId: miPeerIdRef.current,
-                unidad: unidadActivaRef.current,
-                rol: 'residente',
-                etiqueta: unidadActivaRef.current,
-                hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-              });
-            }
-            return;
-          }
+          const nombreRemoto =
+            payload.nombre || (esAdminRemoto ? 'Administración' : unidadAsignada);
 
-          // Crear o reutilizar el RTCPeerConnection exclusivo para este participante y enviarle oferta SDP dirigida a su peerId
+          actualizarParticipantesRemotos((prev) => {
+            const existe = prev.some((p) => p.peerId === remotePeerId);
+            if (existe) {
+              return prev.map((p) =>
+                p.peerId === remotePeerId
+                  ? {
+                      ...p,
+                      nombre: nombreRemoto,
+                      unidad: unidadAsignada,
+                      rol: esAdminRemoto ? 'admin' : 'residente',
+                      etiqueta: esAdminRemoto ? 'Administración Principal' : unidadAsignada,
+                      iniciales: payload.iniciales || p.iniciales,
+                      micActivo: payload.micActivo ?? p.micActivo,
+                      camActiva: payload.camActiva ?? p.camActiva
+                    }
+                  : p
+              );
+            }
+            return [
+              ...prev,
+              {
+                peerId: remotePeerId,
+                nombre: nombreRemoto,
+                unidad: unidadAsignada,
+                rol: esAdminRemoto ? 'admin' : 'residente',
+                etiqueta: esAdminRemoto ? 'Administración Principal' : unidadAsignada,
+                iniciales: payload.iniciales,
+                micActivo: payload.micActivo ?? true,
+                camActiva: payload.camActiva ?? true,
+                conectado: remoteStreamsMapRef.current.has(remotePeerId),
+                streamTick: Date.now()
+              }
+            ];
+          });
+
+          // Responder con nuestra presencia para que el nuevo participante actualice nuestra tarjeta de inmediato
+          emitirEventoSenalizacion('participante_presente', {
+            peerId: miPeerIdRef.current,
+            nombre: miNombreRealRef.current,
+            unidad: rolUsuarioRef.current === 'admin' ? 'ADMIN' : unidadActivaRef.current,
+            rol: rolUsuarioRef.current,
+            etiqueta:
+              rolUsuarioRef.current === 'admin'
+                ? 'Administración Principal'
+                : unidadActivaRef.current,
+            iniciales: misInicialesRealesRef.current,
+            micActivo: micOnRef.current,
+            camActiva: camOnRef.current
+          });
+
+          // Iniciar conexión WebRTC P2P enviando oferta SDP con nuestras pistas de cámara y micrófono
           obtenerOCrearPeerParaParticipante(
             remotePeerId,
             true,
             {
               unidad: unidadAsignada,
-              rol: payload.rol || 'residente',
-              etiqueta: payload.rol === 'admin' ? 'Administración Principal' : unidadAsignada
+              rol: esAdminRemoto ? 'admin' : 'residente',
+              etiqueta: esAdminRemoto ? 'Administración Principal' : unidadAsignada
             },
             Boolean(payload.forzarRenegociacion)
           );
@@ -1072,25 +1321,36 @@ export default function ModuloReunionesConSubmodulos({
 
         const remotePeerId = payload.fromPeerId || payload._senderPeerId || 'admin-peer';
         try {
+          // Resolución limpia de colisión de ofertas simultáneas (WebRTC Perfect Negotiation)
+          const pcExistente = peersMapRef.current.get(remotePeerId);
+          if (pcExistente && pcExistente.signalingState === 'have-local-offer') {
+            const soyImpolite = miPeerIdRef.current > remotePeerId;
+            if (soyImpolite) {
+              return;
+            }
+          }
+
           if (payload.fromRol !== 'admin' && payload.orador) {
             setNombreParticipanteRemoto(payload.orador);
           }
 
           // Conservar la unidad ya asignada para este peer si existe
           const peerPrevio = participantesRemotosRef.current.find((p) => p.peerId === remotePeerId);
+          const esAdminOferta = payload.fromRol === 'admin' || payload.fromUnidad === 'ADMIN';
           const unidadRemotaOferta =
-            peerPrevio && peerPrevio.rol !== 'admin'
+            peerPrevio && peerPrevio.rol !== 'admin' && !esAdminOferta
               ? peerPrevio.unidad
-              : payload.fromUnidad || payload.orador || 'ADMIN';
+              : esAdminOferta
+              ? 'ADMIN'
+              : payload.fromUnidad || payload.orador || 'Torre 2 - 301';
 
           const pc = obtenerOCrearPeerParaParticipante(
             remotePeerId,
             false,
             {
               unidad: unidadRemotaOferta,
-              rol: payload.fromRol || 'admin',
-              etiqueta:
-                payload.fromRol === 'admin' ? 'Administración Principal' : unidadRemotaOferta
+              rol: esAdminOferta ? 'admin' : (payload.fromRol || 'residente'),
+              etiqueta: esAdminOferta ? 'Administración Principal' : unidadRemotaOferta
             },
             true
           );
@@ -1154,7 +1414,6 @@ export default function ModuloReunionesConSubmodulos({
         const remotePeerId = payload.fromPeerId || payload._senderPeerId;
         if (!remotePeerId || remotePeerId === miPeerIdRef.current) return;
 
-        // Buscar estrictamente el RTCPeerConnection de este remotePeerId (si aún no tiene remoteDescription, encolar para este remotePeerId)
         const pc = peersMapRef.current.get(remotePeerId);
         if (payload.candidate) {
           if (pc && pc.remoteDescription && pc.remoteDescription.type) {
@@ -1166,14 +1425,25 @@ export default function ModuloReunionesConSubmodulos({
           }
         }
       } else if (event === 'asamblea_orador_hablando') {
-        if (payload._senderPeerId === miPeerIdRef.current) return;
+        const senderId = payload._senderPeerId || payload.peerId;
+        if (senderId === miPeerIdRef.current) return;
         if (payload.orador) {
           setNombreParticipanteRemoto(payload.orador);
         }
         setNivelVozRemota(payload.nivel || 68);
+        if (senderId) {
+          actualizarParticipantesRemotos((prev) =>
+            prev.map((p) => (p.peerId === senderId ? { ...p, hablando: true } : p))
+          );
+        }
         forzarReproduccionStreamsRemotos();
         setTimeout(() => {
           setNivelVozRemota(0);
+          if (senderId) {
+            actualizarParticipantesRemotos((prev) =>
+              prev.map((p) => (p.peerId === senderId ? { ...p, hablando: false } : p))
+            );
+          }
         }, 1400);
       } else if (event === 'asamblea_control_palabra') {
         const nuevaUnidadConPalabra = payload.unidadConPalabra || 'ADMIN';
@@ -1287,10 +1557,10 @@ export default function ModuloReunionesConSubmodulos({
   // 1. Suscripción Persistente en Tiempo Real (SSE Server Bus + Supabase + BroadcastChannel + Storage Event)
   // Se monta una sola vez para jamás perder ofertas SDP ni comandos de "Dar la Palabra"
   useEffect(() => {
-    // A. Canal SSE del servidor (/api/asamblea-events) para sincronización multi-dispositivo y multi-navegador
+    // A. Canal SSE del servidor (/api/asamblea-events) con peerId para limpieza automática al cerrar pestaña
     if (typeof window !== 'undefined' && 'EventSource' in window) {
       try {
-        const es = new EventSource('/api/asamblea-events');
+        const es = new EventSource(`/api/asamblea-events?peerId=${encodeURIComponent(miPeerIdRef.current)}`);
         es.onmessage = (ev) => {
           try {
             const parsed = JSON.parse(ev.data);
@@ -1343,7 +1613,10 @@ export default function ModuloReunionesConSubmodulos({
       [
         'asamblea_convocatoria_abierta',
         'asamblea_cerrada',
+        'asamblea_peer_salio',
+        'asamblea_estado_media',
         'participante_listo',
+        'participante_presente',
         'asamblea_unidad_actualizada',
         'asamblea_asignar_unidad_peer',
         'asamblea_oferta',
@@ -1454,63 +1727,64 @@ export default function ModuloReunionesConSubmodulos({
   // Generador de stream en vivo de respaldo si la cámara física está ocupada por otra ventana
   const crearStreamRespaldoEnVivo = useCallback((etiquetaUsuario: string, soloAudioStream?: MediaStream | null): MediaStream => {
     const canvas = document.createElement('canvas');
-    canvas.width = 1280;
-    canvas.height = 720;
+    canvas.width = 640;
+    canvas.height = 360;
     const ctx = canvas.getContext('2d')!;
     let tick = 0;
 
-    if (canvasRespaldoIntervalRef.current) clearInterval(canvasRespaldoIntervalRef.current);
-    canvasRespaldoIntervalRef.current = setInterval(() => {
+    const pintarFrame = () => {
       tick += 1;
-      // Fondo corporativo Urbix
       const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
       grad.addColorStop(0, '#06101e');
       grad.addColorStop(1, '#0b1f33');
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Círculos de onda de voz en vivo
-      const radius = 110 + Math.sin(tick * 0.25) * 18;
+      const radius = 58 + Math.sin(tick * 0.25) * 10;
       ctx.beginPath();
-      ctx.arc(canvas.width / 2, canvas.height / 2 - 30, radius, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(34, 211, 238, 0.35)';
-      ctx.lineWidth = 6;
+      ctx.arc(canvas.width / 2, canvas.height / 2 - 18, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(34, 211, 238, 0.4)';
+      ctx.lineWidth = 4;
       ctx.stroke();
 
       ctx.beginPath();
-      ctx.arc(canvas.width / 2, canvas.height / 2 - 30, 85, 0, Math.PI * 2);
+      ctx.arc(canvas.width / 2, canvas.height / 2 - 18, 44, 0, Math.PI * 2);
       ctx.fillStyle = '#0e7490';
       ctx.fill();
 
-      // Iniciales
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 54px monospace';
+      ctx.font = 'bold 26px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(rolUsuario === 'admin' ? 'ADMIN' : 'APTO', canvas.width / 2, canvas.height / 2 - 12);
+      ctx.fillText(rolUsuario === 'admin' ? 'ADMIN' : 'APTO', canvas.width / 2, canvas.height / 2 - 9);
 
-      // Nombre y Hora en vivo
       ctx.fillStyle = '#22d3ee';
-      ctx.font = 'bold 32px sans-serif';
-      ctx.fillText(etiquetaUsuario, canvas.width / 2, canvas.height / 2 + 125);
+      ctx.font = 'bold 18px sans-serif';
+      ctx.fillText(etiquetaUsuario, canvas.width / 2, canvas.height / 2 + 62);
 
       ctx.fillStyle = '#94a3b8';
-      ctx.font = '22px monospace';
+      ctx.font = '13px monospace';
       ctx.fillText(
-        `TRANSMISIÓN EN VIVO LEY 675 • ${new Date().toLocaleTimeString()}`,
+        `SEÑAL EN VIVO • ${new Date().toLocaleTimeString()}`,
         canvas.width / 2,
-        canvas.height / 2 + 170
+        canvas.height / 2 + 88
       );
-    }, 80);
+    };
 
-    const canvasStream = (canvas as any).captureStream ? (canvas as any).captureStream(25) : new MediaStream();
+    // Pintar primer frame inmediatamente antes de captureStream para inicializar el codificador WebRTC
+    pintarFrame();
+
+    if (canvasRespaldoIntervalRef.current) clearInterval(canvasRespaldoIntervalRef.current);
+    canvasRespaldoIntervalRef.current = setInterval(pintarFrame, 60);
+
+    const canvasStream = (canvas as any).captureStream ? (canvas as any).captureStream(24) : new MediaStream();
     if (soloAudioStream && soloAudioStream.getAudioTracks().length > 0) {
       soloAudioStream.getAudioTracks().forEach((t) => canvasStream.addTrack(t));
     } else {
-      // Crear pista de audio silenciosa activa para que WebRTC y MediaRecorder funcionen al 100%
       try {
         const Ctx = window.AudioContext || (window as any).webkitAudioContext;
         if (Ctx) {
           const actx = new Ctx();
+          actx.resume().catch(() => {});
           const dst = actx.createMediaStreamDestination();
           const osc = actx.createOscillator();
           const gain = actx.createGain();
@@ -1592,21 +1866,21 @@ export default function ModuloReunionesConSubmodulos({
     let usoRespaldo = false;
 
     try {
-      // Intento 1: Cámara HD + Micrófono con cancelación de eco
+      // Intento 1: Cámara fluida 640x360 + Micrófono con cancelación de eco
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+        video: { width: { ideal: 640 }, height: { ideal: 360 }, facingMode: 'user' },
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
       });
     } catch {
       try {
-        // Intento 1B: Cámara con configuración estándar + Micrófono (evita OverconstrainedError en segundo dispositivo)
+        // Intento 1B: Cámara con configuración estándar + Micrófono
         stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
         });
       } catch {
         try {
-          // Intento 2: Si el micrófono está ocupado o sin permiso pero la cámara sí está libre, capturar cámara real + pista de audio de respaldo
+          // Intento 2: Capturar cámara real + pista de audio de respaldo
           const videoOnly = await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: false
@@ -1619,7 +1893,7 @@ export default function ModuloReunionesConSubmodulos({
           stream = videoOnly;
         } catch {
           try {
-            // Intento 3: Capturar SIEMPRE el micrófono real aunque la cámara esté ocupada por otra ventana
+            // Intento 3: Capturar micrófono real + stream de video en vivo de respaldo (cuando la cámara física está ocupada por otra pestaña)
             const audioOnly = await navigator.mediaDevices.getUserMedia({
               video: false,
               audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
@@ -1630,7 +1904,7 @@ export default function ModuloReunionesConSubmodulos({
               audioOnly
             );
           } catch {
-            // Intento 4: Stream en vivo autogenerado (video + audio) para que jamás quede bloqueado
+            // Intento 4: Stream en vivo autogenerado (video + audio)
             usoRespaldo = true;
             stream = crearStreamRespaldoEnVivo(
               rolUsuario === 'admin' ? 'Administración Central' : unidadActiva,
@@ -1644,32 +1918,89 @@ export default function ModuloReunionesConSubmodulos({
     setUsandoCamaraRespaldo(usoRespaldo);
     streamLocalRef.current = stream;
 
-    // Blindaje de Audio: El Administrador inicia con micrófono activo; los residentes inician con micrófono silenciado hasta que el Admin les dé la palabra
-    const tienePalabraInicial =
-      rolUsuario === 'admin' ||
-      (unidadConPalabra !== 'ADMIN' &&
-        unidadConPalabra.trim().toLowerCase() === unidadActiva.trim().toLowerCase());
+    // Habilitar audio y video al entrar para que tanto Admin como Residentes/Consejo transmitan imagen y voz de inmediato
+    const tienePalabraInicial = true;
 
     if (stream) {
+      stream.getVideoTracks().forEach((t) => {
+        t.enabled = true;
+      });
       stream.getAudioTracks().forEach((t) => {
         t.enabled = tienePalabraInicial;
       });
     }
 
-    // Activar estado enVivo ANTES y vincular stream al elemento <video>
-    setEnVivo(true);
+    // Activar estado enVivo DESPUÉS de tener streamLocalRef listo
     enVivoRef.current = true;
+    setEnVivo(true);
     setCamOn(true);
+    camOnRef.current = true;
     setMicOn(tienePalabraInicial);
+    micOnRef.current = tienePalabraInicial;
+    setAudioRemotoOn(true);
+    audioRemotoOnRef.current = true;
     reproducirTonoAudio('conectado');
-    iniciarMonitorAudioLocal(stream);
+    if (stream) {
+      iniciarMonitorAudioLocal(stream);
+    }
 
     setTimeout(() => {
       if (videoLocalRef.current && streamLocalRef.current) {
         videoLocalRef.current.srcObject = streamLocalRef.current;
+        videoLocalRef.current.muted = true;
         videoLocalRef.current.play().catch(() => {});
       }
-    }, 50);
+    }, 40);
+
+    // Consultar al servidor los participantes que YA estaban conectados en la sala antes que nosotros
+    fetch('/api/asamblea-state')
+      .then((r) => r.json())
+      .then((stateData) => {
+        if (!enVivoRef.current || !streamLocalRef.current) return;
+        const existentes = Array.isArray(stateData?.participantes) ? stateData.participantes : [];
+        existentes.forEach((remoto: any) => {
+          if (!remoto?.peerId || remoto.peerId === miPeerIdRef.current) return;
+          const esAdminRem = remoto.rol === 'admin' || remoto.unidad === 'ADMIN' || remoto.unidad === 'Admin';
+          const unidadRem = esAdminRem ? 'ADMIN' : (remoto.unidad || 'Torre 2 - 301');
+          const nombreRem = remoto.nombre || (esAdminRem ? 'Administración' : unidadRem);
+
+          actualizarParticipantesRemotos((prev) => {
+            if (prev.some((p) => p.peerId === remoto.peerId)) return prev;
+            return [
+              ...prev,
+              {
+                peerId: remoto.peerId,
+                nombre: nombreRem,
+                unidad: unidadRem,
+                rol: esAdminRem ? 'admin' : 'residente',
+                etiqueta: esAdminRem ? 'Administración Principal' : unidadRem,
+                iniciales: remoto.iniciales,
+                micActivo: remoto.micActivo ?? true,
+                camActiva: remoto.camActiva ?? true,
+                conectado: remoteStreamsMapRef.current.has(remoto.peerId),
+                streamTick: Date.now()
+              }
+            ];
+          });
+
+          // Si pasados 650ms el participante existente aún no nos envió oferta SDP, iniciamos nosotros la oferta WebRTC
+          setTimeout(() => {
+            if (enVivoRef.current && streamLocalRef.current && !peersMapRef.current.has(remoto.peerId)) {
+              obtenerOCrearPeerParaParticipante(
+                remoto.peerId,
+                true,
+                {
+                  unidad: unidadRem,
+                  rol: esAdminRem ? 'admin' : 'residente',
+                  etiqueta: esAdminRem ? 'Administración Principal' : unidadRem
+                },
+                false
+              );
+            }
+          }, 650);
+        });
+      })
+      .catch(() => {});
 
     if (rolUsuario === 'admin') {
       const tituloFinal =
@@ -1709,47 +2040,58 @@ export default function ModuloReunionesConSubmodulos({
         nombreOrador: 'Administración Principal'
       });
 
-      // Anunciar presencia del Admin para enlazar con cualquier residente ya en sala
+      // Anunciar presencia del Admin con todos los metadatos para enlazar video y audio con todos los participantes
       emitirEventoSenalizacion('participante_listo', {
         peerId: miPeerIdRef.current,
+        nombre: 'Administración',
         unidad: 'ADMIN',
         rol: 'admin',
         etiqueta: 'Administración Principal',
+        iniciales: 'AD',
+        micActivo: true,
+        camActiva: true,
         hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
 
-      // Iniciar grabación automática de respaldo para el acta
-      iniciarGrabacionReunion(stream);
+      if (stream) {
+        iniciarGrabacionReunion(stream);
+      }
 
       onShowToast?.(
         tipoConvocatoriaAdmin === 'asamblea'
-          ? '📢 Sala abierta: Invitación enviada a TODOS los residentes. Audio blindado (Moderación Admin activa).'
-          : `📢 Sala del Consejo abierta: Invitación enviada a ${apartamentosEscogidosAdmin.length} apartamento(s) con control de palabra.`
+          ? '📢 Sala de Asamblea abierta con Cámara y Audio en vivo para todos los residentes.'
+          : `📢 Sala del Consejo abierta con Cámara y Audio para ${apartamentosEscogidosAdmin.length} apartamento(s).`
       );
     } else {
-      // El residente acepta la llamada y anuncia su peerId y unidad para crear conexiones P2P con el Admin y con los demás participantes
+      // El residente anuncia su presencia con todos sus metadatos para enlazar P2P con el Admin y demás participantes
       emitirEventoSenalizacion('participante_listo', {
         peerId: miPeerIdRef.current,
+        nombre: miNombreRealRef.current,
         unidad: unidadActivaRef.current,
         rol: 'residente',
         etiqueta: unidadActivaRef.current,
+        iniciales: misInicialesRealesRef.current,
+        micActivo: true,
+        camActiva: true,
         hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
 
-      // Re-anunciar a los 2200ms SOLO si aún no se ha establecido ninguna conexión WebRTC (sin cerrar conexiones activas)
       setTimeout(() => {
         if (enVivoRef.current && peersMapRef.current.size === 0) {
           emitirEventoSenalizacion('participante_listo', {
             peerId: miPeerIdRef.current,
+            nombre: miNombreRealRef.current,
             unidad: unidadActivaRef.current,
             rol: 'residente',
             etiqueta: unidadActivaRef.current,
+            iniciales: misInicialesRealesRef.current,
+            micActivo: micOnRef.current,
+            camActiva: camOnRef.current,
             hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           });
         }
-      }, 2200);
+      }, 1800);
 
-      // Registrar unidad en la planilla de quórum si no estaba
       setUnidadesPresentes((prev) => {
         if (prev.some((u) => u.unidad.toLowerCase() === unidadActiva.toLowerCase())) return prev;
         return [
@@ -1766,11 +2108,7 @@ export default function ModuloReunionesConSubmodulos({
       });
       setQuorumRegistrado((q) => Math.min(100, +(q + 1.05).toFixed(1)));
       setAsistentesConectados((prev) => Math.max(2, prev + 1));
-      onShowToast?.(
-        tienePalabraInicial
-          ? `✅ Conectado (${unidadActiva}). Tienes la palabra y el micrófono activo.`
-          : `✅ Conectado (${unidadActiva}). Cámara activa; micrófono silenciado hasta que la Administración te dé la palabra.`
-      );
+      onShowToast?.(`✅ Conectado a la sala en vivo (${unidadActiva}) con cámara y audio activos.`);
     }
   };
 
@@ -1846,39 +2184,32 @@ export default function ModuloReunionesConSubmodulos({
   }, []);
 
   const toggleMic = async () => {
-    // Blindaje de Audio: Si es residente y el Admin no le ha dado la palabra, no puede abrir su micrófono libremente
-    const tengoPalabraPorUnidad =
-      unidadConPalabra.trim().toLowerCase() === unidadActiva.trim().toLowerCase();
-    const tengoPalabraPorPeer = Boolean(peerIdConPalabra && peerIdConPalabra === miPeerIdRef.current);
-
-    if (rolUsuario === 'residente' && !micOn && !tengoPalabraPorUnidad && !tengoPalabraPorPeer) {
-      setManoLevantada(true);
-      setSolicitudesPalabra((prev) => (prev.includes(unidadActiva) ? prev : [...prev, unidadActiva]));
-      emitirEventoSenalizacion('asamblea_pedir_palabra', {
-        unidad: unidadActiva,
-        peerId: miPeerIdRef.current,
-        activa: true
-      });
-      onShowToast?.(
-        '🔒 Micrófono blindado por moderación: Se envió tu solicitud de palabra al Administrador para que active tu audio.'
-      );
-      return;
-    }
-
     const nuevoEstado = !micOn;
     await sincronizarEstadoAudioLocal(nuevoEstado);
+    emitirEventoSenalizacion('asamblea_estado_media', {
+      peerId: miPeerIdRef.current,
+      micActivo: nuevoEstado,
+      camActiva: camOnRef.current
+    });
     onShowToast?.(nuevoEstado ? '🎙️ Micrófono activado.' : '🔇 Micrófono silenciado.');
   };
 
   const toggleCam = () => {
+    const nuevoEstado = !camOn;
     if (streamLocalRef.current) {
       const videoTracks = streamLocalRef.current.getVideoTracks();
       videoTracks.forEach((t) => {
-        t.enabled = !camOn;
+        t.enabled = nuevoEstado;
       });
-      setCamOn(!camOn);
-      onShowToast?.(!camOn ? '📹 Cámara encendida.' : '📷 Cámara apagada.');
     }
+    setCamOn(nuevoEstado);
+    camOnRef.current = nuevoEstado;
+    emitirEventoSenalizacion('asamblea_estado_media', {
+      peerId: miPeerIdRef.current,
+      micActivo: micOnRef.current,
+      camActiva: nuevoEstado
+    });
+    onShowToast?.(nuevoEstado ? '📹 Cámara encendida.' : '📷 Cámara apagada.');
   };
 
   const toggleCompartirPantalla = async () => {
@@ -2357,7 +2688,7 @@ export default function ModuloReunionesConSubmodulos({
             <div className="w-full bg-[#0b0f17] border border-cyan-500/20 rounded-3xl p-5 shadow-2xl font-sans text-slate-100 space-y-4">
               
               {/* ========================================================
-                  1. BARRA SUPERIOR DE ESTADO
+                  1. BARRA SUPERIOR DE ESTADO CON NÚMERO REAL DE CONECTADOS
                  ======================================================== */}
               <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-800/80">
                 <div className="flex flex-wrap items-center gap-2">
@@ -2373,12 +2704,13 @@ export default function ModuloReunionesConSubmodulos({
 
                   <span className="px-3 py-1 rounded-full text-xs font-mono text-cyan-300 bg-cyan-950/50 border border-cyan-800/50 flex items-center gap-1.5">
                     <Wifi className="w-3.5 h-3.5 text-cyan-400" />
-                    Canal Masivo SFU (Capacidad: 100-200 Personas)
+                    {copropiedadNombre}
                   </span>
 
+                  {/* Conectados REALES */}
                   <span className="px-3 py-1 rounded-full text-xs font-mono text-slate-300 bg-slate-900 border border-slate-800 flex items-center gap-1.5">
-                    <span className={`w-2 h-2 rounded-full ${enVivo ? 'bg-emerald-400 animate-ping' : 'bg-rose-500'}`} />
-                    {enVivo ? '9 Conectados' : '0 Conectados'}
+                    <span className={`w-2 h-2 rounded-full ${enVivo ? 'bg-emerald-400 animate-ping' : 'bg-slate-600'}`} />
+                    {enVivo ? `${participantesReales.length} Conectado${participantesReales.length === 1 ? '' : 's'}` : '0 Conectados'}
                   </span>
 
                   {grabandoSesion && (
@@ -2389,28 +2721,38 @@ export default function ModuloReunionesConSubmodulos({
                   )}
                 </div>
 
-                {/* Botón para Iniciar / Terminar Llamada */}
+                {/* Botón dinámico */}
                 <div className="flex items-center gap-2">
-                  {!enVivo ? (
+                  {enVivo && (
                     <button
                       type="button"
                       onClick={() => {
-                        setEnVivo(true);
-                        conectarASala();
+                        inicializarPeerConnection(true);
+                        forzarReproduccionStreamsRemotos(false);
+                        onShowToast?.('🔄 Sincronizando video y audio con todos los participantes...');
                       }}
-                      className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 rounded-xl text-xs font-black transition cursor-pointer shadow-lg shadow-emerald-500/20"
+                      className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-cyan-500/30 rounded-xl text-xs font-mono font-bold transition cursor-pointer"
+                      title="Re-sincronizar cámaras y audio WebRTC"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Sincronizar Señal</span>
+                    </button>
+                  )}
+
+                  {!enVivo ? (
+                    <button
+                      type="button"
+                      onClick={conectarASala}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-cyan-500 to-teal-400 hover:from-cyan-400 text-slate-950 rounded-xl text-xs font-bold transition shadow-lg shadow-cyan-500/20 cursor-pointer"
                     >
                       <PhoneCall className="w-3.5 h-3.5" />
-                      <span>Conectar / Abrir Sala</span>
+                      <span>Abrir Sala en Vivo</span>
                     </button>
                   ) : (
                     <button
                       type="button"
-                      onClick={() => {
-                        detenerTransmision();
-                        setEnVivo(false);
-                      }}
-                      className="flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-black transition cursor-pointer shadow-lg shadow-rose-600/20"
+                      onClick={detenerTransmision}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-rose-600/20 cursor-pointer"
                     >
                       <PhoneOff className="w-3.5 h-3.5" />
                       <span>Finalizar Llamada</span>
@@ -2420,80 +2762,230 @@ export default function ModuloReunionesConSubmodulos({
               </div>
 
               {/* ========================================================
-                  2. CONTENEDOR PRINCIPAL INTERCAMBIABLE
+                  2. CONTENEDOR CONMUTABLE (SALA EN ESPERA <-> VIDEO EN VIVO)
                  ======================================================== */}
               {!enVivo ? (
-                /* ESTADO A: SALA EN ESPERA (Tu diseño original) */
+                /* Estado en Espera con Selector de Modalidad (Asamblea General vs Consejo) e Invitación Entrante */
                 <div className="w-full aspect-video min-h-[420px] bg-[#070a10] border border-slate-800/80 rounded-2xl flex flex-col items-center justify-center text-center p-6 space-y-4">
                   <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(0,242,254,0.15)]">
                     <Radio className="w-8 h-8" />
                   </div>
 
                   <div className="space-y-1.5 max-w-lg">
-                    <h3 className="text-xl font-bold font-mono text-white">
+                    <h3 className="text-lg font-bold font-mono text-white">
                       Sala Lista para Convocatoria y Citación en Vivo
                     </h3>
-                    <p className="text-xs text-slate-400 font-mono leading-relaxed">
-                      Elige Asamblea General (canal masivo 100–200 personas) o Reunión de Consejo/Comité. Al pulsar conectar se habilitará la cuadrícula de video para los copropietarios.
+                    <p className="text-xs text-slate-400 font-mono">
+                      Al abrir la sala se activará tu cámara y micrófono en tiempo real y los participantes conectados aparecerán en pantalla con imagen y voz.
                     </p>
                   </div>
 
-                  <div className="pt-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEnVivo(true);
-                        conectarASala();
-                      }}
-                      className="px-5 py-2.5 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 rounded-xl text-xs font-mono font-bold transition cursor-pointer"
-                    >
-                      ▶ Iniciar Transmisión de la Asamblea
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                /* ESTADO B: CUADRÍCULA ACTIVA TEAMS (Mismo espacio exacto) */
-                <div className="w-full aspect-video min-h-[420px] bg-[#070a10] border border-cyan-500/30 rounded-2xl p-2 grid grid-cols-3 grid-rows-3 gap-2 shadow-[0_0_25px_rgba(0,242,254,0.1)]">
-                  {[
-                    { id: '1', nombre: 'Esteban Ochoa', apt: 'T1-302', iniciales: 'EO', mic: false, activo: false },
-                    { id: '2', nombre: 'Eloina Mesa Mesa', apt: 'Admin', iniciales: 'EM', mic: false, activo: false },
-                    { id: '3', nombre: 'Andrés Vesga', apt: 'Portería', iniciales: 'AV', mic: false, activo: false },
-                    { id: '4', nombre: 'Darío Negrette', apt: 'T1-502', iniciales: 'DN', mic: true, activo: true },
-                    { id: '5', nombre: 'Carlos Andrés Gómez', apt: 'T1-101', iniciales: 'CG', mic: false, activo: false },
-                    { id: '6', nombre: 'María Camila Restrepo', apt: 'T1-102', iniciales: 'MR', mic: false, activo: false },
-                    { id: '7', nombre: 'Santiago Vélez', apt: 'T2-205', iniciales: 'SV', mic: false, activo: false },
-                    { id: '8', nombre: 'Daniela Restrepo', apt: 'T2-103', iniciales: 'DR', mic: false, activo: false },
-                    { id: '9', nombre: 'Juan Fernando', apt: 'T2-505', iniciales: 'JF', mic: false, activo: false },
-                  ].map((p) => (
-                    <div
-                      key={p.id}
-                      className={`relative rounded-xl flex items-center justify-center transition-all bg-[#0b0f17] border ${
-                        p.activo
-                          ? 'border-cyan-400 shadow-[0_0_15px_rgba(0,242,254,0.3)] bg-cyan-950/20'
-                          : 'border-slate-800/80 hover:border-slate-700'
-                      }`}
-                    >
-                      {/* Círculo central con iniciales */}
-                      <div className={`w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center font-mono font-bold text-sm md:text-lg select-none border shadow-md ${
-                        p.activo
-                          ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400/50'
-                          : 'bg-slate-900 text-slate-300 border-slate-700/80'
-                      }`}>
-                        {p.iniciales}
+                  {/* Si es Admin: Selector rápido Asamblea General vs Reunión del Consejo */}
+                  {rolUsuario === 'admin' && (
+                    <div className="w-full max-w-xl bg-slate-950/90 border border-slate-800 rounded-2xl p-3.5 space-y-3 text-left">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] font-mono text-cyan-400 uppercase font-bold">
+                          Modalidad de Transmisión:
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setTipoConvocatoriaAdmin('asamblea')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold border transition cursor-pointer ${
+                              tipoConvocatoriaAdmin === 'asamblea'
+                                ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200'
+                                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            🌐 Asamblea General (Todos)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTipoConvocatoriaAdmin('consejo')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold border transition cursor-pointer ${
+                              tipoConvocatoriaAdmin === 'consejo'
+                                ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200'
+                                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            🛡️ Consejo / Comité ({apartamentosEscogidosAdmin.length})
+                          </button>
+                        </div>
                       </div>
 
-                      {/* Etiqueta inferior con nombre y micrófono */}
-                      <div className="absolute bottom-1.5 left-1.5 max-w-[90%] flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-sm px-2 py-0.5 rounded-md text-[10px] font-mono border border-slate-800/80">
-                        <span className="truncate text-slate-200">{p.nombre}</span>
-                        <span className="text-cyan-400">({p.apt})</span>
-                        {p.mic ? (
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5" />
-                        ) : (
-                          <span className="text-[9px] text-rose-400/80 ml-0.5">🔇</span>
-                        )}
-                      </div>
+                      {tipoConvocatoriaAdmin === 'consejo' && (
+                        <div className="space-y-2 pt-1 border-t border-slate-800/80">
+                          <p className="text-[10px] font-mono text-slate-400">
+                            Selecciona los apartamentos citados a la sesión del Consejo:
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {catalogoApartamentos.map((item) => {
+                              const activo = apartamentosEscogidosAdmin.includes(item.unidad);
+                              return (
+                                <button
+                                  key={item.unidad}
+                                  type="button"
+                                  onClick={() => toggleApartamentoEscogido(item.unidad)}
+                                  className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold border transition cursor-pointer ${
+                                    activo
+                                      ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200'
+                                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                                  }`}
+                                >
+                                  {activo ? '✓ ' : '+ '}
+                                  {item.unidad}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  ))}
+                  )}
+
+                  {/* Si hay convocatoria activa (vista Residente / Consejero): alerta de llamada en curso */}
+                  {rolUsuario !== 'admin' && invitacionEntrante && (
+                    <div className="w-full max-w-lg bg-emerald-950/40 border border-emerald-500/40 rounded-2xl p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3">
+                      <div className="text-left space-y-0.5">
+                        <span className="text-[10px] font-mono font-bold uppercase text-emerald-300 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                          {invitacionEntrante.tipo === 'consejo'
+                            ? 'Sesión del Consejo en Vivo'
+                            : 'Asamblea General en Vivo'}
+                        </span>
+                        <p className="text-xs font-bold text-white">{invitacionEntrante.titulo}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={conectarASala}
+                        className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl transition cursor-pointer shrink-0 shadow-lg shadow-emerald-500/20"
+                      >
+                        🎥 Entrar Ahora
+                      </button>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={conectarASala}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-teal-400 hover:from-cyan-400 text-slate-950 rounded-xl text-xs font-mono font-black transition shadow-lg shadow-cyan-500/20 cursor-pointer"
+                  >
+                    <Video className="w-4 h-4" />
+                    <span>
+                      {rolUsuario === 'admin'
+                        ? 'Iniciar Videollamada con Cámara y Audio'
+                        : 'Conectar Mi Cámara y Audio a la Sala'}
+                    </span>
+                  </button>
+                </div>
+              ) : (
+                /* Cuadrícula Teams con VIDEO Y AUDIO REAL de cada participante conectado */
+                <div className={`w-full aspect-video min-h-[420px] bg-[#070a10] border border-cyan-500/30 rounded-2xl p-3 grid gap-3 ${getGridCols(participantesReales.length)}`}>
+                  {participantesReales.map((p) => {
+                    const mostrarVideo = p.esLocal ? camOn : (p.conectado && p.camActiva !== false);
+                    return (
+                      <div
+                        key={p.peerId}
+                        className={`relative rounded-2xl overflow-hidden flex items-center justify-center transition-all bg-[#0b0f17] border min-h-[180px] ${
+                          p.hablando
+                            ? 'border-cyan-400 shadow-[0_0_20px_rgba(0,242,254,0.35)] ring-1 ring-cyan-400/50'
+                            : p.rol === 'admin'
+                            ? 'border-cyan-500/40'
+                            : 'border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        {/* VIDEO EN VIVO DEL PARTICIPANTE (LOCAL O REMOTO WEBRTC) */}
+                        {p.esLocal ? (
+                          <video
+                            ref={setVideoLocalElement}
+                            autoPlay
+                            playsInline
+                            muted
+                            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-200 ${
+                              mostrarVideo ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                            }`}
+                          />
+                        ) : (
+                          <>
+                            <video
+                              ref={(node) => bindRemoteSubcuadroVideo(p.peerId, node)}
+                              autoPlay
+                              playsInline
+                              muted
+                              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-200 ${
+                                mostrarVideo ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                              }`}
+                            />
+                            <audio
+                              ref={(node) => bindRemoteSubcuadroAudio(p.peerId, node)}
+                              autoPlay
+                              playsInline
+                            />
+                          </>
+                        )}
+
+                        {/* Avatar de respaldo cuando la cámara está apagada o conectando */}
+                        {!mostrarVideo && (
+                          <div className="flex flex-col items-center gap-2 z-10">
+                            <div className="w-16 h-16 rounded-full flex items-center justify-center font-mono font-bold text-lg select-none border border-slate-700 bg-slate-900 text-cyan-300 shadow-md">
+                              {p.iniciales}
+                            </div>
+                            {!p.esLocal && !p.conectado && (
+                              <span className="text-[10px] font-mono text-cyan-300 animate-pulse bg-slate-950/80 px-2.5 py-0.5 rounded-full border border-cyan-500/30">
+                                Conectando video y voz...
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Insignia superior izquierda: Rol / Estado de señal */}
+                        <div className="absolute top-2.5 left-2.5 z-20 flex items-center gap-1.5">
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold border backdrop-blur-md ${
+                              p.rol === 'admin'
+                                ? 'bg-cyan-950/85 text-cyan-300 border-cyan-500/40'
+                                : 'bg-slate-950/85 text-slate-200 border-slate-700/80'
+                            }`}
+                          >
+                            {p.rol === 'admin' ? '👑 ADMINISTRACIÓN' : `🏡 ${p.unidad}`}
+                            {p.esLocal ? ' (Tú)' : ''}
+                          </span>
+                        </div>
+
+                        {/* Controles rápidos de moderación para el Admin sobre cada participante remoto */}
+                        {rolUsuario === 'admin' && !p.esLocal && (
+                          <div className="absolute top-2.5 right-2.5 z-20 flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => otorgarPalabraAParticipante(p.unidad, p.nombre, p.peerId)}
+                              className="px-2 py-1 rounded-lg bg-slate-950/85 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-[10px] font-mono font-bold transition cursor-pointer backdrop-blur-md"
+                              title="Activar micrófono y dar la palabra a este participante"
+                            >
+                              🎙️ Dar Palabra
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Etiqueta inferior con nombre, unidad y estado de micrófono */}
+                        <div className="absolute bottom-2.5 left-2.5 right-2.5 z-20 flex items-center justify-between gap-2 bg-slate-950/85 backdrop-blur-md px-3 py-1.5 rounded-xl text-[11px] font-mono border border-slate-800/90">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="truncate text-white font-bold">{p.nombre}</span>
+                            <span className="text-cyan-400 font-semibold shrink-0">({p.unidad})</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {p.micActivo ? (
+                              <span className="flex items-center gap-1 text-emerald-400 text-[10px] font-bold">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                                Audio
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-rose-400 font-bold">🔇 Mute</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
@@ -3037,6 +3529,40 @@ export default function ModuloReunionesConSubmodulos({
           </div>
         </div>
       )}
+
+      {/* MODAL DE LLAMADA ENTRANTE PARA RESIDENTES */}
+      <ModalLlamadaEntranteResidente
+        isOpen={Boolean(
+          invitacionEntrante &&
+            !enVivo &&
+            rolUsuario === 'residente' &&
+            !modalLlamadaDeclino &&
+            !modalLlamadaEnEspera &&
+            tieneAccesoAReunion
+        )}
+        convocatoria={
+          invitacionEntrante
+            ? {
+                tipo: invitacionEntrante.tipo === 'consejo' ? 'Reunión de Consejo' : 'Asamblea General',
+                copropiedadNombre: copropiedadNombre,
+                organizador: invitacionEntrante.orador || 'Administración Central'
+              }
+            : null
+        }
+        onContestar={() => {
+          setModalLlamadaDeclino(false);
+          setModalLlamadaEnEspera(false);
+          conectarASala();
+        }}
+        onDeclinar={() => {
+          setModalLlamadaDeclino(true);
+          onShowToast?.('Llamada declinada.');
+        }}
+        onPonerEnEspera={() => {
+          setModalLlamadaEnEspera(true);
+          onShowToast?.('Llamada puesta en espera. Puedes unirte desde el portal.');
+        }}
+      />
 
     </div>
   );

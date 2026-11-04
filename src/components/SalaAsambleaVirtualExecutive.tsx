@@ -4,6 +4,7 @@ import {
   MessageSquare, Award, Hand, Maximize2, Minimize2, Send, Clock, AlertTriangle,
   FileCheck2, Check, X, ShieldAlert, Sparkles, Volume2, UserCheck
 } from 'lucide-react';
+import SalaAsambleaVirtualReal from './SalaAsambleaVirtualReal';
 
 export interface SalaAsambleaVirtualExecutiveProps {
   unidadResidenteActual?: string;
@@ -261,75 +262,16 @@ export default function SalaAsambleaVirtualExecutive({
         <div className={`${chatOpen ? 'lg:col-span-7' : 'lg:col-span-8'} space-y-4 transition-all duration-300`}>
           
           {/* ========================================================
-              LIENZO DE TRANSMISIÓN MULTI-PARTICIPANTE (ESTILO GALERÍA)
+              LIENZO DE TRANSMISIÓN MULTI-PARTICIPANTE (CONEXIONES REALES SSE)
              ======================================================== */}
-          <div className="relative w-full aspect-video bg-[#0b0f17] border border-cyan-500/30 rounded-2xl overflow-hidden shadow-[0_0_25px_rgba(0,242,254,0.15)] p-3 flex flex-col justify-between">
-            
-            {/* Barra superior flotante de la sala */}
-            <div className="flex items-center justify-between z-10 pb-2">
-              <div className="bg-slate-950/80 backdrop-blur-md px-3 py-1 rounded-xl border border-cyan-500/20 flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-                <span className="font-mono text-xs font-bold text-white uppercase tracking-wider">
-                  Asamblea en Vivo • Urb. Tricentenario
-                </span>
-                <span className="text-[10px] text-cyan-300 font-mono bg-cyan-950/60 px-2 py-0.5 rounded-md border border-cyan-800/40">
-                  9 Conectados
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 font-mono text-[10px] text-emerald-400 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  WebRTC HD
-                </span>
-              </div>
-            </div>
-
-            {/* Cuadrícula Galería de Participantes (3x3 simétrica) */}
-            <div className="flex-1 grid grid-cols-3 grid-rows-3 gap-2 p-1">
-              {[
-                { id: '1', nombre: 'Esteban Ochoa', apt: 'T1-302', iniciales: 'EO', mic: false, activo: false },
-                { id: '2', nombre: 'Eloina Mesa Mesa', apt: 'Admin', iniciales: 'EM', mic: false, activo: false },
-                { id: '3', nombre: 'Andrés Vesga', apt: 'Portería', iniciales: 'AV', mic: false, activo: false },
-                { id: '4', nombre: 'Darío Negrette', apt: 'T1-502', iniciales: 'DN', mic: true, activo: true },
-                { id: '5', nombre: 'Carlos Andrés Gómez', apt: 'T1-101', iniciales: 'CG', mic: false, activo: false },
-                { id: '6', nombre: 'María Camila Restrepo', apt: 'T1-102', iniciales: 'MR', mic: false, activo: false },
-                { id: '7', nombre: 'Santiago Vélez', apt: 'T2-205', iniciales: 'SV', mic: false, activo: false },
-                { id: '8', nombre: 'Daniela Restrepo', apt: 'T2-103', iniciales: 'DR', mic: false, activo: false },
-                { id: '9', nombre: 'Juan Fernando', apt: 'T2-505', iniciales: 'JF', mic: false, activo: false },
-              ].map((participante) => (
-                <div
-                  key={participante.id}
-                  className={`relative rounded-xl flex items-center justify-center transition-all bg-[#070a10] border ${
-                    participante.activo
-                      ? 'border-cyan-400 shadow-[0_0_15px_rgba(0,242,254,0.3)] bg-cyan-950/10'
-                      : 'border-slate-800/80 hover:border-slate-700'
-                  }`}
-                >
-                  {/* Círculo central con iniciales alineado a los tonos oscuros de la app */}
-                  <div className={`w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center font-mono font-bold text-sm md:text-lg select-none border shadow-md ${
-                    participante.activo
-                      ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400/50'
-                      : 'bg-slate-900 text-slate-300 border-slate-700/80'
-                  }`}>
-                    {participante.iniciales}
-                  </div>
-
-                  {/* Píldora inferior de identificación */}
-                  <div className="absolute bottom-1.5 left-1.5 max-w-[90%] flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-sm px-2 py-0.5 rounded-md text-[10px] font-mono border border-slate-800/80">
-                    <span className="truncate text-slate-200">{participante.nombre}</span>
-                    <span className="text-cyan-400">({participante.apt})</span>
-                    {participante.mic ? (
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5" title="Micrófono activo" />
-                    ) : (
-                      <span className="text-[9px] text-rose-400/80 ml-0.5">🔇</span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-          </div>
+          <SalaAsambleaVirtualReal
+            userProfile={{
+              id: unidadId,
+              full_name: rolUsuario === 'admin' ? 'Administración' : `Copropietario ${unidadResidenteActual}`,
+              role: rolUsuario,
+              unit: unidadResidenteActual
+            }}
+          />
 
           {/* BARRA DE CONTROLES MULTIMEDIA & PARTICIPACIÓN */}
           <div className="bg-[#0b0f17] border border-cyan-500/25 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2 shadow-xl">
