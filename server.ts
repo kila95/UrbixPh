@@ -326,6 +326,72 @@ Extrae con total precisión:
     }
   });
 
+  // OCR Financiero y Exógena / Tesorería (Ley 675)
+  app.post("/api/ocr-tesoreria-pago", async (req, res) => {
+    try {
+      const { base64Data, mimeType = 'application/pdf', tenantId } = req.body || {};
+      
+      if (!base64Data) {
+        return res.status(400).json({ error: "No se proporcionó el archivo del comprobante o extracto." });
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: "GEMINI_API_KEY no configurada en el servidor." });
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
+      const promptTesorería = `Analiza este comprobante de pago de cuota de administración o extracto bancario para copropiedad en Colombia (Ley 675). Extrae con total precisión:
+    1. Nombre del pagador o residente.
+    2. Documento de identidad o NIT.
+    3. Apartamento, torre o inmueble mencionado (ej. Torre 1 - 302).
+    4. Valor exacto pagado en Pesos Colombianos ($ COP).
+    5. Fecha de la transacción (YYYY-MM-DD).
+    6. Número de referencia, autorización o comprobante.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                inlineData: {
+                  mimeType: mimeType || 'application/pdf',
+                  data: base64Data
+                }
+              },
+              { text: promptTesorería }
+            ]
+          }
+        ],
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              payer_name: { type: Type.STRING },
+              document_id: { type: Type.STRING },
+              unit_reference: { type: Type.STRING },
+              amount_paid_cop: { type: Type.NUMBER },
+              transaction_date: { type: Type.STRING },
+              reference_number: { type: Type.STRING },
+              payment_status: { type: Type.STRING }
+            },
+            required: ['payer_name', 'amount_paid_cop', 'unit_reference']
+          }
+        }
+      });
+
+      const parsedData = JSON.parse(response.text || '{}');
+      return res.json({ success: true, paymentData: parsedData });
+
+    } catch (error: any) {
+      console.error('Error procesando OCR financiero:', error);
+      return res.status(500).json({ error: error.message });
+    }
+  });
+
   // Servidor Vite / Estáticos
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

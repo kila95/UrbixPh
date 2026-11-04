@@ -28,6 +28,9 @@ import { TableroComunicados } from './components/TableroComunicados';
 import { cargarMetricasTenant, MetricasTenant } from './lib/metricasTenant';
 import LogoUrbix from './LogoUrbix';
 import WhatsAppConfigCard from './WhatsAppConfigCard';
+import ModuloTesoreriaOCR from './ModuloTesoreriaOCR';
+import ModuloTesoreriaExogenaReal from './ModuloTesoreriaExogenaReal';
+import ModuloMantenimientoReal from './ModuloMantenimientoReal';
 
 
 export interface StaffMember {
@@ -67,7 +70,7 @@ export default function ConsolaGerencialUrbixPH({
 }: ConsolaGerencialUrbixPHProps) {
   const [saldoCajaMenor, setSaldoCajaMenor] = useState<number>(1880000);
   const [porcentajeRecaudo, setPorcentajeRecaudo] = useState<number>(2.0);
-  const [activeTab, setActiveTab] = useState<'general' | 'cartelera' | 'porteria' | 'comunicados' | 'asamblea' | 'actas' | 'contractors' | 'cartera' | 'facturas_ocr' | 'exogena_dian' | 'mantenimiento' | 'personal' | 'reservas' | 'pqrs'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'cartelera' | 'porteria' | 'comunicados' | 'asamblea' | 'actas' | 'contractors' | 'cartera' | 'facturas_ocr' | 'exogena_dian' | 'mantenimiento' | 'personal' | 'reservas' | 'pqrs' | 'whatsapp'>('general');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [mostrarModalCuadrilla, setMostrarModalCuadrilla] = useState(false);
@@ -765,6 +768,7 @@ export default function ConsolaGerencialUrbixPH({
           { id: 'personal', label: 'Personal & Staff', icon: Users, color: 'text-purple-400' },
           { id: 'reservas', label: 'Áreas Comunes', icon: Calendar, color: 'text-indigo-400' },
           { id: 'pqrs', label: 'PQRS', icon: MessageSquare, color: 'text-cyan-400' },
+          { id: 'whatsapp', label: 'Notificaciones WhatsApp', icon: MessageSquare, color: 'text-emerald-400' },
         ].map((tab) => {
 
           const Icon = tab.icon;
@@ -935,6 +939,8 @@ export default function ConsolaGerencialUrbixPH({
             nombreCopropiedad={resolvedTenantName}
           >
             <div className="space-y-4">
+              <ModuloTesoreriaExogenaReal tenantId={tenantActivoId} onShowToast={onShowToast} />
+              <ModuloTesoreriaOCR tenantId={tenantActivoId} onShowToast={onShowToast} />
               <div className="bg-[#0b0f17] border border-slate-800/80 p-6 rounded-3xl space-y-4 shadow-xl">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
@@ -1044,47 +1050,7 @@ export default function ConsolaGerencialUrbixPH({
 
         {/* 5. MANTENIMIENTO */}
         {activeTab === 'mantenimiento' && (
-          <div className="bg-[#0b0f17] border border-slate-800/80 p-6 rounded-3xl space-y-4 shadow-xl">
-            <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-2 font-mono">
-                <Wrench className="w-4 h-4 text-amber-400" /> Órdenes de Trabajo y Mantenimiento General
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">Gestión directa de daños, reparaciones y asignación al personal de toderos en la copropiedad.</p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3">
-              {combinedReports.map((r) => (
-                <div key={r.id} className="p-4 bg-[#07090e] border border-slate-800 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <span className="font-bold text-white text-sm">{r.area} • {r.categoria}</span>
-                    <p className="text-xs text-slate-300 mt-1">{r.detalle}</p>
-                    <p className="text-[11px] text-slate-400 mt-1">Asignado a: <strong className="text-cyan-400">{r.asignado}</strong></p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={r.estado}
-                      onChange={(e) => {
-                        const nextStatus = e.target.value;
-                        if ((r as any).isLiveGuardIncident && onUpdateIncidentStatus) {
-                          onUpdateIncidentStatus(r.id, nextStatus);
-                        } else {
-                          setReports((prev) =>
-                            prev.map((item) => (item.id === r.id ? { ...item, estado: nextStatus } : item))
-                          );
-                          onShowToast?.(`🔧 Estado actualizado a: ${nextStatus}`);
-                        }
-                      }}
-                      className="text-xs font-bold px-3 py-1.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 outline-none cursor-pointer"
-                    >
-                      <option value="Pendiente" className="bg-slate-900 text-slate-200">Pendiente</option>
-                      <option value="En proceso" className="bg-slate-900 text-amber-400">En proceso</option>
-                      <option value="Solucionado" className="bg-slate-900 text-emerald-400">Solucionado</option>
-                    </select>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <ModuloMantenimientoReal tenantId={tenantActivoId} onShowToast={onShowToast} />
         )}
 
         {/* 6. PERSONAL & STAFF (Control Total del Administrador, Edificios, Nómina y Turnos de Línea de Tiempo) */}
@@ -1304,6 +1270,14 @@ export default function ConsolaGerencialUrbixPH({
           <PorteriaSupabaseSync
             tenantId={currentTenant?.id || 'ten_01'}
             vigilanteName={resolvedAdminName}
+            onShowToast={onShowToast}
+          />
+        )}
+
+        {/* 11. NOTIFICACIONES WHATSAPP */}
+        {activeTab === 'whatsapp' && (
+          <WhatsAppConfigCard
+            tenantName={resolvedTenantName || 'Reserva del Tesoro'}
             onShowToast={onShowToast}
           />
         )}
