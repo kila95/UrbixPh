@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
 import { RealtimeChannel } from '@supabase/supabase-js';
-import { inicializarCanalRealtime, despacharSignal, UserPresenceInfo, SignalingPacket } from '../lib/realtimeSignaling';
+import { inicializarCanalRealtime, despacharSignal, UserPresenceInfo, SignalingPacket } from '../services/realtimeSignalingService';
 
 interface Props {
   modo: 'porteria' | 'residente';
@@ -134,11 +134,6 @@ export default function CitofoniaWebRTCPorteria({
           targetUnit
         );
       }
-      await fetch('/api/asamblea-signal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event, payload })
-      });
     } catch (e) {
       console.error('Error en señalización:', e);
     }
@@ -181,7 +176,6 @@ export default function CitofoniaWebRTCPorteria({
   };
 
   useEffect(() => {
-    // 1. Canal distribuido Supabase Realtime
     const canal = inicializarCanalRealtime(
       `urbix_citofono_${tenantId}`,
       userPresence,
@@ -191,20 +185,9 @@ export default function CitofoniaWebRTCPorteria({
     );
     realtimeChannelRef.current = canal;
 
-    // 2. Fallback SSE local
-    const eventSource = new EventSource(`/api/asamblea-events?peerId=${peerIdRef.current}`);
-
-    eventSource.onmessage = async (ev) => {
-      try {
-        const { event, payload } = JSON.parse(ev.data);
-        await procesarSenalEntrante(event, payload);
-      } catch {}
-    };
-
     return () => {
       supabase.removeChannel(canal);
       realtimeChannelRef.current = null;
-      eventSource.close();
       limpiarConexionLocal();
     };
   }, [modo, unidadResidente, tenantId]);

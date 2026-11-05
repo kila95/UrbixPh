@@ -40,155 +40,17 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Límite estándar JSON y forms (sin sobrecargas de 50MB)
   app.use(express.json({ limit: "20mb" }));
   app.use(express.urlencoded({ limit: "20mb", extended: true }));
 
-  // Bus de señalización en tiempo real para citofonía, asamblea y eventos de portería
-  const porteriaSseClients = new Set<express.Response>();
-  const peerSseClients = new Map<express.Response, string>();
-  let llamadaCitofonoActivaCache: { payload: any; timestamp: number } | null = null;
-  let asambleaConvocatoriaActivaCache: { payload: any; timestamp: number } | null = null;
-  const asambleaParticipantesActivos = new Map<string, any>();
-
-  // Verificación de sesión y token JWT con Supabase
+  // Verificación de estado de sesión
   app.get("/api/auth/verify", requireAuth, (req, res) => {
     res.json({ valid: true, user: (req as any).user });
   });
 
-  app.get("/api/asamblea-state", (_req, res) => {
-    const convocatoriaVigencia =
-      asambleaConvocatoriaActivaCache &&
-      Date.now() - asambleaConvocatoriaActivaCache.timestamp < 7200000
-        ? asambleaConvocatoriaActivaCache.payload
-        : null;
-    res.json({
-      convocatoriaActiva: convocatoriaVigencia,
-      participantes: Array.from(asambleaParticipantesActivos.values())
-    });
-  });
-
-  app.get("/api/asamblea-events", (req, res) => {
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders?.();
-    porteriaSseClients.add(res);
-
-    const queryPeerId = typeof req.query.peerId === "string" ? req.query.peerId : "";
-    if (queryPeerId) {
-      peerSseClients.set(res, queryPeerId);
-    }
-
-    if (llamadaCitofonoActivaCache && Date.now() - llamadaCitofonoActivaCache.timestamp < 90000) {
-      res.write(`data: ${JSON.stringify({ event: "solicitar_llamada", payload: llamadaCitofonoActivaCache.payload })}\n\n`);
-    }
-
-    if (asambleaConvocatoriaActivaCache && Date.now() - asambleaConvocatoriaActivaCache.timestamp < 7200000) {
-      res.write(`data: ${JSON.stringify({ event: "asamblea_convocatoria_abierta", payload: asambleaConvocatoriaActivaCache.payload })}\n\n`);
-    }
-
-    // Enviar participantes actualmente conectados en la sala de asamblea
-    for (const participante of asambleaParticipantesActivos.values()) {
-      res.write(`data: ${JSON.stringify({ event: "participante_listo", payload: participante })}\n\n`);
-    }
-
-    const keepAlive = setInterval(() => {
-      try {
-        res.write(`: ping\n\n`);
-      } catch {
-        clearInterval(keepAlive);
-      }
-    }, 15000);
-
-    req.on("close", () => {
-      clearInterval(keepAlive);
-      porteriaSseClients.delete(res);
-      const disconnectedPeerId = peerSseClients.get(res);
-      peerSseClients.delete(res);
-
-      if (disconnectedPeerId) {
-        setTimeout(() => {
-          const stillConnected = Array.from(peerSseClients.values()).includes(disconnectedPeerId);
-          if (!stillConnected && asambleaParticipantesActivos.has(disconnectedPeerId)) {
-            asambleaParticipantesActivos.delete(disconnectedPeerId);
-            const packet = `data: ${JSON.stringify({
-              event: "asamblea_peer_salio",
-              payload: { peerId: disconnectedPeerId }
-            })}\n\n`;
-            for (const client of porteriaSseClients) {
-              try {
-                client.write(packet);
-              } catch {
-                porteriaSseClients.delete(client);
-              }
-            }
-          }
-        }, 2500);
-      }
-    });
-  });
-
-  app.post("/api/asamblea-signal", (req, res) => {
-    const { event, payload } = req.body || {};
-    if (!event) {
-      res.status(400).json({ error: "Falta event" });
-      return;
-    }
-
-    if (event === "solicitar_llamada") {
-      llamadaCitofonoActivaCache = { payload, timestamp: Date.now() };
-    } else if (event === "webrtc_answer" || event === "terminar_llamada") {
-      llamadaCitofonoActivaCache = null;
-    } else if (event === "asamblea_convocatoria_abierta") {
-      asambleaConvocatoriaActivaCache = { payload, timestamp: Date.now() };
-    } else if (event === "participante_listo" && payload?.peerId) {
-      const prev = asambleaParticipantesActivos.get(payload.peerId) || {};
-      asambleaParticipantesActivos.set(payload.peerId, {
-        ...prev,
-        ...payload,
-        timestamp: Date.now()
-      });
-    } else if (event === "asamblea_estado_media" && payload?.peerId) {
-      const prev = asambleaParticipantesActivos.get(payload.peerId);
-      if (prev) {
-        asambleaParticipantesActivos.set(payload.peerId, {
-          ...prev,
-          micActivo: payload.micActivo ?? prev.micActivo,
-          camActiva: payload.camActiva ?? prev.camActiva
-        });
-      }
-    } else if (event === "asamblea_unidad_actualizada" && payload?.peerId) {
-      const prev = asambleaParticipantesActivos.get(payload.peerId);
-      if (prev) {
-        asambleaParticipantesActivos.set(payload.peerId, {
-          ...prev,
-          unidad: payload.unidad || prev.unidad,
-          nombre: payload.nombre || prev.nombre,
-          etiqueta: payload.etiqueta || prev.etiqueta
-        });
-      }
-    } else if (event === "asamblea_peer_salio" && payload?.peerId) {
-      asambleaParticipantesActivos.delete(payload.peerId);
-    } else if (event === "asamblea_cerrada") {
-      asambleaParticipantesActivos.clear();
-      asambleaConvocatoriaActivaCache = null;
-    }
-
-    const packet = `data: ${JSON.stringify({ event, payload })}\n\n`;
-    for (const client of porteriaSseClients) {
-      try {
-        client.write(packet);
-      } catch {
-        porteriaSseClients.delete(client);
-      }
-    }
-    res.json({ ok: true });
-  });
-
   // Copilot de consultas para residentes (Régimen Ley 675)
   app.post("/api/copilot-chat", async (req, res) => {
-    const { prompt, residentContext, chatHistory } = req.body || {};
+    const { prompt, residentContext } = req.body || {};
     if (!prompt) return res.status(400).json({ error: "El mensaje es obligatorio." });
 
     const apiKey = process.env.GEMINI_API_KEY;
@@ -212,8 +74,8 @@ async function startServer() {
     }
   });
 
-  // Aprovisionamiento censo
-  app.post("/api/aprovisionar-residentes-censo", async (req, res) => {
+  // Aprovisionamiento de censo masivo
+  app.post("/api/aprovisionar-residentes-censo", requireAuth, async (req, res) => {
     try {
       const { unidadesCenso, tenantId } = req.body;
       const resultados = await aprovisionarResidentesCenso(unidadesCenso, tenantId);
@@ -240,17 +102,7 @@ async function startServer() {
       }
 
       const ai = new GoogleGenAI({ apiKey });
-      const promptActa = `Eres un asesor legal experto en Propiedad Horizontal en Colombia (Ley 675 de 2001).
-Genera el contenido oficial para un Acta de ${meetingType} para la copropiedad "${tenantName}".
-Fecha: ${meetingDate}.
-Quórum: ${quorumPercentage}%.
-Contexto y mociones: "${contextNotes || 'Sesión ordinaria con quórum verificado y mociones aprobadas.'}"
-
-Redacta:
-1. Resumen ejecutivo formal (summary)
-2. Lista de compromisos (commitments)
-3. Número consecutivo de acta (minute_number)
-4. Presidente y secretario designados.`;
+      const promptActa = `Eres un asesor legal experto en Propiedad Horizontal en Colombia (Ley 675 de 2001). Genera el contenido oficial para un Acta de ${meetingType} para la copropiedad "${tenantName}". Fecha: ${meetingDate}. Quórum: ${quorumPercentage}%. Contexto y mociones: "${contextNotes || 'Sesión ordinaria con quórum verificado y mociones aprobadas.'}" Redacta: 1. Resumen ejecutivo formal (summary) 2. Lista de compromisos (commitments) 3. Número consecutivo de acta (minute_number) 4. Presidente y secretario designados.`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
@@ -328,14 +180,7 @@ Redacta:
       }
 
       const ai = new GoogleGenAI({ apiKey });
-
-      const prompt = `Analiza este documento de seguridad social (Planilla PILA o Certificado ARL de Colombia).
-Extrae con total precisión:
-1. Razón social o nombre de la empresa / independiente.
-2. NIT o número de identificación.
-3. Nombre de la aseguradora ARL.
-4. Fecha de fin de vigencia de la cobertura (formato YYYY-MM-DD).
-5. Lista de todos los cotizantes / trabajadores encontrados con nombre completo, número de cédula y EPS.`;
+      const prompt = `Analiza este documento de seguridad social (Planilla PILA o Certificado ARL de Colombia). Extrae con total precisión: 1. Razón social o nombre de la empresa / independiente. 2. NIT o número de identificación. 3. Nombre de la aseguradora ARL. 4. Fecha de fin de vigencia de la cobertura (formato YYYY-MM-DD). 5. Lista de todos los cotizantes / trabajadores encontrados con nombre completo, número de cédula y EPS.`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
@@ -388,7 +233,66 @@ Extrae con total precisión:
     }
   });
 
-  // En server.ts: Reemplazo del webhook de WhatsApp por Meta Cloud API oficial
+  // OCR Financiero y Tesorería
+  app.post("/api/ocr-tesoreria-pago", requireAuth, async (req, res) => {
+    try {
+      const { base64Data, mimeType = 'application/pdf' } = req.body || {};
+
+      if (!base64Data) {
+        return res.status(400).json({ error: "No se proporcionó el archivo del comprobante." });
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: "GEMINI_API_KEY no configurada en el servidor." });
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
+      const promptTesoreria = `Analiza este comprobante de pago de cuota de administración o extracto bancario para copropiedad en Colombia (Ley 675). Extrae con precisión: 1. Nombre del pagador o residente. 2. Documento de identidad o NIT. 3. Apartamento o inmueble. 4. Valor exacto pagado en Pesos Colombianos ($ COP). 5. Fecha de la transacción (YYYY-MM-DD). 6. Número de referencia o comprobante.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                inlineData: {
+                  mimeType: mimeType || 'application/pdf',
+                  data: base64Data
+                }
+              },
+              { text: promptTesoreria }
+            ]
+          }
+        ],
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              payer_name: { type: Type.STRING },
+              document_id: { type: Type.STRING },
+              unit_reference: { type: Type.STRING },
+              amount_paid_cop: { type: Type.NUMBER },
+              transaction_date: { type: Type.STRING },
+              reference_number: { type: Type.STRING },
+              payment_status: { type: Type.STRING }
+            },
+            required: ['payer_name', 'amount_paid_cop', 'unit_reference']
+          }
+        }
+      });
+
+      const parsedData = JSON.parse(response.text || '{}');
+      return res.json({ success: true, paymentData: parsedData });
+    } catch (error: any) {
+      console.error('Error procesando OCR financiero:', error);
+      return res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Meta Cloud API oficial para alertas de WhatsApp
   app.post("/api/webhook/whatsapp-alert", requireAuth, async (req, res) => {
     try {
       const { eventType, record, tenantName, whatsappConfig } = req.body || {};
@@ -457,73 +361,7 @@ Extrae con total precisión:
     }
   });
 
-  // OCR Financiero y Exógena / Tesorería (Ley 675)
-  app.post("/api/ocr-tesoreria-pago", requireAuth, async (req, res) => {
-    try {
-      const { base64Data, mimeType = 'application/pdf', tenantId } = req.body || {};
-      
-      if (!base64Data) {
-        return res.status(400).json({ error: "No se proporcionó el archivo del comprobante o extracto." });
-      }
-
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.status(500).json({ error: "GEMINI_API_KEY no configurada en el servidor." });
-      }
-
-      const ai = new GoogleGenAI({ apiKey });
-      const promptTesorería = `Analiza este comprobante de pago de cuota de administración o extracto bancario para copropiedad en Colombia (Ley 675). Extrae con total precisión:
-    1. Nombre del pagador o residente.
-    2. Documento de identidad o NIT.
-    3. Apartamento, torre o inmueble mencionado (ej. Torre 1 - 302).
-    4. Valor exacto pagado en Pesos Colombianos ($ COP).
-    5. Fecha de la transacción (YYYY-MM-DD).
-    6. Número de referencia, autorización o comprobante.`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                inlineData: {
-                  mimeType: mimeType || 'application/pdf',
-                  data: base64Data
-                }
-              },
-              { text: promptTesorería }
-            ]
-          }
-        ],
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              payer_name: { type: Type.STRING },
-              document_id: { type: Type.STRING },
-              unit_reference: { type: Type.STRING },
-              amount_paid_cop: { type: Type.NUMBER },
-              transaction_date: { type: Type.STRING },
-              reference_number: { type: Type.STRING },
-              payment_status: { type: Type.STRING }
-            },
-            required: ['payer_name', 'amount_paid_cop', 'unit_reference']
-          }
-        }
-      });
-
-      const parsedData = JSON.parse(response.text || '{}');
-      return res.json({ success: true, paymentData: parsedData });
-
-    } catch (error: any) {
-      console.error('Error procesando OCR financiero:', error);
-      return res.status(500).json({ error: error.message });
-    }
-  });
-
-  // Servidor Vite / Estáticos
+  // Servidor Vite / Estáticos en producción
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { RealtimeChannel } from '@supabase/supabase-js';
-import { inicializarCanalRealtime, despacharSignal, UserPresenceInfo, SignalingPacket } from '../lib/realtimeSignaling';
+import { inicializarCanalRealtime, despacharSignal, UserPresenceInfo, SignalingPacket } from '../services/realtimeSignalingService';
 import MultiDayMeetingRecorder from '../MultiDayMeetingRecorder';
 import ResilientMeetingRecorder from '../ResilientMeetingRecorder';
 
@@ -54,7 +54,7 @@ export function SalaAsambleaVirtualReal({
   const [panelLateral, setPanelLateral] = useState<'votaciones' | 'chat' | 'cuorum' | 'grabadora'>('votaciones');
 
   // Identificador único de este participante
-  const peerIdRef = useRef<string>(`peer_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
+  const peerIdRef = useRef<string>(userProfile.id || `peer_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
 
   // WebRTC & Streams
   const [micActivo, setMicActivo] = useState(false);
@@ -65,7 +65,7 @@ export function SalaAsambleaVirtualReal({
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
 
-  // Participantes sincronizados por Supabase Realtime Presence + /api/asamblea-events
+  // Participantes sincronizados por Supabase Realtime Presence
   const [participantes, setParticipantes] = useState<any[]>([]);
   const [cuorumTotal, setCuorumTotal] = useState<number>(0);
 
@@ -86,96 +86,88 @@ export function SalaAsambleaVirtualReal({
     camActiva: camaraActiva
   };
 
-  const procesarSenalAsamblea = async (event: string, payload: any) => {
-    const peerId = peerIdRef.current;
-    if (event === 'participante_listo' || event === 'asamblea_estado_media') {
-      setParticipantes((prev) => {
-        const index = prev.findIndex(p => p.peerId === payload.peerId);
-        if (index >= 0) {
-          const copia = [...prev];
-          copia[index] = payload;
-          return copia;
-        }
-        return [...prev, payload];
-      });
-    } else if (event === 'asamblea_peer_salio') {
-      setParticipantes((prev) => prev.filter(p => p.peerId !== payload.peerId));
-    } else if (event === 'webrtc_offer' && payload.targetPeerId === peerId) {
+  const handleRecibirOferta = async (payload: any) => {
+    if (!payload.targetPeerId || payload.targetPeerId === peerIdRef.current) {
       await manejarOfertaEntrante(payload);
-    } else if (event === 'webrtc_answer' && payload.targetPeerId === peerId) {
-      if (peerConnectionRef.current) {
-        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
-      }
-    } else if (event === 'ice_candidate' && payload.targetPeerId === peerId) {
-      if (peerConnectionRef.current && payload.candidate) {
-        await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
-      }
-    } else if (event === 'asamblea_chat_mensaje') {
-      setMensajesChat((prev) => [...prev, payload]);
     }
   };
 
-  // 1. Conexión distribuida Supabase Realtime + SSE fallback con server.ts
-  useEffect(() => {
+  const handleRecibirRespuesta = async (payload: any) => {
+    if ((!payload.targetPeerId || payload.targetPeerId === peerIdRef.current) && peerConnectionRef.current && payload.answer) {
+      await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
+    }
+  };
+
+  const handleRecibirCandidato = async (payload: any) => {
+    if ((!payload.targetPeerId || payload.targetPeerId === peerIdRef.current) && peerConnectionRef.current && payload.candidate) {
+      await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
+    }
+  };
+
+  const setParticipantesConectados = (conectados: UserPresenceInfo[]) => {
     const peerId = peerIdRef.current;
+    setParticipantes((prev) => {
+      const mapa = new Map<string, any>();
+      prev.forEach(p => mapa.set(p.peerId, p));
+      conectados.forEach(u => {
+        const existente = mapa.get(u.id);
+        mapa.set(u.id, {
+          peerId: u.id,
+          nombre: u.name,
+          unidad: u.unit || 'Apto',
+          role: u.role,
+          coefficient: existente?.coefficient ?? (u.id === peerId ? (userProfile.coefficient || 0) : 0),
+          micActivo: u.micActivo ?? false,
+          camActiva: u.camActiva ?? false
+        });
+      });
+      return Array.from(mapa.values());
+    });
+  };
+
+  // Conexión distribuida Supabase Realtime (Broadcast + Presence)
+  useEffect(() => {
+    const usuarioInfo: UserPresenceInfo = {
+      id: userProfile.id || peerIdRef.current,
+      name: userProfile.full_name || 'Participante',
+      role: userProfile.role || 'residente',
+      unit: userProfile.unit_number || userProfile.unit || 'Apto',
+      micActivo,
+      camActiva: camaraActiva
+    };
 
     const canal = inicializarCanalRealtime(
-      `urbix_asamblea_${tenantId}`,
-      userPresence,
-      (packet) => {
-        procesarSenalAsamblea(packet.event, packet.payload);
-      },
-      (usuariosEnLinea) => {
-        setParticipantes((prev) => {
-          const mapa = new Map<string, any>();
-          prev.forEach(p => mapa.set(p.peerId, p));
-          usuariosEnLinea.forEach(u => {
-            const existente = mapa.get(u.id);
-            mapa.set(u.id, {
-              peerId: u.id,
-              nombre: u.name,
-              unidad: u.unit || 'Apto',
-              role: u.role,
-              coefficient: existente?.coefficient ?? (u.id === peerId ? (userProfile.coefficient || 0) : 0),
-              micActivo: u.micActivo ?? false,
-              camActiva: u.camActiva ?? false
-            });
+      `asamblea_sala_${tenantId}`,
+      usuarioInfo,
+      (signal) => {
+        // Manejador de eventos WebRTC y mociones
+        if (signal.event === 'webrtc_offer') handleRecibirOferta(signal.payload);
+        if (signal.event === 'webrtc_answer') handleRecibirRespuesta(signal.payload);
+        if (signal.event === 'ice_candidate') handleRecibirCandidato(signal.payload);
+        if (signal.event === 'asamblea_estado_media' && signal.payload?.peerId) {
+          setParticipantes((prev) => {
+            const index = prev.findIndex(p => p.peerId === signal.payload.peerId);
+            if (index >= 0) {
+              const copia = [...prev];
+              copia[index] = signal.payload;
+              return copia;
+            }
+            return [...prev, signal.payload];
           });
-          return Array.from(mapa.values());
-        });
+        }
+      },
+      (conectados) => {
+        // Lista de asistentes actualizada en vivo por Presence
+        setParticipantesConectados(conectados);
       }
     );
     realtimeChannelRef.current = canal;
 
-    const eventSource = new EventSource(`/api/asamblea-events?peerId=${peerId}`);
-
-    eventSource.onmessage = async (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        const { event, payload } = data;
-        await procesarSenalAsamblea(event, payload);
-      } catch (err) {
-        // Ping control
-      }
-    };
-
-    enviarSenal('participante_listo', {
-      peerId,
-      nombre: userProfile.full_name,
-      unidad: userProfile.unit_number || userProfile.unit || 'Apto',
-      role: userProfile.role,
-      coefficient: userProfile.coefficient || 0,
-      micActivo: false,
-      camActiva: false
-    });
-
     cargarCuorumBase();
 
     return () => {
-      enviarSenal('asamblea_peer_salio', { peerId });
-      supabase.removeChannel(canal);
+      canal.unsubscribe();
       realtimeChannelRef.current = null;
-      eventSource.close();
       streamLocal?.getTracks().forEach(t => t.stop());
       peerConnectionRef.current?.close();
     };
@@ -209,11 +201,6 @@ export function SalaAsambleaVirtualReal({
           targetUnit
         );
       }
-      await fetch('/api/asamblea-signal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event, payload })
-      });
     } catch (e) {
       console.error('Error enviando señal WebRTC:', e);
     }
