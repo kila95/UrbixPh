@@ -28,6 +28,7 @@ import {
   Check,
   Car
 } from 'lucide-react';
+import { UrbixIsotipoSvg } from '../UrbixLogo';
 
 interface UrbixLandingPageProps {
   onEnterApp: (role?: string) => void;
@@ -224,12 +225,8 @@ export default function UrbixLandingPage({ onEnterApp, onGoToLogin }: UrbixLandi
           
           {/* Zone 1: Single Brand Wordmark */}
           <a href="#" className="flex items-center gap-2.5 text-lg font-bold tracking-tight text-white whitespace-nowrap shrink-0 group">
-            <div className="relative overflow-hidden rounded-lg border border-cyan-500/35 bg-[#0c1815] p-1 flex items-center justify-center shadow-md shadow-cyan-500/10">
-              <img
-                src="/assets/aistudio/Captura_de_pantalla_2026-10-30_135456_59f03351.png"
-                alt="Urbix PH"
-                className="h-7 w-auto object-contain"
-              />
+            <div className="relative overflow-hidden rounded-lg border border-cyan-500/35 bg-[#0c1815] p-1 flex items-center justify-center shadow-md shadow-cyan-500/10 w-8 h-8">
+              <UrbixIsotipoSvg className="w-full h-full text-cyan-400" />
             </div>
             <span className="text-white font-black tracking-tight text-base sm:text-lg">
               Urbi<span className="text-cyan-400">x</span> <span className="text-cyan-400 text-xs font-mono font-bold tracking-normal ml-0.5">PH</span>
@@ -1756,12 +1753,8 @@ export default function UrbixLandingPage({ onEnterApp, onGoToLogin }: UrbixLandi
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
           
           <div className="flex items-center gap-2.5">
-            <div className="relative overflow-hidden rounded border border-cyan-500/35 bg-[#0c1815] p-1 flex items-center justify-center">
-              <img
-                src="/assets/aistudio/Captura_de_pantalla_2026-10-30_135456_59f03351.png"
-                alt="Urbix PH"
-                className="h-5 w-auto object-contain"
-              />
+            <div className="relative overflow-hidden rounded border border-cyan-500/35 bg-[#0c1815] p-0.5 flex items-center justify-center w-6 h-6">
+              <UrbixIsotipoSvg className="w-full h-full text-cyan-400" />
             </div>
             <span className="text-white font-bold tracking-tight">Urbi<span className="text-cyan-400">x</span> PH</span>
             <span className="text-zinc-600">·</span>

@@ -3,15 +3,18 @@ import { UrbixIsotipoSvg, UrbixLogoMark, UrbixFullLogo } from '../UrbixLogo';
 
 export { UrbixIsotipoSvg, UrbixLogoMark, UrbixFullLogo };
 
-interface Props {
-  size?: 'xs' | 'sm' | 'md' | 'lg';
+interface LogoUrbixProps {
+  size?: 'sm' | 'md' | 'lg';
   showText?: boolean;
-  rolBadge?: string; // 'ADMIN', 'PORTERO', 'RESIDENTE', etc.
+  rolBadge?: string;
 }
 
-export default function LogoUrbix({ size = 'sm', showText = true, rolBadge }: Props) {
+export default function LogoUrbix({
+  size = 'md',
+  showText = true,
+  rolBadge
+}: LogoUrbixProps) {
   const dimensions = {
-    xs: 'w-7 h-7',      // Para el menú móvil o botones
     sm: 'w-11 h-11',    // Para la barra superior al lado del nombre en cada rol
     md: 'w-14 h-14',    // Para cabeceras de módulos
     lg: 'w-20 h-20',    // Para pantallas de inicio o login
@@ -22,11 +25,9 @@ export default function LogoUrbix({ size = 'sm', showText = true, rolBadge }: Pr
       {/* Isotipo Oficial Urbix */}
       <div className={`relative flex items-center justify-center shrink-0 ${dimensions[size]}`}>
         <div className="absolute inset-0 bg-[#00f2fe]/20 blur-[8px] rounded-xl animate-pulse" />
-        <img
-          src="/assets/aistudio/Gemini_Generated_Image_pyhwpzpyhwpzpyhw_f4f1c70b.jfif"
-          alt="Logo Urbix PH"
-          className="relative w-full h-full rounded-xl object-cover border border-[#00f2fe]/40 drop-shadow-[0_2px_10px_rgba(0,242,254,0.4)]"
-        />
+        <div className="relative w-full h-full rounded-xl p-1 bg-slate-950/80 border border-[#00f2fe]/40 drop-shadow-[0_2px_10px_rgba(0,242,254,0.4)] flex items-center justify-center">
+          <UrbixIsotipoSvg className="w-full h-full" />
+        </div>
       </div>
 
       {/* Nombre y Rol */}

@@ -428,9 +428,15 @@ export default function AsambleasActasLegalesHub({
     onShowToast?.('🎙️ Conectando con Gemini API para redactar Acta Oficial (Ley 675)...');
 
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
       const response = await fetch('/api/process-meeting', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
           meetingType: 'Asamblea General Ordinaria',
           meetingDate: new Date().toISOString().split('T')[0],

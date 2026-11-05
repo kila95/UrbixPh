@@ -261,11 +261,9 @@ export default function AuthLoginExecutive({
 
         {/* 1. ÍCONO SUPERIOR: CUADRO INTERNO ILUMINADO AZUL NEÓN */}
         <div className="relative flex flex-col items-center justify-center mb-1">
-          <img
-            src="/assets/aistudio/Gemini_Generated_Image_pyhwpzpyhwpzpyhw_f4f1c70b.jfif"
-            alt="Logo Principal Urbix PH"
-            className="w-28 h-28 sm:w-32 sm:h-32 rounded-3xl object-cover border border-[#00f2fe]/50 shadow-[0_0_30px_rgba(0,242,254,0.45)]"
-          />
+          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl p-3 bg-slate-950/90 border border-[#00f2fe]/50 shadow-[0_0_30px_rgba(0,242,254,0.45)] flex items-center justify-center">
+            <UrbixLogoMark className="w-full h-full text-[#00f2fe]" />
+          </div>
         </div>
 
         {/* 2. CÁPSULA HABEAS DATA & SEGURIDAD */}

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { DollarSign, UploadCloud, CheckCircle2, FileText, Loader2, ShieldCheck, AlertCircle } from 'lucide-react';
 import { conciliarPagoOcrEnBaseDeDatos } from '../lib/treasuryService';
+import { supabase } from '../supabaseClient';
 
 export default function ModuloTesoreriaOCR({ tenantId, tenantName, onShowToast }: { tenantId?: string; tenantName?: string; onShowToast?: (msg: string) => void }) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -24,9 +25,15 @@ export default function ModuloTesoreriaOCR({ tenantId, tenantName, onShowToast }
       reader.onload = async () => {
         const base64String = (reader.result as string).split(',')[1];
         
+        const { data: authData } = await supabase.auth.getSession();
+        const token = authData?.session?.access_token;
+
         const response = await fetch('/api/ocr-tesoreria-pago', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
           body: JSON.stringify({
             base64Data: base64String,
             mimeType: selectedFile.type || 'application/pdf',

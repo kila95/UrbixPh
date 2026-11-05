@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import { createClient } from "@supabase/supabase-js";
 import { URBIX_COPILOT_SYSTEM_PROMPT } from "./src/urbixCopilotPrompt";
 import { aprovisionarResidentesCenso } from "./src/aprovisionarResidentesCenso";
 
@@ -11,6 +12,29 @@ dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+export const supabaseAuthVerifier = createClient(
+  process.env.VITE_SUPABASE_URL || "https://bhowrovxddvaykffwbbz.supabase.co",
+  process.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_z3h_VaPJ1Gl7dPD9PkIPfw_MhVUQBpZ"
+);
+
+// Middleware de verificación de token JWT para endpoints protegidos
+export async function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Acceso no autorizado: Token de sesión requerido." });
+  }
+
+  const token = authHeader.split(" ")[1];
+  const { data: { user }, error } = await supabaseAuthVerifier.auth.getUser(token);
+
+  if (error || !user) {
+    return res.status(401).json({ error: "Sesión inválida o expirada en el sistema." });
+  }
+
+  (req as any).user = user;
+  next();
+}
 
 async function startServer() {
   const app = express();
@@ -26,6 +50,11 @@ async function startServer() {
   let llamadaCitofonoActivaCache: { payload: any; timestamp: number } | null = null;
   let asambleaConvocatoriaActivaCache: { payload: any; timestamp: number } | null = null;
   const asambleaParticipantesActivos = new Map<string, any>();
+
+  // Verificación de sesión y token JWT con Supabase
+  app.get("/api/auth/verify", requireAuth, (req, res) => {
+    res.json({ valid: true, user: (req as any).user });
+  });
 
   app.get("/api/asamblea-state", (_req, res) => {
     const convocatoriaVigencia =
@@ -194,8 +223,80 @@ async function startServer() {
     }
   });
 
+  // Procesamiento y Generación de Actas de Asamblea / Consejo con IA (Ley 675)
+  app.post("/api/process-meeting", requireAuth, async (req, res) => {
+    try {
+      const {
+        meetingType = 'Asamblea General Ordinaria',
+        meetingDate = new Date().toISOString().split('T')[0],
+        contextNotes = '',
+        tenantName = 'Copropiedad PH',
+        quorumPercentage = 100
+      } = req.body || {};
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: "GEMINI_API_KEY no configurada en el servidor." });
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
+      const promptActa = `Eres un asesor legal experto en Propiedad Horizontal en Colombia (Ley 675 de 2001).
+Genera el contenido oficial para un Acta de ${meetingType} para la copropiedad "${tenantName}".
+Fecha: ${meetingDate}.
+Quórum: ${quorumPercentage}%.
+Contexto y mociones: "${contextNotes || 'Sesión ordinaria con quórum verificado y mociones aprobadas.'}"
+
+Redacta:
+1. Resumen ejecutivo formal (summary)
+2. Lista de compromisos (commitments)
+3. Número consecutivo de acta (minute_number)
+4. Presidente y secretario designados.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: promptActa,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              minute_number: { type: Type.STRING },
+              summary: { type: Type.STRING },
+              commitments: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+              },
+              president_name: { type: Type.STRING },
+              secretary_name: { type: Type.STRING }
+            },
+            required: ['minute_number', 'summary']
+          }
+        }
+      });
+
+      const parsed = JSON.parse(response.text || '{}');
+      const acta = {
+        id: `act-${Date.now()}`,
+        minute_number: parsed.minute_number || `ACT-${new Date().getFullYear()}-${Date.now().toString().slice(-3)}`,
+        meeting_type: meetingType,
+        meeting_date: meetingDate,
+        quorum_percentage: quorumPercentage,
+        president_name: parsed.president_name || (req as any).user?.email?.split('@')[0] || 'Presidente Designado',
+        secretary_name: parsed.secretary_name || 'Secretario Designado',
+        summary: parsed.summary || 'Acta generada conforme a la Ley 675.',
+        commitments: parsed.commitments || [],
+        status: 'Borrador'
+      };
+
+      return res.json({ success: true, acta });
+    } catch (err: any) {
+      console.error('Error generando acta en /api/process-meeting:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   // OCR e Inteligencia Artificial Multimodal para Planillas PILA / ARL
-  app.post("/api/ocr-pila", async (req, res) => {
+  app.post("/api/ocr-pila", requireAuth, async (req, res) => {
     try {
       let base64Data = req.body?.base64Data;
       let mimeType = req.body?.mimeType || 'application/pdf';
@@ -327,7 +428,7 @@ Extrae con total precisión:
   });
 
   // OCR Financiero y Exógena / Tesorería (Ley 675)
-  app.post("/api/ocr-tesoreria-pago", async (req, res) => {
+  app.post("/api/ocr-tesoreria-pago", requireAuth, async (req, res) => {
     try {
       const { base64Data, mimeType = 'application/pdf', tenantId } = req.body || {};
       
