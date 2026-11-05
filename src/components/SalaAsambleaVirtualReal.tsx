@@ -6,6 +6,8 @@ import {
   PhoneCall, Building2, UserCheck, Shield
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
+import { RealtimeChannel } from '@supabase/supabase-js';
+import { inicializarCanalRealtime, despacharSignal, UserPresenceInfo, SignalingPacket } from '../lib/realtimeSignaling';
 import MultiDayMeetingRecorder from '../MultiDayMeetingRecorder';
 import ResilientMeetingRecorder from '../ResilientMeetingRecorder';
 
@@ -61,8 +63,9 @@ export function SalaAsambleaVirtualReal({
   const videoLocalRef = useRef<HTMLVideoElement>(null);
   const videoRemotoRef = useRef<HTMLVideoElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
 
-  // Participantes sincronizados por /api/asamblea-events
+  // Participantes sincronizados por Supabase Realtime Presence + /api/asamblea-events
   const [participantes, setParticipantes] = useState<any[]>([]);
   const [cuorumTotal, setCuorumTotal] = useState<number>(0);
 
@@ -74,41 +77,83 @@ export function SalaAsambleaVirtualReal({
   const [nuevoMensaje, setNuevoMensaje] = useState('');
   const [manoLevantada, setManoLevantada] = useState(false);
 
-  // 1. Conexión SSE con server.ts
+  const userPresence: UserPresenceInfo = {
+    id: peerIdRef.current,
+    name: userProfile.full_name || 'Participante',
+    role: userProfile.role || 'residente',
+    unit: userProfile.unit_number || userProfile.unit || 'Apto',
+    micActivo,
+    camActiva: camaraActiva
+  };
+
+  const procesarSenalAsamblea = async (event: string, payload: any) => {
+    const peerId = peerIdRef.current;
+    if (event === 'participante_listo' || event === 'asamblea_estado_media') {
+      setParticipantes((prev) => {
+        const index = prev.findIndex(p => p.peerId === payload.peerId);
+        if (index >= 0) {
+          const copia = [...prev];
+          copia[index] = payload;
+          return copia;
+        }
+        return [...prev, payload];
+      });
+    } else if (event === 'asamblea_peer_salio') {
+      setParticipantes((prev) => prev.filter(p => p.peerId !== payload.peerId));
+    } else if (event === 'webrtc_offer' && payload.targetPeerId === peerId) {
+      await manejarOfertaEntrante(payload);
+    } else if (event === 'webrtc_answer' && payload.targetPeerId === peerId) {
+      if (peerConnectionRef.current) {
+        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
+      }
+    } else if (event === 'ice_candidate' && payload.targetPeerId === peerId) {
+      if (peerConnectionRef.current && payload.candidate) {
+        await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
+      }
+    } else if (event === 'asamblea_chat_mensaje') {
+      setMensajesChat((prev) => [...prev, payload]);
+    }
+  };
+
+  // 1. Conexión distribuida Supabase Realtime + SSE fallback con server.ts
   useEffect(() => {
     const peerId = peerIdRef.current;
+
+    const canal = inicializarCanalRealtime(
+      `urbix_asamblea_${tenantId}`,
+      userPresence,
+      (packet) => {
+        procesarSenalAsamblea(packet.event, packet.payload);
+      },
+      (usuariosEnLinea) => {
+        setParticipantes((prev) => {
+          const mapa = new Map<string, any>();
+          prev.forEach(p => mapa.set(p.peerId, p));
+          usuariosEnLinea.forEach(u => {
+            const existente = mapa.get(u.id);
+            mapa.set(u.id, {
+              peerId: u.id,
+              nombre: u.name,
+              unidad: u.unit || 'Apto',
+              role: u.role,
+              coefficient: existente?.coefficient ?? (u.id === peerId ? (userProfile.coefficient || 0) : 0),
+              micActivo: u.micActivo ?? false,
+              camActiva: u.camActiva ?? false
+            });
+          });
+          return Array.from(mapa.values());
+        });
+      }
+    );
+    realtimeChannelRef.current = canal;
+
     const eventSource = new EventSource(`/api/asamblea-events?peerId=${peerId}`);
 
     eventSource.onmessage = async (e) => {
       try {
         const data = JSON.parse(e.data);
         const { event, payload } = data;
-
-        if (event === 'participante_listo') {
-          setParticipantes((prev) => {
-            const index = prev.findIndex(p => p.peerId === payload.peerId);
-            if (index >= 0) {
-              const copia = [...prev];
-              copia[index] = payload;
-              return copia;
-            }
-            return [...prev, payload];
-          });
-        } else if (event === 'asamblea_peer_salio') {
-          setParticipantes((prev) => prev.filter(p => p.peerId !== payload.peerId));
-        } else if (event === 'webrtc_offer' && payload.targetPeerId === peerId) {
-          await manejarOfertaEntrante(payload);
-        } else if (event === 'webrtc_answer' && payload.targetPeerId === peerId) {
-          if (peerConnectionRef.current) {
-            await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
-          }
-        } else if (event === 'ice_candidate' && payload.targetPeerId === peerId) {
-          if (peerConnectionRef.current && payload.candidate) {
-            await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
-          }
-        } else if (event === 'asamblea_chat_mensaje') {
-          setMensajesChat((prev) => [...prev, payload]);
-        }
+        await procesarSenalAsamblea(event, payload);
       } catch (err) {
         // Ping control
       }
@@ -128,6 +173,8 @@ export function SalaAsambleaVirtualReal({
 
     return () => {
       enviarSenal('asamblea_peer_salio', { peerId });
+      supabase.removeChannel(canal);
+      realtimeChannelRef.current = null;
       eventSource.close();
       streamLocal?.getTracks().forEach(t => t.stop());
       peerConnectionRef.current?.close();
@@ -150,8 +197,18 @@ export function SalaAsambleaVirtualReal({
     }
   };
 
-  const enviarSenal = async (event: string, payload: any) => {
+  const enviarSenal = async (event: string, payload: any, targetId?: string, targetUnit?: string) => {
     try {
+      if (realtimeChannelRef.current) {
+        await despacharSignal(
+          realtimeChannelRef.current,
+          event as SignalingPacket['event'],
+          userPresence,
+          payload,
+          targetId,
+          targetUnit
+        );
+      }
       await fetch('/api/asamblea-signal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

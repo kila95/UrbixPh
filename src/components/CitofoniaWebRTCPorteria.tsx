@@ -4,6 +4,8 @@ import {
   DoorOpen, Search, Radio, Phone, ChevronDown, History, CheckCircle2 
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
+import { RealtimeChannel } from '@supabase/supabase-js';
+import { inicializarCanalRealtime, despacharSignal, UserPresenceInfo, SignalingPacket } from '../lib/realtimeSignaling';
 
 interface Props {
   modo: 'porteria' | 'residente';
@@ -53,6 +55,15 @@ export default function CitofoniaWebRTCPorteria({
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
+
+  const userPresence: UserPresenceInfo = {
+    id: peerIdRef.current,
+    name: modo === 'porteria' ? guardaNombre : `Residente ${unidadResidente}`,
+    role: modo,
+    unit: modo === 'porteria' ? 'GARITA_PORTERIA' : unidadResidente,
+    micActivo
+  };
 
   // Cargar unidades reales y el historial del día desde Supabase
   const cargarDatosIniciales = async () => {
@@ -111,8 +122,18 @@ export default function CitofoniaWebRTCPorteria({
     }
   };
 
-  const enviarSenal = async (event: string, payload: any) => {
+  const enviarSenal = async (event: string, payload: any, targetId?: string, targetUnit?: string) => {
     try {
+      if (realtimeChannelRef.current) {
+        await despacharSignal(
+          realtimeChannelRef.current,
+          event as SignalingPacket['event'],
+          userPresence,
+          payload,
+          targetId,
+          targetUnit
+        );
+      }
       await fetch('/api/asamblea-signal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -123,47 +144,70 @@ export default function CitofoniaWebRTCPorteria({
     }
   };
 
+  const procesarSenalEntrante = async (event: string, payload: any) => {
+    try {
+      if (event === 'solicitar_llamada' && modo === 'residente') {
+        if (!unidadResidente || payload.unidadDestino === unidadResidente) {
+          setLlamadaEntrante(payload);
+          setEstadoLlamada('timbrando');
+        }
+      }
+
+      if (event === 'solicitar_llamada' && modo === 'porteria' && payload.unidadDestino === 'GARITA_PORTERIA') {
+        setLlamadaEntrante(payload);
+        setEstadoLlamada('timbrando');
+      }
+
+      if (event === 'webrtc_answer' && pcRef.current && payload?.answer) {
+        await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
+        setEstadoLlamada('conectado');
+        onShowToast?.(`Citófono conectado con ${payload.unidadDestino || 'Interlocutor'}`);
+      }
+
+      if ((event === 'citofono_ice' || event === 'ice_candidate') && payload.sender !== peerIdRef.current && pcRef.current && payload.candidate) {
+        await pcRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
+      }
+
+      if (event === 'citofono_puerta_autorizada' && modo === 'porteria') {
+        onShowToast?.(`✅ PUERTA AUTORIZADA por ${payload.unidad} para ${payload.visitante}`);
+        registrarLogEnDB(payload.unidad, payload.visitante, 'Acceso Autorizado', 'Autorizada');
+        onAutorizarIngreso?.(payload.visitante, payload.unidad);
+      }
+
+      if (event === 'terminar_llamada') {
+        limpiarConexionLocal();
+      }
+    } catch {}
+  };
+
   useEffect(() => {
+    // 1. Canal distribuido Supabase Realtime
+    const canal = inicializarCanalRealtime(
+      `urbix_citofono_${tenantId}`,
+      userPresence,
+      (packet) => {
+        procesarSenalEntrante(packet.event, packet.payload);
+      }
+    );
+    realtimeChannelRef.current = canal;
+
+    // 2. Fallback SSE local
     const eventSource = new EventSource(`/api/asamblea-events?peerId=${peerIdRef.current}`);
 
     eventSource.onmessage = async (ev) => {
       try {
         const { event, payload } = JSON.parse(ev.data);
-
-        if (event === 'solicitar_llamada' && modo === 'residente') {
-          if (!unidadResidente || payload.unidadDestino === unidadResidente) {
-            setLlamadaEntrante(payload);
-            setEstadoLlamada('timbrando');
-          }
-        }
-
-        if (event === 'webrtc_answer' && modo === 'porteria' && pcRef.current) {
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
-          setEstadoLlamada('conectado');
-          onShowToast?.(`Citófono conectado con ${payload.unidadDestino}`);
-        }
-
-        if (event === 'citofono_ice' && payload.sender !== peerIdRef.current && pcRef.current) {
-          await pcRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
-        }
-
-        if (event === 'citofono_puerta_autorizada' && modo === 'porteria') {
-          onShowToast?.(`✅ PUERTA AUTORIZADA por ${payload.unidad} para ${payload.visitante}`);
-          registrarLogEnDB(payload.unidad, payload.visitante, 'Acceso Autorizado', 'Autorizada');
-          onAutorizarIngreso?.(payload.visitante, payload.unidad);
-        }
-
-        if (event === 'terminar_llamada') {
-          limpiarConexionLocal();
-        }
+        await procesarSenalEntrante(event, payload);
       } catch {}
     };
 
     return () => {
+      supabase.removeChannel(canal);
+      realtimeChannelRef.current = null;
       eventSource.close();
       limpiarConexionLocal();
     };
-  }, [modo, unidadResidente]);
+  }, [modo, unidadResidente, tenantId]);
 
   const inicializarPeerConnectionAudio = (stream: MediaStream) => {
     const pc = new RTCPeerConnection(ICE_CONFIG);
@@ -171,7 +215,7 @@ export default function CitofoniaWebRTCPorteria({
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {
-        enviarSenal('citofono_ice', {
+        enviarSenal('ice_candidate', {
           sender: peerIdRef.current,
           candidate: e.candidate
         });
