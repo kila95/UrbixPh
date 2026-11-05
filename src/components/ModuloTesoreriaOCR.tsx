@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { DollarSign, UploadCloud, CheckCircle2, FileText, Loader2, ShieldCheck, AlertCircle } from 'lucide-react';
 import { conciliarPagoOcrEnBaseDeDatos } from '../lib/treasuryService';
-import { supabase } from '../supabaseClient';
+import { supabase, normalizeTenantUuid } from '../supabaseClient';
 
 export default function ModuloTesoreriaOCR({ tenantId, tenantName, onShowToast }: { tenantId?: string; tenantName?: string; onShowToast?: (msg: string) => void }) {
+  const resolvedTenantId = normalizeTenantUuid(tenantId);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [reconciliationResult, setReconciliationResult] = useState<any>(null);
@@ -37,7 +38,7 @@ export default function ModuloTesoreriaOCR({ tenantId, tenantName, onShowToast }
           body: JSON.stringify({
             base64Data: base64String,
             mimeType: selectedFile.type || 'application/pdf',
-            tenantId
+            tenantId: resolvedTenantId
           })
         });
 
@@ -45,7 +46,7 @@ export default function ModuloTesoreriaOCR({ tenantId, tenantName, onShowToast }
         if (data.success && data.paymentData) {
           setReconciliationResult(data.paymentData);
           try {
-            await conciliarPagoOcrEnBaseDeDatos(tenantId || 't1', data.paymentData);
+            await conciliarPagoOcrEnBaseDeDatos(resolvedTenantId, data.paymentData);
           } catch (syncErr) {
             console.warn('Aviso al asentar pago OCR:', syncErr);
           }

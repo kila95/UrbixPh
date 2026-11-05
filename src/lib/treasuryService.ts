@@ -1,4 +1,4 @@
-import { supabase } from '../supabaseClient';
+import { supabase, normalizeTenantUuid } from '../supabaseClient';
 
 export interface TreasuryTransaction {
   id?: string;
@@ -54,7 +54,8 @@ function guardarEnRespaldoLocal(trx: TreasuryTransaction): TreasuryTransaction {
 /**
  * Consulta todas las transacciones reales de una copropiedad
  */
-export async function getTransactionsByTenant(tenantId: string): Promise<TreasuryTransaction[]> {
+export async function getTransactionsByTenant(rawTenantId: string): Promise<TreasuryTransaction[]> {
+  const tenantId = normalizeTenantUuid(rawTenantId);
   const { data, error } = await supabase
     .from('treasury_transactions')
     .select('*')
@@ -74,7 +75,7 @@ export async function getTransactionsByTenant(tenantId: string): Promise<Treasur
  */
 export async function createTreasuryTransaction(trx: TreasuryTransaction): Promise<TreasuryTransaction> {
   const payload = {
-    tenant_id: trx.tenant_id,
+    tenant_id: normalizeTenantUuid(trx.tenant_id),
     apartment_id: trx.apartment_id || null,
     type: trx.type,
     dian_format: trx.dian_format,

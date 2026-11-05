@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { supabase, isSupabaseConfigured, DEFAULT_TENANT_UUID, normalizeTenantUuid } from './supabaseClient';
 import { Wrench, Plus, CheckCircle2, AlertTriangle, X, UserCheck } from 'lucide-react';
 
-export default function ModuloMantenimientoReal({ tenantId = 't1', onShowToast }: { tenantId?: string; onShowToast?: (msg: string) => void }) {
+export default function ModuloMantenimientoReal({ tenantId: rawTenantId = DEFAULT_TENANT_UUID, onShowToast }: { tenantId?: string; onShowToast?: (msg: string) => void }) {
+  const tenantId = normalizeTenantUuid(rawTenantId);
   const [reportes, setReportes] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
   const [showModal, setShowModal] = useState(false);

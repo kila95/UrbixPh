@@ -5,18 +5,22 @@ import {
   Send, AlertCircle, RefreshCw, Download, PhoneOff, Radio,
   PhoneCall, Building2, UserCheck, Shield
 } from 'lucide-react';
-import { supabase } from '../supabaseClient';
+import { supabase, DEFAULT_TENANT_UUID, normalizeTenantUuid } from '../supabaseClient';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { inicializarCanalRealtime, despacharSignal, UserPresenceInfo, SignalingPacket } from '../services/realtimeSignalingService';
+import { calcularQuorumAsamblea, ResumenQuorum, emitirVotoPonderado, obtenerEscrutinioVotacion } from '../services/quorumService';
 import MultiDayMeetingRecorder from '../MultiDayMeetingRecorder';
 import ResilientMeetingRecorder from '../ResilientMeetingRecorder';
 
 interface Props {
   tenantId?: string;
+  assemblyId?: string;
   userProfile?: {
     id?: string;
     full_name?: string;
     role?: string;
+    tenant_id?: string;
+    apartment_id?: string;
     unit_id?: string;
     unit_number?: string;
     coefficient?: number;
@@ -39,11 +43,15 @@ const ICE_CONFIG = {
 };
 
 export function SalaAsambleaVirtualReal({
-  tenantId = 't1',
+  tenantId: rawTenantId = DEFAULT_TENANT_UUID,
+  assemblyId = 'asamblea_ordinaria_actual',
   userProfile = { full_name: 'Administrador PH', role: 'admin', unit_number: 'Administración', coefficient: 0 },
   onShowToast,
   copropiedadNombre = 'Urb. Tricentenario'
 }: Props) {
+  // 1. Asegurar que lea el tenant y el apartamento del usuario logueado
+  const tenantId = userProfile?.tenant_id || normalizeTenantUuid(rawTenantId);
+  const apartmentId = userProfile?.apartment_id || userProfile?.unit_id;
   // Modo de Capacidad según el Tipo de Sesión
   const [modoCapacidad, setModoCapacidad] = useState<'masiva_asamblea' | 'consejo_multipunto' | 'directa_residente'>('masiva_asamblea');
 
@@ -68,6 +76,13 @@ export function SalaAsambleaVirtualReal({
   // Participantes sincronizados por Supabase Realtime Presence
   const [participantes, setParticipantes] = useState<any[]>([]);
   const [cuorumTotal, setCuorumTotal] = useState<number>(0);
+  const [resumenQuorum, setResumenQuorum] = useState<ResumenQuorum>({
+    quorumActual: 0,
+    unidadesPresentes: 0,
+    totalUnidades: 0,
+    tieneQuorumOrdinario: false,
+    tieneQuorumCalificado: false
+  });
 
   // Votaciones y Chat
   const [votaciones, setVotaciones] = useState<any[]>([]);
@@ -176,18 +191,97 @@ export function SalaAsambleaVirtualReal({
   // Calcular cuórum real ponderado
   useEffect(() => {
     const suma = participantes.reduce((acc, p) => acc + Number(p.coefficient || 0), 0);
-    setCuorumTotal(Number(suma.toFixed(3)));
-  }, [participantes]);
+    const redondeado = Number(suma.toFixed(3));
+    if (redondeado > 0 || resumenQuorum.quorumActual === 0) {
+      setCuorumTotal(redondeado || resumenQuorum.quorumActual);
+    }
+  }, [participantes, resumenQuorum.quorumActual]);
 
   const cargarCuorumBase = async () => {
-    const { data: units } = await supabase.from('units').select('id, coefficient');
-    if (units && units.length > 0 && (!userProfile.coefficient || userProfile.coefficient === 0)) {
-      const myUnit = units.find(u => u.id === userProfile.unit_id);
-      if (myUnit) {
-        userProfile.coefficient = Number(myUnit.coefficient);
+    try {
+      const { data: units } = await supabase.from('units').select('id, coefficient').eq('tenant_id', tenantId);
+      if (units && units.length > 0 && (!userProfile.coefficient || userProfile.coefficient === 0)) {
+        const myUnit = units.find(u => u.id === apartmentId);
+        if (myUnit) {
+          userProfile.coefficient = Number(myUnit.coefficient);
+        }
       }
+
+      try {
+        const resumen = await calcularQuorumAsamblea(assemblyId, tenantId);
+        setResumenQuorum({
+          ...resumen,
+          totalUnidades: resumen.totalUnidades || units?.length || 0
+        });
+        if (resumen.quorumActual > 0) {
+          setCuorumTotal(resumen.quorumActual);
+        }
+      } catch {
+        setResumenQuorum((prev) => ({
+          ...prev,
+          totalUnidades: units?.length || prev.totalUnidades
+        }));
+      }
+    } catch (e) {
+      console.warn('Error cargando quórum base:', e);
     }
   };
+
+  const calcularQuorumReal = async () => {
+    await cargarCuorumBase();
+  };
+
+  const calcularEscrutinioReal = async () => {
+    try {
+      const actualizadas = await Promise.all(
+        votaciones.map(async (v) => {
+          try {
+            const escrutinio = await obtenerEscrutinioVotacion(v.id);
+            if (escrutinio.votosContabilizados > 0) {
+              return { ...v, escrutinio };
+            }
+          } catch {
+            // Conservar estado previo si aún no hay registros en Supabase
+          }
+          return v;
+        })
+      );
+      if (actualizadas.length > 0) {
+        setVotaciones(actualizadas);
+      }
+    } catch (e) {
+      console.warn('Error actualizando escrutinio en pantalla:', e);
+    }
+  };
+
+  // 2. El listener de Realtime que actualiza la presencia y los votos:
+  useEffect(() => {
+    if (!tenantId) return;
+
+    const canalAsamblea = supabase
+      .channel('canal_asamblea_vivo')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'assembly_attendance' },
+        () => {
+          // Ejecuta tu función de quórum que ya calcula los coeficientes
+          calcularQuorumReal();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'assembly_votes' },
+        () => {
+          // Ejecuta tu función de escrutinio que ya suma los pesos
+          calcularEscrutinioReal();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(canalAsamblea);
+    };
+  }, [tenantId]);
 
   const enviarSenal = async (event: string, payload: any, targetId?: string, targetUnit?: string) => {
     try {
@@ -476,8 +570,38 @@ export function SalaAsambleaVirtualReal({
     onShowToast?.('Moción de votación sometida al plenario');
   };
 
-  const handleVotar = (votacionId: string, opcionIdx: number) => {
-    const peso = userProfile.coefficient || 1.0;
+  const handleVotar = async (votacionId: string, opcionIdx: number, codigoOpcion?: 'SI' | 'NO' | 'BLANCO') => {
+    const opcionCode = codigoOpcion || (opcionIdx === 0 ? 'SI' : opcionIdx === 1 ? 'NO' : 'BLANCO');
+    let peso = userProfile.coefficient || 1.0;
+
+    if (apartmentId) {
+      try {
+        const res = await emitirVotoPonderado({
+          votingId: votacionId,
+          apartmentId,
+          tenantId,
+          opcion: opcionCode
+        });
+        if (res?.vote_weight) {
+          peso = Number(res.vote_weight);
+        }
+      } catch (err: any) {
+        onShowToast?.(err?.message || 'Error al registrar voto ponderado');
+      }
+    }
+
+    try {
+      const escrutinio = await obtenerEscrutinioVotacion(votacionId);
+      if (escrutinio.votosContabilizados > 0) {
+        setVotaciones(prev => prev.map(v => {
+          if (v.id !== votacionId) return v;
+          return { ...v, escrutinio };
+        }));
+      }
+    } catch {
+      // Fallback local
+    }
+
     setVotaciones(prev => prev.map(v => {
       if (v.id !== votacionId || !v.activa) return v;
       const opts = v.opciones.map((o: any, idx: number) => {
@@ -646,7 +770,7 @@ export function SalaAsambleaVirtualReal({
 
                   <span className="text-xs font-mono text-slate-400 flex items-center gap-1.5">
                     <Radio className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
-                    142 Residentes Conectados por Audio & Votación Nominal
+                    {resumenQuorum.unidadesPresentes || participantes.length} Residentes Conectados por Audio &amp; Votación Nominal
                   </span>
                 </div>
               </div>
@@ -676,6 +800,41 @@ export function SalaAsambleaVirtualReal({
                         <button type="submit" className="w-full py-1.5 bg-cyan-500 text-slate-950 font-bold rounded-lg cursor-pointer">Lanzar Votación</button>
                       </form>
                     )}
+
+                    {votaciones.map((v) => (
+                      <div key={v.id} className="p-3 bg-slate-900 border border-slate-800 rounded-xl space-y-2">
+                        <p className="font-bold text-white">{v.titulo}</p>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleVotar(v.id, 0, 'SI')}
+                            className="py-1.5 px-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-mono font-bold cursor-pointer"
+                          >
+                            SÍ ({v.escrutinio?.porcentajes?.SI ?? 0}%)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleVotar(v.id, 1, 'NO')}
+                            className="py-1.5 px-2 rounded-lg bg-rose-500/20 border border-rose-500/30 text-rose-300 font-mono font-bold cursor-pointer"
+                          >
+                            NO ({v.escrutinio?.porcentajes?.NO ?? 0}%)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleVotar(v.id, 2, 'BLANCO')}
+                            className="py-1.5 px-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 font-mono font-bold cursor-pointer"
+                          >
+                            BLANCO ({v.escrutinio?.porcentajes?.BLANCO ?? 0}%)
+                          </button>
+                        </div>
+                        {v.escrutinio && (
+                          <div className="text-[10px] font-mono text-slate-400 flex justify-between pt-1 border-t border-slate-800">
+                            <span>Peso emitido: {v.escrutinio.pesoTotalEmitido}%</span>
+                            <span>Votos: {v.escrutinio.votosContabilizados}</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
 
@@ -698,9 +857,25 @@ export function SalaAsambleaVirtualReal({
 
                 {panelLateral === 'cuorum' && (
                   <div className="flex-1 overflow-y-auto space-y-2 text-xs font-mono">
-                    <div className="p-2 bg-slate-900 rounded-lg">
-                      <p>Total Asistentes: <strong>142 Unidades</strong></p>
-                      <p>Cuórum Representado: <strong className="text-emerald-400">{cuorumTotal.toFixed(3)}%</strong></p>
+                    <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 space-y-1.5">
+                      <p>
+                        Unidades Presentes:{' '}
+                        <strong className="text-white">
+                          {resumenQuorum.unidadesPresentes || participantes.length} / {resumenQuorum.totalUnidades || 100} Unidades
+                        </strong>
+                      </p>
+                      <p>
+                        Cuórum Representado:{' '}
+                        <strong className="text-emerald-400">{cuorumTotal.toFixed(3)}%</strong>
+                      </p>
+                      <div className="pt-1 flex flex-wrap gap-1.5 text-[10px]">
+                        <span className={`px-2 py-0.5 rounded border ${cuorumTotal > 50 ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-amber-500/15 text-amber-300 border-amber-500/30'}`}>
+                          Art. 45 Ordinario (&gt;50%): {cuorumTotal > 50 ? 'CUMPLE' : 'PENDIENTE'}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded border ${cuorumTotal >= 70 ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
+                          Art. 46 Calificado (≥70%): {cuorumTotal >= 70 ? 'CUMPLE' : 'NO ALCANZADO'}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 )}

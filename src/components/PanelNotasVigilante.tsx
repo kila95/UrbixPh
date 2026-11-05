@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../supabaseClient';
+import { supabase, DEFAULT_TENANT_UUID, normalizeTenantUuid } from '../supabaseClient';
 import { CheckCircle2, Send, MessageSquare } from 'lucide-react';
 
 export interface NotaPrioritaria {
@@ -11,7 +11,8 @@ export interface NotaPrioritaria {
   created_at: string;
 }
 
-export function PanelNotasVigilante({ tenantId = 't1' }: { tenantId?: string }) {
+export function PanelNotasVigilante({ tenantId: rawTenantId = DEFAULT_TENANT_UUID }: { tenantId?: string }) {
+  const tenantId = normalizeTenantUuid(rawTenantId);
   const [notasList, setNotasList] = useState<NotaPrioritaria[]>([]);
   const [avisoTexto, setAvisoTexto] = useState('');
   const [aptoDestino, setAptoDestino] = useState('Torre 2 - 301');

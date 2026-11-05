@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { supabase } from '../supabaseClient';
+import { supabase, normalizeTenantUuid } from '../supabaseClient';
 import { ParkingSquare, Plus, Car, Bike, X, Layers, Trash2 } from 'lucide-react';
 
 export interface ModalConfiguradorParqueaderosProps {
@@ -11,12 +11,13 @@ export interface ModalConfiguradorParqueaderosProps {
 }
 
 export default function ModalConfiguradorParqueaderos({
-  tenantId,
+  tenantId: rawTenantId,
   isOpen,
   onClose,
   onBahiasActualizadas,
   onShowToast
 }: ModalConfiguradorParqueaderosProps) {
+  const tenantId = normalizeTenantUuid(rawTenantId);
   const [modo, setModo] = useState<'lote' | 'individual'>('lote');
   const [guardando, setGuardando] = useState(false);
 

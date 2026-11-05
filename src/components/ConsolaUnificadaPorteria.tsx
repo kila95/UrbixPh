@@ -104,6 +104,79 @@ export default function ConsolaUnificadaPorteria({
   // Estados locales
   const [codigoBusqueda, setCodigoBusqueda] = useState('');
   const [resultadoValidacion, setResultadoValidacion] = useState<any>(null);
+  const [paseSeleccionado, setPaseSeleccionado] = useState<any>(null);
+  const [errorBusqueda, setErrorBusqueda] = useState<string | null>(null);
+  const [bahias, setBahias] = useState<any[]>([]);
+  const [bahiaAsignada, setBahiaAsignada] = useState<string>('');
+  const [pasesList, setPasesList] = useState<any[]>([]);
+  const codigoInput = codigoBusqueda;
+  const slotsParqueadero = bahias;
+  const setSlotsParqueadero = setBahias;
+  const setCeldaAsignada = setBahiaAsignada;
+  const tenantId = userProfile?.tenant_id || 't1';
+
+  // 1. Cargar bahías directo de Supabase
+  const cargarCeldasParqueadero = async () => {
+    try {
+      let query = supabase
+        .from('visitor_parking_slots')
+        .select('*')
+        .order('slot_number', { ascending: true });
+
+      // Si hay un tenantId válido, filtramos; si no, trae todas las del edificio
+      if (tenantId && tenantId !== 't1') {
+        query = query.eq('tenant_id', tenantId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error("Error cargando bahías:", error);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        setSlotsParqueadero(data);
+      }
+    } catch (err) {
+      console.error("Error al consultar parqueaderos:", err);
+    }
+  };
+
+  useEffect(() => {
+    cargarCeldasParqueadero();
+
+    // Suscripción en tiempo real a cambios de parqueadero (cuando se ocupa o libera una celda)
+    const canalCeldas = supabase
+      .channel('realtime_bahias_garita_porteria')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'visitor_parking_slots' },
+        () => {
+          cargarCeldasParqueadero();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(canalCeldas);
+    };
+  }, [tenantId]);
+
+  const cargarPasesActivos = async () => {
+    const { data } = await supabase
+      .from('visitor_passes')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (data) {
+      setPasesList(data);
+    }
+  };
+
+  useEffect(() => {
+    cargarPasesActivos();
+  }, []);
 
   // 1. Estados para el directorio y comunicados activos de administración
   const [unidades, setUnidades] = useState<any[]>([]);
@@ -185,6 +258,13 @@ export default function ConsolaUnificadaPorteria({
           cargarComunicadosActivos();
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'visitor_passes' },
+        () => {
+          cargarPasesActivos();
+        }
+      )
       .subscribe();
 
     return () => {
@@ -263,52 +343,143 @@ export default function ConsolaUnificadaPorteria({
   ]);
 
   // Manejadores
-  const handleValidarAccesoGeneral = (e: React.FormEvent) => {
-    e.preventDefault();
-    const query = codigoBusqueda.trim().toUpperCase();
-    if (!query) return;
+  const handleBuscarOClicPase = async (textoIngresado: string) => {
+    if (!textoIngresado) return;
 
-    const visitaEncontrada = visitasQrShared.find((v: any) => (v.codigo || v.codigoQr || '').toUpperCase() === query);
-    if (visitaEncontrada) {
-      setResultadoValidacion({ tipo: 'VISITA', data: visitaEncontrada });
-      onShowToast?.(`Pase de residente ${visitaEncontrada.codigo || visitaEncontrada.codigoQr} verificado con éxito.`);
-      setCodigoBusqueda('');
-      return;
+    // 1. Limpieza: quitar espacios y pasar a mayúsculas
+    let clean = textoIngresado.trim().toUpperCase();
+
+    // 2. Si el usuario solo escribió números (ej: "8821"), le creamos el código "QR-8821"
+    const soloNumeros = clean.replace(/\D/g, '');
+    const codigoConPrefijo = clean.startsWith('QR-') ? clean : `QR-${clean}`;
+
+    try {
+      // 3. Busca por el código con o sin QR-, o directamente por el PIN numérico
+      const { data, error } = await supabase
+        .from('visitor_passes')
+        .select('*')
+        .or(`code.eq.${codigoConPrefijo},code.eq.${clean},pin.eq.${soloNumeros}`)
+        .limit(1);
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        const pase = data[0];
+        setPaseSeleccionado(pase);
+        setErrorBusqueda(null);
+
+        // Busca si está disponible admitiendo 'DISPONIBLE' o 'LIBRE'
+        const celdaLibre = slotsParqueadero.find(
+          (s: any) => 
+            (s.status === 'DISPONIBLE' || s.status === 'LIBRE') && 
+            (s.vehicle_type === 'CARRO' || !s.vehicle_type)
+        );
+
+        if (celdaLibre) {
+          setCeldaAsignada(celdaLibre.slot_number);
+        }
+
+        setResultadoValidacion({
+          tipo: 'VISITA',
+          data: {
+            ...pase,
+            codigo: pase.code || pase.pin || clean,
+            codigoQr: pase.code || pase.pin || clean,
+            visitante: pase.visitor_name,
+            nombreVisitante: pase.visitor_name,
+            unidad: pase.unit_reference || pase.unit_number || 'Apto',
+            placa: pase.vehicle_plate || 'Peatonal / Sin Vehículo',
+            placaVehiculo: pase.vehicle_plate
+          }
+        });
+        onShowToast?.(`Pase de residente ${pase.code || pase.pin} verificado con éxito.`);
+        return;
+      }
+
+      const visitaEncontrada = visitasQrShared.find(
+        (v: any) =>
+          (v.codigo || v.codigoQr || '').toUpperCase().includes(clean) ||
+          (v.pin || '').toUpperCase() === clean
+      );
+      if (visitaEncontrada) {
+        setPaseSeleccionado(visitaEncontrada);
+        setErrorBusqueda(null);
+        setResultadoValidacion({ tipo: 'VISITA', data: visitaEncontrada });
+        onShowToast?.(`Pase de residente ${visitaEncontrada.codigo || visitaEncontrada.codigoQr} verificado con éxito.`);
+        return;
+      }
+
+      const contratistaEncontrado = contratistasSgsst.find((c: any) => (c.codigoQr || '').toUpperCase().includes(clean));
+      if (contratistaEncontrado) {
+        setErrorBusqueda(null);
+        setResultadoValidacion({ tipo: 'CONTRATISTA', data: contratistaEncontrado });
+        onShowToast?.(`Contratista institucional ${contratistaEncontrado.empresa} localizado.`);
+        return;
+      }
+
+      setPaseSeleccionado(null);
+      setResultadoValidacion(null);
+      setErrorBusqueda(`Código "${textoIngresado}" no encontrado.`);
+    } catch (err: any) {
+      console.error('Error buscando pase:', err);
+      setErrorBusqueda(`Error de consulta: ${err.message}`);
     }
-
-    const contratistaEncontrado = contratistasSgsst.find((c: any) => (c.codigoQr || '').toUpperCase() === query);
-    if (contratistaEncontrado) {
-      setResultadoValidacion({ tipo: 'CONTRATISTA', data: contratistaEncontrado });
-      onShowToast?.(`Contratista institucional ${contratistaEncontrado.empresa} localizado.`);
-      setCodigoBusqueda('');
-      return;
-    }
-
-    setResultadoValidacion({ tipo: 'NO_ENCONTRADO', query });
-    onShowToast?.(`Código ${query} no registrado o inhabilitado.`);
-    setCodigoBusqueda('');
   };
 
-  const handleToggleEstadoVisita = (id: string) => {
-    if (!setVisitasQrShared) return;
-    
-    setVisitasQrShared((prev: any[]) =>
-      prev.map(v => {
-        if (v.id === id) {
-          let nuevoEstado = 'Autorizado';
-          if (v.estado === 'Autorizado') nuevoEstado = 'Adentro';
-          else if (v.estado === 'Adentro') nuevoEstado = 'Salió';
-          else nuevoEstado = 'Autorizado';
+  const handleValidarAccesoEnVivo = async () => {
+    await handleBuscarOClicPase(codigoInput);
+  };
 
-          return { 
-            ...v, 
-            estado: nuevoEstado, 
-            horaIngreso: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
-          };
-        }
-        return v;
-      })
-    );
+  const handleValidarAccesoGeneral = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await handleBuscarOClicPase(codigoInput);
+  };
+
+  const handleToggleEstadoVisita = async (id: string) => {
+    const paseEnSupabase = pasesList.find((p: any) => p.id === id);
+    if (paseEnSupabase) {
+      const estadoActual = (paseEnSupabase.status || paseEnSupabase.estado || 'ACTIVO').toUpperCase();
+      let nuevoStatus = 'ACTIVO';
+      if (estadoActual === 'ACTIVO' || estadoActual === 'AUTORIZADO' || estadoActual === 'PENDIENTE') {
+        nuevoStatus = 'ADENTRO';
+      } else if (estadoActual === 'ADENTRO') {
+        nuevoStatus = 'SALIO';
+      } else {
+        nuevoStatus = 'ACTIVO';
+      }
+
+      const ahoraIso = new Date().toISOString();
+      await supabase
+        .from('visitor_passes')
+        .update({
+          status: nuevoStatus,
+          ...(nuevoStatus === 'ADENTRO' ? { entry_time: ahoraIso } : {}),
+          ...(nuevoStatus === 'SALIO' ? { exit_time: ahoraIso } : {})
+        })
+        .eq('id', id);
+
+      await cargarPasesActivos();
+    }
+
+    if (setVisitasQrShared) {
+      setVisitasQrShared((prev: any[]) =>
+        prev.map(v => {
+          if (v.id === id) {
+            let nuevoEstado = 'Autorizado';
+            if (v.estado === 'Autorizado') nuevoEstado = 'Adentro';
+            else if (v.estado === 'Adentro') nuevoEstado = 'Salió';
+            else nuevoEstado = 'Autorizado';
+
+            return { 
+              ...v, 
+              estado: nuevoEstado, 
+              horaIngreso: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+            };
+          }
+          return v;
+        })
+      );
+    }
     onShowToast?.('Estado de acceso actualizado en tiempo real.');
   };
 
@@ -583,7 +754,6 @@ export default function ConsolaUnificadaPorteria({
             <GaritaParqueaderosYSosHub
               onShowToast={onShowToast}
               nombreCopropiedad="P.H. Reserva del Tesoro"
-              limiteHorasGratis={4}
               celdasExternal={celdasGarita}
               onActualizarCeldasExternal={setCeldasGarita}
             />
@@ -608,11 +778,21 @@ export default function ConsolaUnificadaPorteria({
                   />
                   <button
                     type="submit"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleValidarAccesoEnVivo();
+                    }}
                     className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black px-6 py-3.5 rounded-xl text-xs transition cursor-pointer shadow-lg shadow-cyan-500/20 shrink-0"
                   >
                     Validar Acceso en Vivo
                   </button>
                 </form>
+
+                {errorBusqueda && (
+                  <div className="p-4 bg-slate-950 border border-rose-500/40 rounded-xl text-rose-400 text-xs font-bold flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" /> {errorBusqueda}
+                  </div>
+                )}
 
                 {resultadoValidacion && (
                   <div className="p-4 bg-slate-950 border border-cyan-500/40 rounded-xl flex items-center justify-between gap-4">
@@ -625,7 +805,10 @@ export default function ConsolaUnificadaPorteria({
                           <span className="font-bold text-white text-sm">{resultadoValidacion.data.visitante || resultadoValidacion.data.nombreVisitante}</span>
                           <span className="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-bold">Visita Autorizada</span>
                         </div>
-                        <p className="text-xs text-slate-300">Destino: {resultadoValidacion.data.unidad} | Placa: {resultadoValidacion.data.placa || resultadoValidacion.data.placaVehiculo || 'Peatonal / Sin Vehículo'}</p>
+                        <p className="text-xs text-slate-300">
+                          Destino: {resultadoValidacion.data.unidad} | Placa: {resultadoValidacion.data.placa || resultadoValidacion.data.placaVehiculo || 'Peatonal / Sin Vehículo'}
+                          {bahiaAsignada ? ` | Bahía Asignada: ${bahiaAsignada}` : ''}
+                        </p>
                       </div>
                     )}
                     {resultadoValidacion.tipo === 'CONTRATISTA' && (
@@ -649,47 +832,84 @@ export default function ConsolaUnificadaPorteria({
               </div>
 
               {/* Pases QR de Residentes */}
-              <div className="space-y-4 pt-4 border-t border-slate-800">
-                <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <UserCheck className="w-5 h-5 text-cyan-400" /> Pases QR Autorizados por Residentes (Control de Acceso en Vivo)
-                  </h3>
-                  <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 rounded-full font-bold">
-                    ⚡ {visitasQrShared.filter(v => v.estado === 'Adentro').length} Visitantes Adentro
-                  </span>
-                </div>
+              {(() => {
+                const listaPasesRender = pasesList.length > 0 ? pasesList : visitasQrShared;
+                const cantidadAdentro = listaPasesRender.filter((v: any) => {
+                  const st = String(v.status || v.estado || '').toUpperCase();
+                  return st === 'ADENTRO';
+                }).length;
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {visitasQrShared && visitasQrShared.length > 0 ? (
-                    visitasQrShared.map((p: any) => (
-                      <div key={p.id} className="p-4 bg-slate-950 border border-slate-800 rounded-2xl flex items-center justify-between text-xs gap-3">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-mono font-black text-cyan-400 bg-slate-900 px-2 py-0.5 rounded border border-cyan-500/30">{p.codigo || p.codigoQr}</span>
-                            <span className="font-bold text-white text-sm">{p.visitante || p.nombreVisitante}</span>
-                          </div>
-                          <p className="text-slate-400">Destino: {p.unidad} | Placa: {p.placa || p.placaVehiculo || 'Peatonal / Sin Vehículo'}</p>
-                          {p.horaIngreso && <p className="text-[10px] font-mono text-cyan-400 mt-1">{p.horaIngreso}</p>}
-                        </div>
-                        <div className="flex flex-col items-end gap-2 shrink-0">
-                          <span className={`px-2 py-1 rounded font-bold text-[10px] ${p.estado === 'Adentro' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : p.estado === 'Salió' ? 'bg-slate-800 text-slate-400' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'}`}>
-                            {p.estado}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleEstadoVisita(p.id)}
-                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg transition cursor-pointer text-xs shadow"
-                          >
-                            {p.estado === 'Autorizado' ? 'Dar Ingreso' : p.estado === 'Adentro' ? 'Registrar Salida' : 'Reiniciar'}
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-xs text-slate-500 italic p-4">No hay pases de residentes activos en este momento.</p>
-                  )}
-                </div>
-              </div>
+                return (
+                  <div className="space-y-4 pt-4 border-t border-slate-800">
+                    <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                      <h3 className="text-base font-bold text-white flex items-center gap-2">
+                        <UserCheck className="w-5 h-5 text-cyan-400" /> Pases QR Autorizados por Residentes (Control de Acceso en Vivo)
+                      </h3>
+                      <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 rounded-full font-bold">
+                        ⚡ {cantidadAdentro} Visitantes Adentro
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {listaPasesRender && listaPasesRender.length > 0 ? (
+                        listaPasesRender.map((p: any) => {
+                          const codigoMostrar = p.code || p.pin || p.codigo || p.codigoQr || 'QR-PASE';
+                          const nombreVisitante = p.visitor_name || p.visitante || p.nombreVisitante || 'Visitante';
+                          const unidadDestino = p.unit_reference || p.unit_number || p.unidad || 'Apto';
+                          const placaMostrar = p.vehicle_plate || p.placa || p.placaVehiculo || 'Peatonal / Sin Vehículo';
+                          const rawStatus = String(p.status || p.estado || 'ACTIVO').toUpperCase();
+                          const estadoNorm =
+                            rawStatus === 'ADENTRO'
+                              ? 'Adentro'
+                              : rawStatus === 'SALIO' || rawStatus === 'SALIÓ'
+                              ? 'Salió'
+                              : 'Autorizado';
+                          const horaMostrar = p.entry_time
+                            ? new Date(p.entry_time).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+                            : p.horaIngreso;
+
+                          return (
+                            <div
+                              key={p.id}
+                              onClick={() => {
+                                setCodigoBusqueda(codigoMostrar);
+                                handleBuscarOClicPase(codigoMostrar);
+                              }}
+                              className="p-4 bg-slate-950 border border-slate-800 hover:border-cyan-500/40 rounded-2xl flex items-center justify-between text-xs gap-3 cursor-pointer transition"
+                            >
+                              <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="font-mono font-black text-cyan-400 bg-slate-900 px-2 py-0.5 rounded border border-cyan-500/30">{codigoMostrar}</span>
+                                  <span className="font-bold text-white text-sm">{nombreVisitante}</span>
+                                </div>
+                                <p className="text-slate-400">Destino: {unidadDestino} | Placa: {placaMostrar}</p>
+                                {horaMostrar && <p className="text-[10px] font-mono text-cyan-400 mt-1">{horaMostrar}</p>}
+                              </div>
+                              <div className="flex flex-col items-end gap-2 shrink-0">
+                                <span className={`px-2 py-1 rounded font-bold text-[10px] ${estadoNorm === 'Adentro' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : estadoNorm === 'Salió' ? 'bg-slate-800 text-slate-400' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'}`}>
+                                  {estadoNorm}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleEstadoVisita(p.id);
+                                  }}
+                                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg transition cursor-pointer text-xs shadow"
+                                >
+                                  {estadoNorm === 'Autorizado' ? 'Dar Ingreso' : estadoNorm === 'Adentro' ? 'Registrar Salida' : 'Reiniciar'}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <p className="text-xs text-slate-500 italic p-4">No hay pases de residentes activos en este momento.</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}

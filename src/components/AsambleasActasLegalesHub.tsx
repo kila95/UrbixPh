@@ -18,7 +18,8 @@ import {
   PhoneCall,
   Wifi
 } from 'lucide-react';
-import { supabase, isSupabaseConfigured } from '../supabaseClient';
+import { supabase, isSupabaseConfigured, DEFAULT_TENANT_UUID } from '../supabaseClient';
+import { calcularQuorumAsamblea, obtenerEscrutinioVotacion } from '../services/quorumService';
 import { exportActaToLegalPDF } from '../ActaCardWithPDF';
 import ResilientMeetingRecorder from '../ResilientMeetingRecorder';
 import { EditorActaLegal } from './EditorActaLegal';
@@ -150,8 +151,65 @@ export default function AsambleasActasLegalesHub({
 
     channelRef.current = channel;
 
+    const calcularQuorumReal = async () => {
+      try {
+        const resumen = await calcularQuorumAsamblea('asamblea_ordinaria_actual', DEFAULT_TENANT_UUID);
+        if (resumen.quorumActual > 0) {
+          setQuorumActual(resumen.quorumActual);
+        }
+      } catch (e) {
+        console.warn('Aviso al recalcular quórum:', e);
+      }
+    };
+
+    const calcularEscrutinioReal = async () => {
+      try {
+        setMociones((prev) => [...prev]);
+        for (const m of mociones) {
+          try {
+            const escrutinio = await obtenerEscrutinioVotacion(String(m.id));
+            if (escrutinio.votosContabilizados > 0) {
+              setMociones((prev) =>
+                prev.map((item) =>
+                  item.id === m.id
+                    ? { ...item, favor: escrutinio.porcentajes.SI, contra: escrutinio.porcentajes.NO }
+                    : item
+                )
+              );
+            }
+          } catch {
+            // Conservar porcentajes locales si no hay votos en esa moción
+          }
+        }
+      } catch (e) {
+        console.warn('Aviso al recalcular escrutinio:', e);
+      }
+    };
+
+    // 2. El listener de Realtime que actualiza la presencia y los votos:
+    const canalAsamblea = supabase
+      .channel('canal_asamblea_vivo')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'assembly_attendance' },
+        () => {
+          // Ejecuta tu función de quórum que ya calcula los coeficientes
+          calcularQuorumReal();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'assembly_votes' },
+        () => {
+          // Ejecuta tu función de escrutinio que ya suma los pesos
+          calcularEscrutinioReal();
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(canalAsamblea);
     };
   }, [roomChannelId]);
 

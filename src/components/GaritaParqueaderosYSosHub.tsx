@@ -37,18 +37,24 @@ export const INITIAL_CELDAS_GARITA: CeldaParqueadero[] = [
 ];
 
 export default function GaritaParqueaderosYSosHub({
+  tenantId,
+  tenantConfig,
   onShowToast,
   nombreCopropiedad = 'P.H. Reserva del Tesoro',
-  limiteHorasGratis = 4,
+  limiteHorasGratis,
   celdasExternal,
   onActualizarCeldasExternal
 }: {
+  tenantId?: string;
+  tenantConfig?: any;
   onShowToast?: (msg: string) => void;
   nombreCopropiedad?: string;
   limiteHorasGratis?: number;
   celdasExternal?: CeldaParqueadero[];
   onActualizarCeldasExternal?: (nuevasCeldas: CeldaParqueadero[]) => void;
 }) {
+  // Límite dinámico según el manual de convivencia del conjunto
+  const limiteHorasCopropiedad = tenantConfig?.visitor_parking_limit_hours ?? 0; // 0 = Sin límite
   // --- ESTADO DEL BOTÓN SOS / PÁNICO ---
   const [alertaSosActiva, setAlertaSosActiva] = useState(false);
   const [motivoSos, setMotivoSos] = useState<'Intrusión' | 'Médica' | 'Incendio' | 'Orden Público'>('Intrusión');
@@ -206,6 +212,8 @@ export default function GaritaParqueaderosYSosHub({
 
       {/* LECTOR QR CON ASIGNACIÓN AUTOMÁTICA DE PARQUEADERO EN 1 CLIC */}
       <LectorQrConAsignacionParqueadero
+        tenantId={tenantId}
+        tenantConfig={tenantConfig}
         celdas={celdas}
         onActualizarCeldas={(nuevas) => updateCeldas(nuevas)}
         onShowToast={onShowToast}
@@ -225,15 +233,27 @@ export default function GaritaParqueaderosYSosHub({
           </h4>
           <span className="text-[11px] text-slate-400 font-mono mt-1 block">Disponibilidad inmediata</span>
         </div>
-        <div className="bg-[#0b0f17] border border-slate-800 p-4 rounded-2xl">
-          <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">Límite Gratuito Reglamento</span>
-          <h4 className="text-2xl font-black text-cyan-400 font-mono mt-1">{limiteHorasGratis} Horas</h4>
-          <span className="text-[11px] text-amber-400 font-mono mt-1 block">Alerta automática tras 240 minutos</span>
+        <div className="p-4 rounded-xl border border-slate-800 bg-[#0b132b]/80 shadow-md">
+          <p className="text-xs uppercase tracking-wider text-slate-400 font-mono">
+            Límite Manual de Convivencia
+          </p>
+          <div className="flex items-baseline gap-2 mt-2">
+            <span className="text-3xl font-extrabold text-cyan-400 font-mono">
+              {limiteHorasCopropiedad > 0 ? `${limiteHorasCopropiedad} Horas` : 'Libre'}
+            </span>
+          </div>
+          <p className="text-xs text-amber-400 mt-1 font-mono">
+            {limiteHorasCopropiedad > 0 
+              ? `Regulado por Asamblea / RPH tras ${limiteHorasCopropiedad * 60} min` 
+              : 'Sin restricción horaria estipulada'}
+          </p>
         </div>
       </div>
 
       {/* GRILLA OPTIMIZADA (CARROS / MOTOS / PAGINACIÓN EN VIVO SUPABASE) */}
       <GrillaParqueaderosOptimizada
+        tenantId={tenantId}
+        tenantConfig={tenantConfig}
         onShowToast={onShowToast}
         onSelectSlot={(slot) => {
           setCeldaSeleccionadaParaIngreso({
@@ -261,7 +281,7 @@ export default function GaritaParqueaderosYSosHub({
             const minutos = celda.minutosTranscurridos || 0;
             const horas = Math.floor(minutos / 60);
             const minutosRestantes = minutos % 60;
-            const tiempoExcedido = minutos > (limiteHorasGratis * 60);
+            const tiempoExcedido = limiteHorasCopropiedad > 0 && minutos > (limiteHorasCopropiedad * 60);
 
             if (celda.estado === 'Disponible') {
               return (

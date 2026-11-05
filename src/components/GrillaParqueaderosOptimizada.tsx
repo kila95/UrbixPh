@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, isSupabaseConfigured } from '../supabaseClient';
+import { supabase, isSupabaseConfigured, DEFAULT_TENANT_UUID, normalizeTenantUuid } from '../supabaseClient';
 import { 
   Car, 
   Bike, 
@@ -15,21 +15,46 @@ import {
 } from 'lucide-react';
 import ModalConfiguradorParqueaderos from './ModalConfiguradorParqueaderos';
 
+export function calcularEstadiaParqueadero(occupiedAt?: string | null, limiteHoras: number = 0) {
+  if (!occupiedAt) return { tiempoTexto: '0 min', minutos: 0, excedido: false, restanteMin: limiteHoras * 60 };
+
+  const inicio = new Date(occupiedAt).getTime();
+  const ahora = Date.now();
+  const diffMs = Math.max(0, ahora - inicio);
+  
+  const minutosTotales = Math.floor(diffMs / (1000 * 60));
+  const horas = Math.floor(minutosTotales / 60);
+  const minutos = minutosTotales % 60;
+  
+  const limiteMinutos = limiteHoras * 60;
+  const excedido = limiteHoras > 0 && minutosTotales > limiteMinutos;
+  const restanteMin = limiteHoras > 0 ? Math.max(0, limiteMinutos - minutosTotales) : 0;
+
+  const tiempoTexto = horas > 0 ? `${horas}h ${minutos}m` : `${minutos} min`;
+
+  return { tiempoTexto, minutos: minutosTotales, excedido, restanteMin };
+}
+
 export interface GrillaParqueaderosOptimizadaProps {
   tenantId?: string;
+  tenantConfig?: any;
   onSelectSlot?: (slot: any) => void;
   onShowToast?: (msg: string) => void;
 }
 
 export default function GrillaParqueaderosOptimizada({
   tenantId = 't1',
+  tenantConfig,
   onSelectSlot,
   onShowToast
 }: GrillaParqueaderosOptimizadaProps) {
+  // Límite dinámico según el manual de convivencia del conjunto
+  const limiteHorasCopropiedad = tenantConfig?.visitor_parking_limit_hours ?? 0; // 0 = Sin límite
   // Pestaña activa: Carros vs Motos
   const [tipoVehiculoTab, setTipoVehiculoTab] = useState<'CARRO' | 'MOTO'>('CARRO');
   const [bahias, setBahias] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
+  const setSlotsParqueadero = setBahias;
   
   // Paginación (12 celdas compactas por página)
   const [paginaActual, setPaginaActual] = useState(1);
@@ -39,44 +64,59 @@ export default function GrillaParqueaderosOptimizada({
   const [celdaDetalle, setCeldaDetalle] = useState<any | null>(null);
   const [showConfigModal, setShowConfigModal] = useState(false);
 
-  // Cargar bahías reales desde Supabase
-  const cargarBahias = async () => {
+  // 1. Cargar bahías directo de Supabase
+  const cargarCeldasParqueadero = async () => {
     try {
       setCargando(true);
-      if (!isSupabaseConfigured) {
-        setCargando(false);
-        return;
-      }
-      const { data, error } = await supabase
+      let query = supabase
         .from('visitor_parking_slots')
         .select('*')
-        .eq('tenant_id', tenantId)
         .order('slot_number', { ascending: true });
 
-      if (error) throw error;
-      setBahias(data || []);
-    } catch (err: any) {
-      console.error('Error cargando bahías:', err.message);
+      // Si hay un tenantId válido, filtramos; si no, trae todas las del edificio
+      if (tenantId && tenantId !== 't1') {
+        query = query.eq('tenant_id', tenantId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error("Error cargando bahías:", error);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        setSlotsParqueadero(data);
+      } else {
+        setSlotsParqueadero([]);
+      }
+    } catch (err) {
+      console.error("Error al consultar parqueaderos:", err);
     } finally {
       setCargando(false);
     }
   };
 
+  const cargarBahias = cargarCeldasParqueadero;
+
   useEffect(() => {
-    cargarBahias();
+    cargarCeldasParqueadero();
 
-    if (isSupabaseConfigured) {
-      const channel = supabase
-        .channel(`slots_realtime_${tenantId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'visitor_parking_slots' }, () => {
-          cargarBahias();
-        })
-        .subscribe();
+    // Suscripción en tiempo real a cambios de parqueadero (cuando se ocupa o libera una celda)
+    const canalCeldas = supabase
+      .channel('realtime_bahias_garita_grilla')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'visitor_parking_slots' },
+        () => {
+          cargarCeldasParqueadero();
+        }
+      )
+      .subscribe();
 
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    }
+    return () => {
+      supabase.removeChannel(canalCeldas);
+    };
   }, [tenantId]);
 
   // Filtrar según la pestaña (Carros suelen empezar por V- o tener type CARRO, Motos por M-)
@@ -91,9 +131,13 @@ export default function GrillaParqueaderosOptimizada({
   const bahiasPaginadas = bahiasFiltradas.slice(indexInicio, indexInicio + CELDAS_POR_PAGINA);
 
   // Liberar bahía (Marcar salida)
-  const handleLiberarBahia = async (celda: any) => {
+  const handleLiberarBahia = async (slotOrCelda: string | any) => {
+    const slotNumber = typeof slotOrCelda === 'string' ? slotOrCelda : slotOrCelda?.slot_number;
+    if (!slotNumber) return;
+
     try {
-      const { error } = await supabase
+      // 1. Actualizar en Supabase para ponerla en verde y borrar la placa
+      const { error: errorSlot } = await supabase
         .from('visitor_parking_slots')
         .update({
           status: 'DISPONIBLE',
@@ -101,28 +145,39 @@ export default function GrillaParqueaderosOptimizada({
           assigned_unit: null,
           occupied_at: null
         })
-        .eq('id', celda.id);
+        .eq('slot_number', slotNumber);
 
-      if (error) throw error;
+      if (errorSlot) throw errorSlot;
 
-      // Actualizar también en el registro de pases
+      // 2. Si la celda tenía un vehículo asignado, marcar el pase del visitante como 'SALIO'
       await supabase
         .from('visitor_passes')
-        .update({ status: 'SALIO', exit_time: new Date().toISOString() })
-        .eq('tenant_id', tenantId)
-        .eq('assigned_parking_slot', celda.slot_number)
+        .update({
+          status: 'SALIO',
+          exit_time: new Date().toISOString()
+        })
+        .eq('assigned_parking_slot', slotNumber)
         .eq('status', 'ADENTRO');
 
-      onShowToast?.(`Bahía ${celda.slot_number} liberada correctamente.`);
+      // 3. Actualizar la vista local inmediatamente a color verde
+      setSlotsParqueadero((prev: any[]) =>
+        prev.map((s) =>
+          s.slot_number === slotNumber
+            ? { ...s, status: 'DISPONIBLE', occupied_by_plate: null, assigned_unit: null }
+            : s
+        )
+      );
+
+      onShowToast?.(`Bahía ${slotNumber} liberada y puesta en disponible.`);
       setCeldaDetalle(null);
-      cargarBahias();
     } catch (err: any) {
-      alert('Error liberando celda: ' + err.message);
+      console.error('Error liberando celda:', err);
+      alert('No se pudo liberar la celda: ' + err.message);
     }
   };
 
-  const totalLibres = bahiasFiltradas.filter(b => b.status === 'DISPONIBLE').length;
-  const totalOcupadas = bahiasFiltradas.filter(b => b.status === 'OCUPADA').length;
+  const totalLibres = bahiasFiltradas.filter(b => b.status === 'DISPONIBLE' || b.status === 'LIBRE').length;
+  const totalOcupadas = bahiasFiltradas.filter(b => b.status === 'OCUPADA' || (b.status !== 'DISPONIBLE' && b.status !== 'LIBRE')).length;
 
   return (
     <div className="bg-[#090d14] border border-slate-800 rounded-3xl p-5 space-y-4 font-sans text-slate-100 shadow-2xl">
@@ -218,33 +273,40 @@ export default function GrillaParqueaderosOptimizada({
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
-          {bahiasPaginadas.map((celda) => {
-            const isLibre = celda.status === 'DISPONIBLE';
+          {bahiasPaginadas.map((slot) => {
+            const isLibre = slot.status === 'DISPONIBLE' || slot.status === 'LIBRE';
+            const estadia = !isLibre ? calcularEstadiaParqueadero(slot.occupied_at, limiteHorasCopropiedad) : null;
 
             return (
               <div
-                key={celda.id}
+                key={slot.slot_number || slot.id}
                 onClick={() => {
-                  if (isLibre) {
-                    onSelectSlot?.(celda);
-                    onShowToast?.(`Bahía ${celda.slot_number} seleccionada para asignar`);
+                  if (slot.status === 'OCUPADA' || !isLibre) {
+                    handleLiberarBahia(slot.slot_number);
                   } else {
-                    setCeldaDetalle(celda);
+                    onSelectSlot?.(slot);
+                    onShowToast?.(`Bahía ${slot.slot_number} seleccionada para asignar`);
                   }
                 }}
-                className={`p-2.5 rounded-xl border flex flex-col justify-between transition cursor-pointer relative min-h-[75px] ${
-                  isLibre
-                    ? 'bg-[#0B132B]/60 border-emerald-500/30 hover:border-emerald-400 hover:bg-emerald-500/10'
-                    : 'bg-rose-950/20 border-rose-500/40 hover:border-rose-400 hover:bg-rose-950/30'
+                className={`p-3 rounded-2xl border flex flex-col justify-between transition cursor-pointer relative min-h-[75px] ${
+                  slot.status === 'OCUPADA' || !isLibre
+                    ? estadia?.excedido
+                      ? 'border-amber-500 bg-amber-950/25 hover:bg-amber-950/35'
+                      : 'border-rose-500 bg-rose-950/20 hover:bg-rose-950/30'
+                    : 'bg-[#0B132B]/60 border-cyan-500/30 hover:border-emerald-400 hover:bg-emerald-500/10'
                 }`}
               >
                 {/* Cabecera del Slot */}
                 <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs font-black text-white">{celda.slot_number}</span>
+                  <span className="font-mono text-xs font-black text-white">{slot.slot_number}</span>
                   <span className={`text-[8px] font-mono font-bold px-1.5 py-0.2 rounded ${
-                    isLibre ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                    isLibre
+                      ? 'bg-emerald-500/20 text-emerald-300'
+                      : estadia?.excedido
+                      ? 'bg-amber-500/20 text-amber-300'
+                      : 'bg-rose-500/20 text-rose-300'
                   }`}>
-                    {isLibre ? 'LIBRE' : 'OCUPADA'}
+                    {isLibre ? 'LIBRE' : estadia?.excedido ? 'EXCEDIDO' : 'OCUPADA'}
                   </span>
                 </div>
 
@@ -257,11 +319,17 @@ export default function GrillaParqueaderosOptimizada({
                 ) : (
                   <div className="space-y-0.5 text-left font-mono pt-1">
                     <span className="text-xs font-black text-rose-300 block tracking-wider">
-                      {celda.occupied_by_plate || 'SIN PLACA'}
+                      {slot.occupied_by_plate || 'SIN PLACA'}
                     </span>
                     <span className="text-[9px] text-slate-400 block truncate">
-                      Destino: {celda.assigned_unit || 'Apto'}
+                      Destino: {slot.assigned_unit || 'Apto'}
                     </span>
+                    {estadia && (
+                      <span className={`text-[9px] flex items-center gap-1 font-bold ${estadia.excedido ? 'text-amber-400' : 'text-cyan-400'}`}>
+                        <Clock className="w-2.5 h-2.5 shrink-0" />
+                        <span>{estadia.tiempoTexto}</span>
+                      </span>
+                    )}
                   </div>
                 )}
               </div>

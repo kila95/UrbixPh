@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../supabaseClient';
+import { supabase, DEFAULT_TENANT_UUID, normalizeTenantUuid } from '../supabaseClient';
 import { 
   Store, 
   PlusCircle, 
@@ -41,7 +41,7 @@ const CATEGORIAS = [
 export default function ResidenteEmprendimientosApp({
   unidadResidente = 'Torre 2 - 301',
   nombreResidente = 'Esteban Ochoa',
-  tenantId = 't1',
+  tenantId: rawTenantId = DEFAULT_TENANT_UUID,
   onShowToast
 }: {
   unidadResidente?: string;
@@ -49,6 +49,7 @@ export default function ResidenteEmprendimientosApp({
   tenantId?: string;
   onShowToast?: (msg: string) => void;
 }) {
+  const tenantId = normalizeTenantUuid(rawTenantId);
   const [vistaActiva, setVistaActiva] = useState<'vitrina' | 'formulario'>('vitrina');
   const [categoriaFiltro, setCategoriaFiltro] = useState('todas');
   const [busqueda, setBusqueda] = useState('');

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, isSupabaseConfigured } from '../supabaseClient';
+import { supabase, isSupabaseConfigured, DEFAULT_TENANT_UUID, normalizeTenantUuid } from '../supabaseClient';
 import { 
   ShieldAlert, 
   Users, 
@@ -26,12 +26,13 @@ interface Props {
 }
 
 export default function VistaGeneralSupervisor({
-  tenantId = 't1',
+  tenantId: rawTenantId = DEFAULT_TENANT_UUID,
   tenantName = 'Copropiedad P.H.',
   supervisorName = 'Supervisor Operativo',
   onCambiarPestana,
   onShowToast
 }: Props) {
+  const tenantId = normalizeTenantUuid(rawTenantId);
   const [cargando, setCargando] = useState(true);
 
   // Estados de datos reales

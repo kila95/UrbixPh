@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase, isSupabaseConfigured } from '../supabaseClient';
+import { supabase, isSupabaseConfigured, DEFAULT_TENANT_UUID, normalizeTenantUuid } from '../supabaseClient';
 import { 
   QrCode, 
   Camera, 
@@ -35,60 +35,113 @@ export default function EscaneoAccesoReal({
   const [procesando, setProcesando] = useState(false);
   const [camaraActiva, setCamaraActiva] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const slotsParqueadero = bahiasDisponibles;
+  const setSlotsParqueadero = setBahiasDisponibles;
+  const setCeldaAsignada = setBahiaSeleccionada;
 
-  // Cargar bahías libres reales desde Supabase
-  const cargarBahiasLibres = async () => {
+  // 1. Cargar bahías directo de Supabase
+  const cargarCeldasParqueadero = async () => {
     try {
-      if (!isSupabaseConfigured) return;
-      const { data, error } = await supabase
+      let query = supabase
         .from('visitor_parking_slots')
         .select('*')
-        .eq('tenant_id', tenantId)
-        .eq('status', 'DISPONIBLE')
         .order('slot_number', { ascending: true });
 
-      if (!error && data) {
-        setBahiasDisponibles(data);
-        if (data.length > 0) setBahiaSeleccionada(data[0].slot_number);
+      // Si hay un tenantId válido, filtramos; si no, trae todas las del edificio
+      if (tenantId && tenantId !== 't1') {
+        query = query.eq('tenant_id', tenantId);
       }
-    } catch (e) {
-      console.warn('Error consultando parqueaderos:', e);
-    }
-  };
 
-  useEffect(() => {
-    cargarBahiasLibres();
-  }, [tenantId]);
+      const { data, error } = await query;
 
-  // Buscar pase real en Supabase por Código QR o Cédula
-  const handleBuscarPase = async (codigoABuscar?: string) => {
-    const query = (codigoABuscar || codigoInput).trim().toUpperCase();
-    if (!query) return;
-
-    try {
-      const { data, error } = await supabase
-        .from('visitor_passes')
-        .select('*')
-        .eq('tenant_id', tenantId)
-        .or(`code.eq.${query},pin.eq.${query},visitor_document.eq.${query}`)
-        .in('status', ['AUTORIZADO', 'PENDIENTE'])
-        .limit(1)
-        .maybeSingle();
-
-      if (error) throw error;
-      if (!data) {
-        alert(`No se encontró ningún pase activo con el código o cédula: ${query}`);
-        setPaseEncontrado(null);
+      if (error) {
+        console.error("Error cargando bahías:", error);
         return;
       }
 
-      setPaseEncontrado(data);
-      setPlacaConfirmada(data.vehicle_plate || '');
-      setMedioIngreso(data.vehicle_type === 'MOTO' ? 'MOTO' : data.vehicle_plate ? 'CARRO' : 'PIE');
-      onShowToast?.(`Pase verificado para: ${data.visitor_name}`);
-    } catch (err: any) {
-      alert('Error verificando pase: ' + err.message);
+      if (data && data.length > 0) {
+        setSlotsParqueadero(data);
+        const libre = data.find((b: any) => b.status === 'DISPONIBLE' || b.status === 'LIBRE');
+        if (libre) setBahiaSeleccionada(libre.slot_number);
+      }
+    } catch (err) {
+      console.error("Error al consultar parqueaderos:", err);
     }
+  };
+
+  const cargarBahiasLibres = cargarCeldasParqueadero;
+
+  useEffect(() => {
+    cargarCeldasParqueadero();
+
+    // Suscripción en tiempo real a cambios de parqueadero (cuando se ocupa o libera una celda)
+    const canalCeldas = supabase
+      .channel('realtime_bahias_garita_escaneo')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'visitor_parking_slots' },
+        () => {
+          cargarCeldasParqueadero();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(canalCeldas);
+    };
+  }, [tenantId]);
+
+  // Buscar pase real en Supabase por Código QR o PIN
+  const handleBuscarOClicPase = async (textoIngresado: string) => {
+    if (!textoIngresado) return;
+
+    // 1. Limpieza: quitar espacios y pasar a mayúsculas
+    let clean = textoIngresado.trim().toUpperCase();
+
+    // 2. Si el usuario solo escribió números (ej: "8821"), le creamos el código "QR-8821"
+    const soloNumeros = clean.replace(/\D/g, '');
+    const codigoConPrefijo = clean.startsWith('QR-') ? clean : `QR-${clean}`;
+
+    try {
+      // 3. Busca por el código con o sin QR-, o directamente por el PIN numérico
+      const { data, error } = await supabase
+        .from('visitor_passes')
+        .select('*')
+        .or(`code.eq.${codigoConPrefijo},code.eq.${clean},pin.eq.${soloNumeros}`)
+        .limit(1);
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        const pase = data[0];
+        setPaseEncontrado(pase);
+        setPlacaConfirmada(pase.vehicle_plate || '');
+        setMedioIngreso(pase.vehicle_type === 'MOTO' ? 'MOTO' : (pase.vehicle_type === 'CARRO' || pase.vehicle_plate) ? 'CARRO' : 'PIE');
+        // Busca si está disponible admitiendo 'DISPONIBLE' o 'LIBRE'
+        const celdaLibre = slotsParqueadero.find(
+          (s: any) => 
+            (s.status === 'DISPONIBLE' || s.status === 'LIBRE') && 
+            (s.vehicle_type === 'CARRO' || !s.vehicle_type)
+        );
+
+        if (celdaLibre) {
+          setCeldaAsignada(celdaLibre.slot_number);
+        }
+        onShowToast?.(`Pase verificado para: ${pase.visitor_name}`);
+      } else {
+        setPaseEncontrado(null);
+        onShowToast?.(`Código "${textoIngresado}" no encontrado.`);
+      }
+    } catch (err: any) {
+      console.error('Error buscando pase:', err);
+      onShowToast?.(`Error al conectar con la base de datos: ${err.message}`);
+    }
+  };
+
+  const handleValidarAcceso = handleBuscarOClicPase;
+
+  const handleBuscarPase = async (codigoABuscar?: string) => {
+    await handleBuscarOClicPase(codigoABuscar || codigoInput);
   };
 
   // Encender cámara web / tablet para escanear QR físicamente
@@ -140,7 +193,7 @@ export default function EscaneoAccesoReal({
 
       // 2. Si ingresa con carro o moto, ocupar la bahía de parqueadero en Supabase
       if (medioIngreso !== 'PIE' && bahiaSeleccionada) {
-        await supabase
+        let updateQuery = supabase
           .from('visitor_parking_slots')
           .update({
             status: 'OCUPADA',
@@ -148,8 +201,12 @@ export default function EscaneoAccesoReal({
             assigned_unit: paseEncontrado.unit_reference,
             occupied_at: horaIngreso
           })
-          .eq('tenant_id', tenantId)
           .eq('slot_number', bahiaSeleccionada);
+
+        if (tenantId && tenantId !== 't1') {
+          updateQuery = updateQuery.eq('tenant_id', tenantId);
+        }
+        await updateQuery;
       }
 
       onShowToast?.(`Ingreso registrado: ${paseEncontrado.visitor_name} ${medioIngreso !== 'PIE' ? `(Bahía ${bahiaSeleccionada})` : ''}`);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
+import { emitirVotoPonderado, obtenerEscrutinioVotacion } from '../services/quorumService';
 import { CheckCircle2, XCircle, Shield, AlertCircle, Plus, Lock, StopCircle, RefreshCw, X, Vote } from 'lucide-react';
 
 interface TarjetonVotacionProps {
@@ -7,6 +8,9 @@ interface TarjetonVotacionProps {
   userProfile: {
     id?: string;
     full_name: string;
+    tenant_id?: string;
+    apartment_id?: string;
+    unit_id?: string;
     unit_number?: string;
     coefficient?: number;
     role?: string;
@@ -62,10 +66,13 @@ function guardarVotoLocal(voto: any) {
 }
 
 export default function TarjetonVotacionReal({
-  tenantId,
+  tenantId: rawTenantId,
   userProfile,
   onShowToast
 }: TarjetonVotacionProps) {
+  // 1. Asegurar que lea el tenant y el apartamento del usuario logueado
+  const tenantId = userProfile?.tenant_id || rawTenantId;
+  const apartmentId = userProfile?.apartment_id || userProfile?.unit_id;
   const [mocionActiva, setMocionActiva] = useState<any | null>(null);
   const [votos, setVotos] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -272,6 +279,22 @@ export default function TarjetonVotacionReal({
     if (!mocionActiva || haVotado) return;
     try {
       setEnviandoVoto(true);
+
+      const opcionPonderada = eleccion === 'A_FAVOR' ? 'SI' : eleccion === 'EN_CONTRA' ? 'NO' : 'BLANCO';
+
+      if (apartmentId) {
+        try {
+          await emitirVotoPonderado({
+            votingId: mocionActiva.id,
+            apartmentId,
+            tenantId,
+            opcion: opcionPonderada
+          });
+          await obtenerEscrutinioVotacion(mocionActiva.id);
+        } catch {
+          // Continúa con el registro híbrido si el esquema usa motion_id
+        }
+      }
 
       const timestamp = new Date().toISOString();
       const payloadString = `${mocionActiva.id}|${tenantId}|${userProfile.unit_number || 'Administración'}|${userProfile.full_name}|${userProfile.coefficient || 0}|${eleccion}|${timestamp}`;

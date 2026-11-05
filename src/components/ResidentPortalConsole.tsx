@@ -209,6 +209,22 @@ export default function ResidentPortalConsole({
   const [asuntoPqrsdInput, setAsuntoPqrsdInput] = useState('');
   const [descPqrsdInput, setDescPqrsdInput] = useState(''); 
   const [comunicados, setComunicados] = useState<any[]>([]);
+  const [pasesList, setPasesList] = useState<any[]>([]);
+
+  const cargarPasesActivos = async () => {
+    const { data } = await supabase
+      .from('visitor_passes')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (data) {
+      setPasesList(data);
+    }
+  };
+
+  useEffect(() => {
+    cargarPasesActivos();
+  }, []);
 
   useEffect(() => {
     const cargarComunicados = async () => {
@@ -235,6 +251,13 @@ export default function ResidentPortalConsole({
         { event: '*', schema: 'public', table: 'announcements' },
         () => {
           cargarComunicados();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'visitor_passes' },
+        () => {
+          cargarPasesActivos();
         }
       )
       .subscribe();
@@ -599,11 +622,29 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
   });
 
   // Función para generar pase QR y sincronizarlo en tiempo real con Portería
-  const generarPaseQRResidente = (e: any) => {
+  const generarPaseQRResidente = async (e: any) => {
     e.preventDefault();
     const visitante = e.target.nomVisRes.value;
     const cedula = e.target.cedVisRes.value;
     const fecha = e.target.fechVisRes.value;
+    const rawPin = Math.floor(1000 + Math.random() * 9000).toString();
+    const codigoQr = `QR-${rawPin}`;
+
+    try {
+      await supabase.from('visitor_passes').insert({
+        tenant_id: userProfile?.tenant_id || '22079bb5-6ac7-4a15-be89-c53d14e4221b',
+        code: codigoQr,
+        pin: rawPin,
+        visitor_name: visitante,
+        visitor_document: cedula,
+        unit_reference: miEstadoCuenta.unidad,
+        vehicle_type: 'PIE',
+        status: 'ACTIVO'
+      });
+      await cargarPasesActivos();
+    } catch (err) {
+      console.warn('Error guardando pase en Supabase:', err);
+    }
     
     let nuevoPase: VisitaQrPH | void = undefined;
     if (onCrearVisitaQr) {
@@ -617,8 +658,6 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
         observaciones: `Pase QR generado para el ${fecha}`
       });
     } else if (setVisitasQrShared) {
-      const rawPin = Math.floor(1000 + Math.random() * 9000).toString();
-      const codigoQr = `QR-${rawPin}`;
       const paseObj: VisitaQrPH = {
         id: `vis_${Date.now()}`,
         codigo: codigoQr,
@@ -641,7 +680,7 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
     
     e.target.reset();
 
-    const codigoGenerado = (nuevoPase as any)?.codigoQr || (nuevoPase as any)?.codigo || `QR-${Math.floor(1000 + Math.random() * 9000)}`;
+    const codigoGenerado = (nuevoPase as any)?.codigoQr || (nuevoPase as any)?.codigo || codigoQr;
     const mensajeWhatsApp = encodeURIComponent(`Hola ${visitante}, aquí tienes tu pase QR de acceso para Urbix PH: *${codigoGenerado}* para el ${fecha}. Presenta este código en portería.`);
     if (confirm(`¡Pase QR "${codigoGenerado}" generado y enviado a Portería en tiempo real!\n\n¿Deseas abrir WhatsApp para enviárselo también al visitante?`)) {
       window.open(`https://api.whatsapp.com/send?text=${mensajeWhatsApp}`, '_blank');
@@ -1341,86 +1380,101 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
             </div>
 
             {/* LISTA EN TIEMPO REAL DE PASES QR CONECTADOS CON PORTERÍA */}
-            <div className="bg-[#1c1c1f] p-6 rounded-2xl border border-[#262629] space-y-4">
-              <div className="flex flex-wrap justify-between items-center gap-2 border-b border-[#262629] pb-3">
-                <div>
-                  <h3 className="text-sm font-bold text-white font-mono uppercase tracking-wider flex items-center gap-2">
-                    🎫 Pases QR Generados y Estado en Portería ({activeVisitasQr.length})
-                  </h3>
-                  <p className="text-xs text-gray-400 mt-1">Sincronización en tiempo real con la garita de Vigilancia.</p>
-                </div>
-                <span className="text-xs font-mono text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 rounded-full">
-                  ⚡ Sincronizado en Vivo con Portería
-                </span>
-              </div>
+            {(() => {
+              const listaMostrar = pasesList.length > 0 ? pasesList : activeVisitasQr;
+              return (
+                <div className="bg-[#1c1c1f] p-6 rounded-2xl border border-[#262629] space-y-4">
+                  <div className="flex flex-wrap justify-between items-center gap-2 border-b border-[#262629] pb-3">
+                    <div>
+                      <h3 className="text-sm font-bold text-white font-mono uppercase tracking-wider flex items-center gap-2">
+                        🎫 Pases QR Generados y Estado en Portería ({listaMostrar.length})
+                      </h3>
+                      <p className="text-xs text-gray-400 mt-1">Sincronización en tiempo real con la garita de Vigilancia.</p>
+                    </div>
+                    <span className="text-xs font-mono text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 rounded-full">
+                      ⚡ Sincronizado en Vivo con Portería
+                    </span>
+                  </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {activeVisitasQr.map((vis) => {
-                  const codStr = vis.codigoQr || vis.codigo || 'QR-DESCONOCIDO';
-                  const nombre = vis.nombreVisitante || vis.visitante || 'Visitante';
-                  const esAdentro = vis.estado === 'Adentro';
-                  const esSalio = vis.estado === 'Salió';
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {listaMostrar.map((vis: any) => {
+                      const codStr = vis.code || vis.pin || vis.codigoQr || vis.codigo || 'QR-DESCONOCIDO';
+                      const nombre = vis.visitor_name || vis.nombreVisitante || vis.visitante || 'Visitante';
+                      const rawStatus = String(vis.status || vis.estado || 'ACTIVO').toUpperCase();
+                      const esAdentro = rawStatus === 'ADENTRO';
+                      const esSalio = rawStatus === 'SALIO' || rawStatus === 'SALIÓ';
+                      const cedulaMostrar = vis.visitor_document || vis.cedula || 'Registrada';
+                      const tipoMostrar = vis.vehicle_type || vis.tipo || 'Visita';
+                      const unidadMostrar = vis.unit_reference || vis.unit_number || vis.unidad || miEstadoCuenta.unidad;
+                      const fechaMostrar = vis.created_at
+                        ? new Date(vis.created_at).toLocaleDateString('es-CO')
+                        : vis.fechaVisita || 'Hoy';
+                      const horaIngresoMostrar = vis.entry_time
+                        ? new Date(vis.entry_time).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+                        : vis.horaIngreso;
 
-                  return (
-                    <div
-                      key={vis.id}
-                      className={`bg-[#141416] border rounded-xl p-4 font-mono text-xs space-y-3 transition-all ${
-                        esAdentro
-                          ? 'border-emerald-500/50 bg-emerald-950/10 shadow-[0_0_15px_rgba(52,211,153,0.1)]'
-                          : esSalio
-                          ? 'border-[#262629] opacity-70'
-                          : 'border-cyan-500/30'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start gap-2">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40">
-                              {codStr}
-                            </span>
-                            <span className="text-white font-bold text-sm font-sans">{nombre}</span>
-                          </div>
-                          <p className="text-gray-400">
-                            CC: {vis.cedula || 'Registrada'} • Tipo: <span className="text-gray-200">{vis.tipo}</span>
-                          </p>
-                          <p className="text-[11px] text-gray-500 mt-0.5">
-                            Fecha: {vis.fechaVisita || 'Hoy'} • Destino: {vis.unidad}
-                          </p>
-                        </div>
-
-                        <span
-                          className={`px-2.5 py-1 rounded-full font-bold text-[10px] border flex items-center gap-1 ${
+                      return (
+                        <div
+                          key={vis.id}
+                          className={`bg-[#141416] border rounded-xl p-4 font-mono text-xs space-y-3 transition-all ${
                             esAdentro
-                              ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50 animate-pulse'
+                              ? 'border-emerald-500/50 bg-emerald-950/10 shadow-[0_0_15px_rgba(52,211,153,0.1)]'
                               : esSalio
-                              ? 'bg-gray-800 text-gray-400 border-gray-700'
-                              : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                              ? 'border-[#262629] opacity-70'
+                              : 'border-cyan-500/30'
                           }`}
                         >
-                          {esAdentro ? '🟢 ADENTRO EN COPROPIEDAD' : esSalio ? '⚪ SALIÓ' : '🟡 AUTORIZADO (ESPERANDO)'}
-                        </span>
-                      </div>
+                          <div className="flex justify-between items-start gap-2">
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40">
+                                  {codStr}
+                                </span>
+                                <span className="text-white font-bold text-sm font-sans">{nombre}</span>
+                              </div>
+                              <p className="text-gray-400">
+                                CC: {cedulaMostrar} • Tipo: <span className="text-gray-200">{tipoMostrar}</span>
+                              </p>
+                              <p className="text-[11px] text-gray-500 mt-0.5">
+                                Fecha: {fechaMostrar} • Destino: {unidadMostrar}
+                              </p>
+                            </div>
 
-                      <div className="pt-2 border-t border-[#262629] flex justify-between items-center">
-                        <span className="text-[10px] text-gray-400">
-                          {vis.horaIngreso ? `Ingreso: ${vis.horaIngreso}` : 'Pendiente de escaneo en portería'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const msg = encodeURIComponent(`Hola ${nombre}, tu Pase QR para Urbix PH es: *${codStr}*. Muéstralo en portería.`);
-                            window.open(`https://api.whatsapp.com/send?text=${msg}`, '_blank');
-                          }}
-                          className="text-cyan-400 hover:text-cyan-300 text-[11px] flex items-center gap-1 cursor-pointer font-bold"
-                        >
-                          📲 Reenviar WhatsApp
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+                            <span
+                              className={`px-2.5 py-1 rounded-full font-bold text-[10px] border flex items-center gap-1 ${
+                                esAdentro
+                                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50 animate-pulse'
+                                  : esSalio
+                                  ? 'bg-gray-800 text-gray-400 border-gray-700'
+                                  : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                              }`}
+                            >
+                              {esAdentro ? '🟢 ADENTRO EN COPROPIEDAD' : esSalio ? '⚪ SALIÓ' : '🟡 AUTORIZADO (ESPERANDO)'}
+                            </span>
+                          </div>
+
+                          <div className="pt-2 border-t border-[#262629] flex justify-between items-center">
+                            <span className="text-[10px] text-gray-400">
+                              {horaIngresoMostrar ? `Ingreso: ${horaIngresoMostrar}` : 'Pendiente de escaneo en portería'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const msg = encodeURIComponent(`Hola ${nombre}, tu Pase QR para Urbix PH es: *${codStr}*. Muéstralo en portería.`);
+                                window.open(`https://api.whatsapp.com/send?text=${msg}`, '_blank');
+                              }}
+                              className="text-cyan-400 hover:text-cyan-300 text-[11px] flex items-center gap-1 cursor-pointer font-bold"
+                            >
+                              📲 Reenviar WhatsApp
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 

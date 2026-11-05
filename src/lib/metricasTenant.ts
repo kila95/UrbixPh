@@ -1,4 +1,4 @@
-import { supabase } from '../supabaseClient';
+import { supabase, normalizeTenantUuid } from '../supabaseClient';
 
 export interface MetricasTenant {
   recaudo: string;
@@ -13,8 +13,9 @@ export interface MetricasTenant {
 }
 
 // Consulta para métricas reales del tenant activo directamente de la tabla units
-export const cargarMetricasTenant = async (tenantId: string): Promise<MetricasTenant | null> => {
-  if (!tenantId) return null;
+export const cargarMetricasTenant = async (rawTenantId: string): Promise<MetricasTenant | null> => {
+  if (!rawTenantId) return null;
+  const tenantId = normalizeTenantUuid(rawTenantId);
 
   try {
     // Consultar unidades reales de Tricentenario

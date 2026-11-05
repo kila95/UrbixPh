@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { supabase, isSupabaseConfigured, DEFAULT_TENANT_UUID, normalizeTenantUuid } from './supabaseClient';
 import { DollarSign, FileSpreadsheet, Plus, Award, ShieldCheck, FileText } from 'lucide-react';
 
 const STORAGE_KEY_TREASURY = 'urbix_treasury_transactions_real';
@@ -26,7 +26,8 @@ function guardarTransaccionesLocales(lista: any[]) {
   }
 }
 
-export default function ModuloTesoreriaExogenaReal({ tenantId = 't1', onShowToast }: { tenantId?: string; onShowToast?: (msg: string) => void }) {
+export default function ModuloTesoreriaExogenaReal({ tenantId: rawTenantId = DEFAULT_TENANT_UUID, onShowToast }: { tenantId?: string; onShowToast?: (msg: string) => void }) {
+  const tenantId = normalizeTenantUuid(rawTenantId);
   const [transacciones, setTransacciones] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
   const [showModal, setShowModal] = useState(false);

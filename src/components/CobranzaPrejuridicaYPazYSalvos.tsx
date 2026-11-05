@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, isSupabaseConfigured } from '../supabaseClient';
+import { supabase, isSupabaseConfigured, DEFAULT_TENANT_UUID, normalizeTenantUuid } from '../supabaseClient';
 import { 
   Scale, 
   FileCheck2, 
@@ -52,11 +52,12 @@ function guardarExpedienteLocal(payload: any): any {
 }
 
 export default function CobranzaPrejuridicaYPazYSalvos({
-  tenantId = 't1',
+  tenantId: rawTenantId = DEFAULT_TENANT_UUID,
   tenantName,
   nombreCopropiedad,
   onShowToast
 }: CobranzaPrejuridicaProps) {
+  const tenantId = normalizeTenantUuid(rawTenantId);
   const resolvedTenantName = tenantName || nombreCopropiedad || 'Copropiedad P.H.';
   const [activeTab, setActiveTab] = useState<'paz_y_salvo' | 'cobro_prejuridico'>('cobro_prejuridico');
   const [expedientes, setExpedientes] = useState<any[]>([]);

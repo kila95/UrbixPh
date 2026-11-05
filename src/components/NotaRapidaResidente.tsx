@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { supabase } from '../supabaseClient';
+import { supabase, DEFAULT_TENANT_UUID, normalizeTenantUuid } from '../supabaseClient';
 import { Send, CheckCircle2 } from 'lucide-react';
 
 export function NotaRapidaResidente({
   unitNumber = 'Torre 2 - 301',
   residentName = 'Esteban Ochoa Mesa',
-  tenantId = 't1',
+  tenantId: rawTenantId = DEFAULT_TENANT_UUID,
   onShowToast
 }: {
   unitNumber?: string;
@@ -13,6 +13,7 @@ export function NotaRapidaResidente({
   tenantId?: string;
   onShowToast?: (msg: string) => void;
 }) {
+  const tenantId = normalizeTenantUuid(rawTenantId);
   const [notaTexto, setNotaTexto] = useState('');
   const [enviando, setEnviando] = useState(false);
 

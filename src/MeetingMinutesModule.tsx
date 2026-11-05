@@ -49,7 +49,7 @@ interface MeetingMinutesModuleProps {
 }
 
 export default function MeetingMinutesModule({
-  tenantId = "t1",
+  tenantId = "22079bb5-6ac7-4a15-be89-c53d14e4221b",
   tenantName = "Urbanización Tricentenario",
   userProfile,
   onShowToast

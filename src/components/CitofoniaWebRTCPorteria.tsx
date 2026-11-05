@@ -3,7 +3,7 @@ import {
   PhoneCall, PhoneOff, PhoneIncoming, Mic, MicOff, 
   DoorOpen, Search, Radio, Phone, ChevronDown, History, CheckCircle2 
 } from 'lucide-react';
-import { supabase, isSupabaseConfigured } from '../supabaseClient';
+import { supabase, isSupabaseConfigured, DEFAULT_TENANT_UUID, normalizeTenantUuid } from '../supabaseClient';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { inicializarCanalRealtime, despacharSignal, UserPresenceInfo, SignalingPacket } from '../services/realtimeSignalingService';
 
@@ -31,10 +31,11 @@ export default function CitofoniaWebRTCPorteria({
   modo,
   unidadResidente = 'Torre 1 - 302',
   guardaNombre = 'Guarda en Turno',
-  tenantId = 't1',
+  tenantId: rawTenantId = DEFAULT_TENANT_UUID,
   onAutorizarIngreso,
   onShowToast
 }: Props) {
+  const tenantId = normalizeTenantUuid(rawTenantId);
   const [unidades, setUnidades] = useState<any[]>([]);
   const [busqueda, setBusqueda] = useState('');
   const [unidadSeleccionada, setUnidadSeleccionada] = useState('');
