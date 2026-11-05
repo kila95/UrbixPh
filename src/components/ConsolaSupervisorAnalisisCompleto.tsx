@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { ShieldCheck, Sliders, Wrench, Radio, Clock, AlertTriangle, Users, FileCheck, CheckCircle2, PlusCircle, Bell, ArrowRight, ShieldAlert, Sparkles, LogOut } from 'lucide-react';
+import { ShieldCheck, Sliders, Wrench, Radio, Clock, AlertTriangle, Users, FileCheck, CheckCircle2, PlusCircle, Bell, ArrowRight, ShieldAlert, Sparkles, LogOut, Activity } from 'lucide-react';
 import VersionShieldGuardBanner from './VersionShieldGuardBanner';
 import { UrbixLogoMark, UrbixFullLogo } from '../UrbixLogo';
 import LogoUrbix from './LogoUrbix';
@@ -304,34 +304,9 @@ export default function ConsolaSupervisorAnalisisCompleto({
 
       {/* 2. BARRA DE NAVEGACIÓN EN UNA SOLA LÍNEA HORIZONTAL SIN SALTOS */}
       <nav className="w-full flex items-center gap-2 overflow-x-auto whitespace-nowrap scrollbar-none py-2 px-3 bg-[#0b0f17] border border-cyan-500/20 rounded-2xl shrink-0 shadow-lg touch-pan-x">
-        {/* Botón Vista General */}
-        <button
-          type="button"
-          onClick={() => setTabSupervisor('general')}
-          className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer border shrink-0 ${
-            tabSupervisor === 'general'
-              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-[0_0_12px_rgba(0,242,254,0.25)]'
-              : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-white'
-          }`}
-        >
-          Vista General
-        </button>
-
-        {/* Botón Rondas NFC */}
-        <button
-          type="button"
-          onClick={() => setTabSupervisor('rondas')}
-          className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer border shrink-0 flex items-center gap-2 ${
-            tabSupervisor === 'rondas'
-              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-[0_0_12px_rgba(0,242,254,0.25)]'
-              : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-white'
-          }`}
-        >
-          <Radio className="w-4 h-4 text-cyan-400" />
-          <span>((o)) 1. Auditoría de Rondas NFC</span>
-        </button>
-
         {[
+          { id: 'general', label: 'Vista General', icon: Activity },
+          { id: 'rondas', label: '1. Auditoría de Rondas NFC', icon: Radio },
           { id: 'frecuencias', label: '2. Frecuencias de Aseo', icon: Sliders },
           { id: 'ordenes', label: '3. Órdenes a Toderos', icon: Wrench },
           { id: 'alertas', label: '4. Centro de Alertas Críticas', icon: AlertTriangle },
@@ -343,17 +318,52 @@ export default function ConsolaSupervisorAnalisisCompleto({
               key={tab.id}
               type="button"
               onClick={() => setTabSupervisor(tab.id as any)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer shrink-0 border min-h-[38px] ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer shrink-0 border min-h-[38px] pointer-events-auto ${
                 isActive 
                   ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-[0_0_12px_rgba(0,242,254,0.25)]' 
-                  : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-white'
+                  : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800'
               }`}
             >
-              <Icon className="w-4 h-4 text-cyan-400" /> {tab.label}
+              <Icon className="w-4 h-4 text-cyan-400" />
+              <span>{tab.label}</span>
             </button>
           );
         })}
       </nav>
+
+      {/* BOTÓN / BREADCRUMB PARA VOLVER A VISTA GENERAL DEL SUPERVISOR */}
+      {tabSupervisor !== 'general' && (
+        <div className="w-full flex items-center justify-between bg-[#0b0f17]/90 border border-cyan-500/20 px-4 py-2.5 rounded-2xl shrink-0 shadow-md">
+          <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
+            <button
+              type="button"
+              onClick={() => setTabSupervisor('general')}
+              className="text-cyan-400 hover:text-cyan-300 font-bold hover:underline flex items-center gap-1.5 cursor-pointer"
+            >
+              <Activity className="w-3.5 h-3.5" /> Vista General
+            </button>
+            <span className="text-slate-600">/</span>
+            <span className="text-white font-bold uppercase tracking-wider">
+              {tabSupervisor === 'rondas'
+                ? 'Auditoría de Rondas NFC'
+                : tabSupervisor === 'frecuencias'
+                ? 'Frecuencias de Aseo'
+                : tabSupervisor === 'ordenes'
+                ? 'Órdenes a Toderos'
+                : tabSupervisor === 'alertas'
+                ? 'Centro de Alertas Críticas'
+                : tabSupervisor}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setTabSupervisor('general')}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 hover:text-white text-xs font-mono font-bold transition-all cursor-pointer shadow-sm"
+          >
+            ← Volver a Vista General
+          </button>
+        </div>
+      )}
 
       {/* 3. CONTENIDO PRINCIPAL ABAJO */}
       <main className="w-full flex-1 space-y-6">

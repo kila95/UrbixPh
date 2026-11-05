@@ -816,19 +816,14 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
         <button
           type="button"
           onClick={() => setActiveTabResidente('mi_apartamento')}
-          className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer pointer-events-auto border shrink-0 ${
+          className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer min-h-[40px] pointer-events-auto ${
             activeTabResidente === 'mi_apartamento'
-              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-[0_0_12px_rgba(0,242,254,0.25)]'
-              : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700 hover:bg-slate-800'
+              ? 'bg-gradient-to-r from-cyan-500/20 to-teal-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_15px_rgba(34,211,238,0.2)]'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900/60 border border-transparent'
           }`}
         >
-          Vista General
-        </button>
-        <button 
-          onClick={() => setActiveTabResidente('mi_apartamento')} 
-          className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer min-h-[40px] ${activeTabResidente === 'mi_apartamento' ? 'bg-gradient-to-r from-cyan-500/20 to-teal-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_15px_rgba(34,211,238,0.2)]' : 'text-slate-400 hover:text-white hover:bg-slate-900/60 border border-transparent'}`}
-        >
-          <Home className="w-4 h-4 text-cyan-400" /> Mi Apartamento
+          <Home className="w-4 h-4 text-cyan-400" />
+          <span>Vista General</span>
         </button>
         <button 
           onClick={() => setActiveTabResidente('citofono')} 

@@ -388,41 +388,71 @@ Extrae con total precisión:
     }
   });
 
-  // Webhook backend para despacho de alertas por WhatsApp en Urbix PH
-  app.post("/api/webhook/whatsapp-alert", async (req, res) => {
+  // En server.ts: Reemplazo del webhook de WhatsApp por Meta Cloud API oficial
+  app.post("/api/webhook/whatsapp-alert", requireAuth, async (req, res) => {
     try {
       const { eventType, record, tenantName, whatsappConfig } = req.body || {};
-      
+
       if (!record) {
-        return res.status(400).json({ error: "Faltan datos en el registro" });
+        return res.status(400).json({ error: "Faltan datos en el registro a notificar" });
       }
 
-      // Validar si la copropiedad tiene activas las alertas
       if (whatsappConfig && !whatsappConfig.enabled) {
         return res.json({ success: false, message: "Notificaciones de WhatsApp desactivadas por la administración." });
       }
 
-      let mensajeWhatsApp = "";
-      let telefonoDestino = record.phone || "+573001234567"; // Teléfono del censo del residente
+      // Normalización de número telefónico (Prefijo Colombia +57 si no lo tiene)
+      let rawPhone = String(record.phone || "").replace(/\D/g, "");
+      if (rawPhone.length === 10 && rawPhone.startsWith("3")) {
+        rawPhone = `57${rawPhone}`;
+      }
 
+      if (!rawPhone || rawPhone.length < 10) {
+        return res.status(400).json({ error: "Número de teléfono inválido para entrega de WhatsApp" });
+      }
+
+      let mensajeTexto = "";
       if (eventType === "NEW_PACKAGE") {
-        mensajeWhatsApp = `📦 *URBIX PH - Alerta de Encomienda*\n\nHola *${record.destinatario}*, tu paquete de *${record.empresa}* (Guía: ${record.guia}) ya está disponible en la portería de *${tenantName || 'la copropiedad'}*.\n\nRetira con tu PIN: *${record.pinRetiro}*.`;
-      } 
-      else if (eventType === "RESERVATION_APPROVED") {
-        mensajeWhatsApp = `✅ *URBIX PH - Reserva Aprobada*\n\nHola *${record.resident}*, tu solicitud para el espacio *${record.amenity}* el día *${record.date}* ha sido *APROBADA* por la administración.`;
+        mensajeTexto = `📦 *URBIX PH - Encomienda en Portería*\n\nEstimado(a) *${record.destinatario}*, tienes una entrega de *${record.empresa || "Mensajería"}* (Guía: ${record.guia || "S/N"}).\n\nPreséntate en portería con tu PIN de retiro: *${record.pinRetiro}*.`;
+      } else if (eventType === "COBRO_NOTIFICACION") {
+        mensajeTexto = record.mensajeDirecto;
+      } else if (eventType === "RESERVATION_APPROVED") {
+        mensajeTexto = `✅ *URBIX PH - Reserva Aprobada*\n\nHola *${record.resident}*, tu solicitud para el espacio *${record.amenity}* el día *${record.date}* ha sido *APROBADA*.`;
+      } else {
+        mensajeTexto = record.mensajeDirecto || `Aviso oficial de la administración - ${tenantName}`;
       }
 
-      // Aquí se conecta con el token configurado por el administrador o el general del .env
-      const tokenAPI = whatsappConfig?.token || process.env.WHATSAPP_API_TOKEN;
+      const metaToken = whatsappConfig?.token || process.env.WHATSAPP_API_TOKEN;
+      const phoneId = whatsappConfig?.phoneId || process.env.WHATSAPP_PHONE_ID;
 
-      if (tokenAPI && mensajeWhatsApp) {
-        console.log(`[WhatsApp API Despachada] Copropiedad: ${tenantName} -> Destino: ${telefonoDestino}\n${mensajeWhatsApp}`);
-        // Simulación de envío exitoso vía API
+      // Si las variables de Meta están configuradas, despachar llamada HTTP directa a Graph API v21.0
+      if (metaToken && phoneId) {
+        const metaResponse = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${metaToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to: rawPhone,
+            type: "text",
+            text: { preview_url: false, body: mensajeTexto }
+          })
+        });
+
+        const metaData = await metaResponse.json();
+        if (!metaResponse.ok) {
+          throw new Error(`Error en Meta Cloud API: ${JSON.stringify(metaData)}`);
+        }
+
+        return res.json({ success: true, dispatchedTo: rawPhone, messageId: metaData.messages?.[0]?.id });
       }
 
-      return res.json({ success: true, dispatchedTo: telefonoDestino });
+      return res.status(500).json({ error: "WHATSAPP_API_TOKEN o WHATSAPP_PHONE_ID no configurados en el servidor." });
     } catch (err: any) {
-      console.error("Error en servidor al enviar WhatsApp:", err.message);
+      console.error("Error despachando WhatsApp:", err.message);
       return res.status(500).json({ error: err.message });
     }
   });

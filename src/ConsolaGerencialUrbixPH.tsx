@@ -727,19 +727,8 @@ export default function ConsolaGerencialUrbixPH({
 
       {/* 2. BARRA DE NAVEGACIÓN EN UNA SOLA LÍNEA HORIZONTAL SIN SALTOS (SWIPE TÁCTIL) */}
       <nav className="w-full flex items-center gap-2 overflow-x-auto whitespace-nowrap scrollbar-none py-2 px-3 bg-[#0b0f17] border border-cyan-500/20 rounded-2xl shrink-0 shadow-lg touch-pan-x">
-        <button
-          type="button"
-          onClick={() => setActiveTab('general')}
-          className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer pointer-events-auto border shrink-0 ${
-            activeTab === 'general'
-              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-[0_0_12px_rgba(0,242,254,0.25)]'
-              : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700 hover:bg-slate-800'
-          }`}
-        >
-          Vista General
-        </button>
-
         {[
+          { id: 'general', label: 'Vista General', icon: Building2, color: 'text-cyan-400' },
           { id: 'asamblea', label: 'Asambleas & Actas Legales', icon: Users, color: 'text-cyan-400' },
           { id: 'contractors', label: 'Contratistas & Obras', icon: HardHat, color: 'text-emerald-400' },
           { id: 'cartera', label: 'Tesorería, OCR & DIAN', icon: DollarSign, color: 'text-teal-400' },
@@ -752,7 +741,6 @@ export default function ConsolaGerencialUrbixPH({
           { id: 'pqrs', label: 'PQRS', icon: MessageSquare, color: 'text-cyan-400' },
           { id: 'whatsapp', label: 'Notificaciones WhatsApp', icon: MessageSquare, color: 'text-emerald-400' },
         ].map((tab) => {
-
           const Icon = tab.icon;
           const isActive = activeTab === tab.id || (tab.id === 'asamblea' && activeTab === 'actas');
           return (
@@ -760,7 +748,7 @@ export default function ConsolaGerencialUrbixPH({
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap cursor-pointer shrink-0 min-h-[40px] ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all duration-200 whitespace-nowrap cursor-pointer shrink-0 min-h-[40px] pointer-events-auto ${
                 isActive 
                   ? 'bg-gradient-to-r from-cyan-500/20 to-teal-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_15px_rgba(34,211,238,0.2)]' 
                   : 'text-slate-400 hover:text-white hover:bg-slate-900/60 border border-transparent'
@@ -771,6 +759,54 @@ export default function ConsolaGerencialUrbixPH({
           );
         })}
       </nav>
+
+      {/* BOTÓN / BREADCRUMB PARA VOLVER A VISTA GENERAL DESDE CUALQUIER SUBMÓDULO */}
+      {activeTab !== 'general' && (
+        <div className="w-full flex items-center justify-between bg-[#0b0f17]/90 border border-cyan-500/20 px-4 py-2.5 rounded-2xl shrink-0 shadow-md">
+          <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
+            <button
+              type="button"
+              onClick={() => setActiveTab('general')}
+              className="text-cyan-400 hover:text-cyan-300 font-bold hover:underline flex items-center gap-1.5 cursor-pointer"
+            >
+              <Building2 className="w-3.5 h-3.5" /> Vista General
+            </button>
+            <span className="text-slate-600">/</span>
+            <span className="text-white font-bold uppercase tracking-wider">
+              {activeTab === 'asamblea' || activeTab === 'actas'
+                ? 'Asambleas & Actas Legales'
+                : activeTab === 'contractors'
+                ? 'Contratistas & Obras'
+                : activeTab === 'cartera' || activeTab === 'facturas_ocr' || activeTab === 'exogena_dian'
+                ? 'Tesorería, OCR & DIAN'
+                : activeTab === 'prejuridico'
+                ? 'Cobro Prejurídico & Acuerdos'
+                : activeTab === 'mantenimiento'
+                ? 'Mantenimiento & Órdenes'
+                : activeTab === 'cartelera'
+                ? 'Cartelera & Circulares'
+                : activeTab === 'porteria'
+                ? 'Portería en Tiempo Real'
+                : activeTab === 'personal'
+                ? 'Personal & Staff'
+                : activeTab === 'reservas'
+                ? 'Áreas Comunes'
+                : activeTab === 'pqrs'
+                ? 'PQRSD Ley 1755'
+                : activeTab === 'whatsapp'
+                ? 'Notificaciones WhatsApp'
+                : activeTab}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('general')}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 hover:text-white text-xs font-mono font-bold transition-all cursor-pointer shadow-sm"
+          >
+            ← Volver a Vista General
+          </button>
+        </div>
+      )}
 
       {/* 3. CONTENIDO PRINCIPAL ABAJO */}
       <main className="w-full flex-1 space-y-6">
