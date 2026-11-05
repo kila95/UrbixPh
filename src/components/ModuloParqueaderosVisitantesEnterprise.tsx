@@ -36,13 +36,7 @@ const DEFAULT_CELDAS_VISITANTES: CeldaParqueaderoPH[] = [
     codigo_celda: 'V-01',
     ubicacion: 'Sótano 1 - Zona Visitantes Norte',
     tipo_permitido: 'Automóvil',
-    estado: 'Ocupada',
-    placa_actual: 'ABC-123',
-    tipo_vehiculo_actual: 'Carro',
-    numero_unidad_visita: 'Torre 2 - 301',
-    visitante_nombre: 'Carlos Andrés Mesa',
-    hora_entrada: '08:15 AM',
-    horas_transcurridas: 2
+    estado: 'Disponible'
   },
   {
     id: 'celda_v2',
@@ -63,13 +57,7 @@ const DEFAULT_CELDAS_VISITANTES: CeldaParqueaderoPH[] = [
     codigo_celda: 'V-04 (Moto)',
     ubicacion: 'Sótano 1 - Bahía Motos Visitantes',
     tipo_permitido: 'Moto',
-    estado: 'Ocupada',
-    placa_actual: 'ZPQ-12F',
-    tipo_vehiculo_actual: 'Moto',
-    numero_unidad_visita: 'Torre 2 - 301',
-    visitante_nombre: 'Rappi Domicilios (Juan David)',
-    hora_entrada: '09:40 AM',
-    horas_transcurridas: 1
+    estado: 'Disponible'
   },
   {
     id: 'celda_v5',
@@ -97,7 +85,7 @@ const DEFAULT_CELDAS_VISITANTES: CeldaParqueaderoPH[] = [
     codigo_celda: 'V-08',
     ubicacion: 'Sótano 2 - Visitantes Reserva',
     tipo_permitido: 'Automóvil',
-    estado: 'Mantenimiento'
+    estado: 'Disponible'
   }
 ];
 

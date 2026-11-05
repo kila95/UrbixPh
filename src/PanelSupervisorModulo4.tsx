@@ -4079,9 +4079,17 @@ export default function PanelSupervisorModulo4({
         {/* BARRA DE NAVEGACIÓN UNIFICADA Y FORZADA PARA TODOS LOS ROLES */}
         <nav className="flex items-center gap-2 overflow-x-auto py-1 px-2 bg-[#0b0f17]/90 border border-cyan-500/20 rounded-2xl shadow-lg w-full scrollbar-none whitespace-nowrap">
           <div className="flex items-center gap-2 w-full">
-            <span className="text-xs font-bold text-cyan-400 font-mono px-3 py-1.5 bg-cyan-500/10 rounded-xl border border-cyan-500/30 shrink-0">
-              ⚡ Módulos Sincronizados (Executive Glass)
-            </span>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('tab4_3')}
+              className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer pointer-events-auto border shrink-0 ${
+                activeSubTab === 'tab4_3'
+                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-[0_0_12px_rgba(0,242,254,0.25)]'
+                  : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700 hover:bg-slate-800'
+              }`}
+            >
+              Vista General
+            </button>
 
             {[
               { id: 'tab4_1', label: 'Tab 4.1: Caja Menor, Conciliación & PQRS / Mudanzas', badge: '100% ACTIVO' },

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { DollarSign, UploadCloud, CheckCircle2, FileText, Loader2, ShieldCheck, AlertCircle } from 'lucide-react';
+import { conciliarPagoOcrEnBaseDeDatos } from '../lib/treasuryService';
 
-export default function ModuloTesoreriaOCR({ tenantId, onShowToast }: { tenantId?: string; onShowToast?: (msg: string) => void }) {
+export default function ModuloTesoreriaOCR({ tenantId, tenantName, onShowToast }: { tenantId?: string; tenantName?: string; onShowToast?: (msg: string) => void }) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [reconciliationResult, setReconciliationResult] = useState<any>(null);
@@ -36,7 +37,12 @@ export default function ModuloTesoreriaOCR({ tenantId, onShowToast }: { tenantId
         const data = await response.json();
         if (data.success && data.paymentData) {
           setReconciliationResult(data.paymentData);
-          onShowToast?.(`Pago conciliado con éxito para ${data.paymentData.unit_reference}`);
+          try {
+            await conciliarPagoOcrEnBaseDeDatos(tenantId || 't1', data.paymentData);
+          } catch (syncErr) {
+            console.warn('Aviso al asentar pago OCR:', syncErr);
+          }
+          onShowToast?.(`Pago conciliado y contabilizado en Formato 1007 para ${data.paymentData.unit_reference}`);
         } else {
           throw new Error(data.error || 'No se pudo procesar el comprobante');
         }

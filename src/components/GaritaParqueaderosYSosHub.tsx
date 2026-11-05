@@ -14,6 +14,7 @@ import {
   PhoneCall
 } from 'lucide-react';
 import LectorQrConAsignacionParqueadero from './LectorQrConAsignacionParqueadero';
+import GrillaParqueaderosOptimizada from './GrillaParqueaderosOptimizada';
 
 export interface CeldaParqueadero {
   id: string;
@@ -27,11 +28,11 @@ export interface CeldaParqueadero {
 }
 
 export const INITIAL_CELDAS_GARITA: CeldaParqueadero[] = [
-  { id: 'C-01', numeroCelda: 'V-01', tipo: 'Carro', estado: 'Ocupada', placa: 'HKS-291', aptoVisita: 'Torre 1 - 402', horaIngreso: '13:15', minutosTranscurridos: 260 },
+  { id: 'C-01', numeroCelda: 'V-01', tipo: 'Carro', estado: 'Disponible' },
   { id: 'C-02', numeroCelda: 'V-02', tipo: 'Carro', estado: 'Disponible' },
-  { id: 'C-03', numeroCelda: 'V-03', tipo: 'Carro', estado: 'Ocupada', placa: 'MNZ-842', aptoVisita: 'Torre 2 - 201', horaIngreso: '16:00', minutosTranscurridos: 95 },
+  { id: 'C-03', numeroCelda: 'V-03', tipo: 'Carro', estado: 'Disponible' },
   { id: 'C-04', numeroCelda: 'V-04', tipo: 'Carro', estado: 'Disponible' },
-  { id: 'C-05', numeroCelda: 'M-01', tipo: 'Moto', estado: 'Ocupada', placa: 'FGT-12D', aptoVisita: 'Torre 1 - 104', horaIngreso: '11:30', minutosTranscurridos: 365 },
+  { id: 'C-05', numeroCelda: 'M-01', tipo: 'Moto', estado: 'Disponible' },
   { id: 'C-06', numeroCelda: 'M-02', tipo: 'Moto', estado: 'Disponible' }
 ];
 
@@ -230,6 +231,19 @@ export default function GaritaParqueaderosYSosHub({
           <span className="text-[11px] text-amber-400 font-mono mt-1 block">Alerta automática tras 240 minutos</span>
         </div>
       </div>
+
+      {/* GRILLA OPTIMIZADA (CARROS / MOTOS / PAGINACIÓN EN VIVO SUPABASE) */}
+      <GrillaParqueaderosOptimizada
+        onShowToast={onShowToast}
+        onSelectSlot={(slot) => {
+          setCeldaSeleccionadaParaIngreso({
+            id: slot.id,
+            numeroCelda: slot.slot_number,
+            tipo: slot.vehicle_type === 'MOTO' || slot.slot_number?.startsWith('M-') ? 'Moto' : 'Carro',
+            estado: 'Disponible'
+          });
+        }}
+      />
 
       {/* GRILLA VISUAL DE CELDAS DE PARQUEADERO */}
       <div className="bg-[#0b0f17] border border-slate-800 rounded-3xl p-5 space-y-4">

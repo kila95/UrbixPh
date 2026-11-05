@@ -4,6 +4,8 @@ import { ShieldCheck, Sliders, Wrench, Radio, Clock, AlertTriangle, Users, FileC
 import VersionShieldGuardBanner from './VersionShieldGuardBanner';
 import { UrbixLogoMark, UrbixFullLogo } from '../UrbixLogo';
 import LogoUrbix from './LogoUrbix';
+import VistaGeneralSupervisor from './VistaGeneralSupervisor';
+import ModuloRondasNFC from './ModuloRondasNFC';
 
 export interface ConsolaSupervisorAnalisisCompletoProps {
   checklistConfig?: any[];
@@ -36,7 +38,11 @@ export default function ConsolaSupervisorAnalisisCompleto({
   onCerrarSesion,
   userProfile
 }: ConsolaSupervisorAnalisisCompletoProps) {
-  const [subTab, setSubTab] = useState<'rondas' | 'frecuencias' | 'ordenes' | 'alertas'>('rondas');
+  const activeTenantId = userProfile?.tenant_id || '22079bb5-6ac7-4a15-be89-c53d14e4221b';
+  const tenantName = userProfile?.building_name || 'Reserva del Tesoro';
+  const [tabSupervisor, setTabSupervisor] = useState<'general' | 'rondas' | 'frecuencias' | 'ordenes' | 'alertas'>('general');
+  const subTab = tabSupervisor;
+  const setSubTab = setTabSupervisor;
   const [comunicados, setComunicados] = useState<any[]>([]);
 
   useEffect(() => {
@@ -288,6 +294,7 @@ export default function ConsolaSupervisorAnalisisCompleto({
           onChange={(e) => setSubTab(e.target.value as any)}
           className="bg-slate-900 text-cyan-300 font-bold text-xs p-2 rounded-xl border border-slate-700 w-full outline-none focus:border-cyan-400 cursor-pointer"
         >
+          <option value="general">📊 Vista General</option>
           <option value="rondas">📡 1. Auditoría de Rondas NFC</option>
           <option value="frecuencias">🧹 2. Frecuencias de Aseo</option>
           <option value="ordenes">🛠️ 3. Órdenes a Toderos</option>
@@ -297,25 +304,49 @@ export default function ConsolaSupervisorAnalisisCompleto({
 
       {/* 2. BARRA DE NAVEGACIÓN EN UNA SOLA LÍNEA HORIZONTAL SIN SALTOS */}
       <nav className="w-full flex items-center gap-2 overflow-x-auto whitespace-nowrap scrollbar-none py-2 px-3 bg-[#0b0f17] border border-cyan-500/20 rounded-2xl shrink-0 shadow-lg touch-pan-x">
-        <span className="text-xs font-bold text-cyan-400 font-mono px-3 py-1.5 bg-cyan-500/10 rounded-xl border border-cyan-500/30 shrink-0">
-          ⚡ Módulos Sincronizados (Executive Glass)
-        </span>
+        {/* Botón Vista General */}
+        <button
+          type="button"
+          onClick={() => setTabSupervisor('general')}
+          className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer border shrink-0 ${
+            tabSupervisor === 'general'
+              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-[0_0_12px_rgba(0,242,254,0.25)]'
+              : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-white'
+          }`}
+        >
+          Vista General
+        </button>
+
+        {/* Botón Rondas NFC */}
+        <button
+          type="button"
+          onClick={() => setTabSupervisor('rondas')}
+          className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer border shrink-0 flex items-center gap-2 ${
+            tabSupervisor === 'rondas'
+              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-[0_0_12px_rgba(0,242,254,0.25)]'
+              : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-white'
+          }`}
+        >
+          <Radio className="w-4 h-4 text-cyan-400" />
+          <span>((o)) 1. Auditoría de Rondas NFC</span>
+        </button>
+
         {[
-          { id: 'rondas', label: '1. Auditoría de Rondas NFC', icon: Radio },
           { id: 'frecuencias', label: '2. Frecuencias de Aseo', icon: Sliders },
           { id: 'ordenes', label: '3. Órdenes a Toderos', icon: Wrench },
           { id: 'alertas', label: '4. Centro de Alertas Críticas', icon: AlertTriangle },
         ].map((tab) => {
           const Icon = tab.icon;
-          const isActive = subTab === tab.id;
+          const isActive = tabSupervisor === tab.id;
           return (
             <button
               key={tab.id}
-              onClick={() => setSubTab(tab.id as any)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 min-h-[40px] ${
+              type="button"
+              onClick={() => setTabSupervisor(tab.id as any)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer shrink-0 border min-h-[38px] ${
                 isActive 
-                  ? 'bg-gradient-to-r from-cyan-500/20 to-teal-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_15px_rgba(34,211,238,0.2)]' 
-                  : 'text-slate-400 hover:text-white hover:bg-slate-900/60 border border-transparent'
+                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-[0_0_12px_rgba(0,242,254,0.25)]' 
+                  : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-white'
               }`}
             >
               <Icon className="w-4 h-4 text-cyan-400" /> {tab.label}
@@ -327,84 +358,27 @@ export default function ConsolaSupervisorAnalisisCompleto({
       {/* 3. CONTENIDO PRINCIPAL ABAJO */}
       <main className="w-full flex-1 space-y-6">
         
+        {/* SUBTAB 0: VISTA GENERAL TÁCTICA DEL SUPERVISOR */}
+        {tabSupervisor === 'general' && (
+          <VistaGeneralSupervisor
+            tenantId={activeTenantId}
+            tenantName={tenantName}
+            supervisorName={userProfile?.full_name || 'Supervisor'}
+            onCambiarPestana={(tab) => setTabSupervisor(tab as any)}
+            onShowToast={onShowToast}
+          />
+        )}
+
         {/* SUBTAB 1: RONDAS NFC */}
-        {subTab === 'rondas' && (
-          <div className="bg-[#0b0f17] border border-slate-800/80 p-6 rounded-3xl space-y-4 shadow-xl">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-cyan-400 font-mono flex items-center gap-2">
-                  <Radio className="w-4 h-4" /> 1. Auditoría de Patrullajes y Rondas (NFC / QR)
-                </h4>
-                <p className="text-xs text-slate-400 mt-1">
-                  Puntos de control recorridos con sellos de tiempo y hashes criptográficos de verificación.
-                </p>
-              </div>
-              <span className="text-xs font-mono text-cyan-400 bg-cyan-500/10 px-3 py-1 rounded-xl border border-cyan-500/30">
-                {activeRondas.length} Puntos Auditados
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {activeRondas.map((ronda: any, idx: number) => {
-                const isNormal = (ronda.estado || '').includes('Normal') || (ronda.estado || '').includes('Verificado');
-                return (
-                  <div key={ronda.id || idx} className="p-4 bg-[#07090e] border border-slate-800 rounded-2xl space-y-3 text-xs">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <span className="font-mono text-[10px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/30 mr-2">
-                          {ronda.tagNfc || `NFC-PT-0${idx + 1}`}
-                        </span>
-                        <strong className="text-white text-sm block mt-1">{ronda.punto}</strong>
-                        <p className="text-slate-400 text-[11px] mt-0.5">{ronda.ubicacion || 'Sector común P.H.'}</p>
-                      </div>
-                      <span className={`px-2.5 py-1 rounded-lg font-bold text-[10px] border shrink-0 ${
-                        isNormal
-                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                          : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                      }`}>
-                        {ronda.estado || 'Verificado'}
-                      </span>
-                    </div>
-
-                    <div className="p-2.5 bg-slate-900/60 rounded-xl border border-slate-800 space-y-1 font-mono text-[11px]">
-                      <div className="flex justify-between text-slate-400">
-                        <span>Horario: <strong className="text-white">{ronda.hora || ronda.timestamp || '08:00 AM'}</strong></span>
-                        <span>Guarda: <strong className="text-teal-400">{ronda.guarda || 'Patrullero'}</strong></span>
-                      </div>
-                      {ronda.presion && (
-                        <p className="text-slate-300">Medición: <strong className="text-white">{ronda.presion}</strong></p>
-                      )}
-                      {ronda.hash && (
-                        <p className="text-[10px] text-slate-500 truncate" title={ronda.hash}>Hash: {ronda.hash}</p>
-                      )}
-                    </div>
-
-                    {!isNormal && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const novedadOrden = {
-                            id: `ord_novedad_${Date.now()}`,
-                            area: ronda.punto,
-                            categoria: 'Reparación / Plomería',
-                            detalle: `Novedad de ronda en ${ronda.punto}: ${ronda.presion || 'Revisión técnica urgente'}`,
-                            estado: 'Pendiente',
-                            fechaReporte: `Hoy ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                          };
-                          setTareasShared?.((prev: any[]) => [novedadOrden, ...prev]);
-                          onDerivarMantenimientoTodero?.(novedadOrden);
-                          onShowToast?.(`🛠️ Novedad de ronda derivada a orden de mantenimiento.`);
-                        }}
-                        className="w-full bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 font-bold py-2 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5"
-                      >
-                        <Wrench className="w-3.5 h-3.5" /> Derivar a Mantenimiento Todero
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+        {tabSupervisor === 'rondas' && (
+          <ModuloRondasNFC
+            tenantId={activeTenantId}
+            onShowToast={onShowToast}
+            onDerivarMantenimientoTodero={(tarea) => {
+              setTareasShared?.((prev: any[]) => [tarea, ...prev]);
+              onDerivarMantenimientoTodero?.(tarea);
+            }}
+          />
         )}
 
         {/* SUBTAB 2: FRECUENCIAS DE ASEO */}

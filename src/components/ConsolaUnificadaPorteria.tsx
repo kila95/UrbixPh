@@ -400,9 +400,7 @@ export default function ConsolaUnificadaPorteria({
     { id: 3, label: '📦 3. Encomiendas & Correo' },
     { id: 4, label: '🚶 4. Ronda de Vigilancia' },
     { id: 5, label: '💻 5. Minuta Digital' },
-    { id: 6, label: '📞 6. Citófono Virtual' },
-    { id: 7, label: '🚗 7. Parqueaderos de Visitantes & SOS' },
-    { id: 8, label: '📖 8. Directorio de Unidades (100 Aptos)' }
+    { id: 6, label: '📞 6. Citófono Virtual' }
   ];
 
   return (
@@ -492,7 +490,7 @@ export default function ConsolaUnificadaPorteria({
         </select>
       </div>
 
-      {/* 2. BARRA HORIZONTAL DE PESTAÑAS DE PORTERÍA (1 A 7) */}
+      {/* 2. BARRA HORIZONTAL DE PESTAÑAS DE PORTERÍA (1 A 6) */}
       <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none border-b border-slate-800">
         <button
           onClick={() => setSubmoduloPorteriaActivo(1)}
@@ -573,34 +571,6 @@ export default function ConsolaUnificadaPorteria({
             </span>
           )}
         </button>
-
-        {/* NUEVA PESTAÑA #7: PARQUEADEROS DE VISITANTES */}
-        <button
-          onClick={() => setSubmoduloPorteriaActivo(7)}
-          className={`px-4 py-2.5 rounded-xl text-xs font-bold font-mono transition cursor-pointer shrink-0 ${
-            submoduloPorteriaActivo === 7
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-400 text-slate-950 font-black shadow-[0_0_15px_rgba(34,211,238,0.35)]'
-              : 'bg-[#0b0f17] text-slate-400 hover:text-white border border-slate-800'
-          }`}
-        >
-          🚗 7. Parqueaderos de Visitantes
-        </button>
-
-        {/* PESTAÑA #8: DIRECTORIO DE UNIDADES */}
-        <button
-          onClick={() => setSubmoduloPorteriaActivo(8)}
-          className={`px-4 py-2.5 rounded-xl text-xs font-bold font-mono transition cursor-pointer shrink-0 flex items-center gap-2 ${
-            submoduloPorteriaActivo === 8
-              ? 'bg-gradient-to-r from-cyan-500 to-teal-400 text-slate-950 font-black shadow-[0_0_15px_rgba(34,211,238,0.35)]'
-              : 'bg-[#0b0f17] text-slate-400 hover:text-white border border-slate-800'
-          }`}
-        >
-          <BookOpen className="w-4 h-4 text-cyan-400" />
-          <span>📖 8. Censo &amp; Directorio (100 Aptos)</span>
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-            {unidades.length}
-          </span>
-        </button>
       </div>
 
       {/* 3. CONTENIDO PRINCIPAL ABAJO (CADA SUBMÓDULO AISLADO PARA QUE NO SE AMONTONEN) */}
@@ -609,10 +579,13 @@ export default function ConsolaUnificadaPorteria({
         {/* 1. CONTROL DE ACCESOS & LECTOR (UNIFICACIÓN DE LECTOR CRIPTOGRÁFICO Y PASES QR RESIDENTES) */}
         {submoduloPorteriaActivo === 1 && (
           <div className="space-y-6 animate-fadeIn">
-            <LectorQrConAsignacionParqueadero
-              celdas={celdasGarita}
-              onActualizarCeldas={setCeldasGarita}
+            {/* INTEGRACIÓN TOTAL DE TODAS LAS CARACTERÍSTICAS DEL MÓDULO 7 (PARQUEADEROS DE VISITANTES & BOTÓN SOS) */}
+            <GaritaParqueaderosYSosHub
               onShowToast={onShowToast}
+              nombreCopropiedad="P.H. Reserva del Tesoro"
+              limiteHorasGratis={4}
+              celdasExternal={celdasGarita}
+              onActualizarCeldasExternal={setCeldasGarita}
             />
 
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-2xl space-y-8">
@@ -930,29 +903,17 @@ export default function ConsolaUnificadaPorteria({
           </div>
         )}
 
-        {/* 6. CITÓFONO VIRTUAL DIRECTO (RESIDENTE ⇄ GARITA) */}
+        {/* 6. CITÓFONO VIRTUAL DIRECTO & DIRECTORIO DE UNIDADES */}
         {submoduloPorteriaActivo === 6 && (
-          <CitofoniaWebRTCPorteria
-            modo="porteria"
-            guardaNombre={userProfile?.full_name || 'Guarda en Turno'}
-            onShowToast={onShowToast}
-          />
-        )}
+          <div className="space-y-6 animate-fadeIn">
+            <CitofoniaWebRTCPorteria
+              modo="porteria"
+              guardaNombre={userProfile?.full_name || 'Guarda en Turno'}
+              onShowToast={onShowToast}
+            />
 
-        {/* 7. PARQUEADEROS DE VISITANTES EN TIEMPO REAL & BOTÓN SOS */}
-        {submoduloPorteriaActivo === 7 && (
-          <GaritaParqueaderosYSosHub
-            onShowToast={onShowToast}
-            nombreCopropiedad="P.H. Reserva del Tesoro"
-            limiteHorasGratis={4}
-            celdasExternal={celdasGarita}
-            onActualizarCeldasExternal={setCeldasGarita}
-          />
-        )}
-
-        {/* 8. DIRECTORIO Y CENSO DE UNIDADES (100 APTOS REALES TRICENTENARIO) */}
-        {submoduloPorteriaActivo === 8 && (
-          <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-2xl animate-fadeIn space-y-6">
+            {/* DIRECTORIO Y CENSO DE UNIDADES (100 APTOS REALES TRICENTENARIO) */}
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-2xl space-y-6">
             {/* Header del Directorio */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
               <div>
@@ -1112,6 +1073,7 @@ export default function ConsolaUnificadaPorteria({
                 )}
               </div>
             )}
+            </div>
           </div>
         )}
 

@@ -2,14 +2,10 @@ import React, { useState } from 'react';
 import { 
   DollarSign, 
   Scan, 
-  FileSpreadsheet, 
-  Scale,
-  ArrowUpDown, 
-  Sparkles 
+  FileSpreadsheet
 } from 'lucide-react';
 import LectorFacturasProveedoresOCR from './LectorFacturasProveedoresOCR';
 import GeneradorExogenaDIAN_NIIF from './GeneradorExogenaDIAN_NIIF';
-import CobranzaPazYSalvoJuridico from './CobranzaPazYSalvoJuridico';
 
 export default function SeccionTesoreriaConDIAN({
   onShowToast,
@@ -24,8 +20,8 @@ export default function SeccionTesoreriaConDIAN({
   adminRepresentante?: string;
   children?: React.ReactNode;
 }) {
-  // 1: Flujo de Caja & Bancos | 2: Lector OCR Facturas | 3: Exógena DIAN & NIIF | 4: Cobro Prejurídico & Paz y Salvos
-  const [subTabTesoreria, setSubTabTesoreria] = useState<1 | 2 | 3 | 4>(1);
+  // 1: Flujo de Caja & Bancos | 2: Lector OCR Facturas | 3: Exógena DIAN & NIIF
+  const [subTabTesoreria, setSubTabTesoreria] = useState<1 | 2 | 3>(1);
 
   return (
     <div className="space-y-6">
@@ -68,18 +64,6 @@ export default function SeccionTesoreriaConDIAN({
           >
             <FileSpreadsheet className="w-3.5 h-3.5" /> 3. Exógena DIAN &amp; NIIF
           </button>
-
-          <button
-            type="button"
-            onClick={() => setSubTabTesoreria(4)}
-            className={`px-4 py-2 rounded-xl text-xs font-bold font-mono transition cursor-pointer flex items-center gap-2 shrink-0 ${
-              subTabTesoreria === 4
-                ? 'bg-gradient-to-r from-cyan-500 to-teal-400 text-slate-950 font-black shadow-[0_0_15px_rgba(34,211,238,0.35)]'
-                : 'text-slate-400 hover:text-white bg-[#07090e] border border-slate-800'
-            }`}
-          >
-            <Scale className="w-3.5 h-3.5" /> 4. Cobro Prejurídico &amp; Paz y Salvos
-          </button>
         </div>
 
         <span className="text-[11px] font-mono text-cyan-400 bg-cyan-500/10 px-3 py-1 rounded-xl border border-cyan-500/20 hidden md:inline-block">
@@ -90,7 +74,6 @@ export default function SeccionTesoreriaConDIAN({
       {/* RENDERIZADO DEL SUBMÓDULO SELECCIONADO */}
       {subTabTesoreria === 1 && (
         <div className="space-y-6 animate-fade-in">
-          {/* Aquí permanece tu vista actual de recaudos, bancos y caja menor */}
           {children ? (
             children
           ) : (
@@ -98,14 +81,6 @@ export default function SeccionTesoreriaConDIAN({
               Panel de Conciliación Bancaria, Recaudos PSE y Flujo de Caja en Tiempo Real.
             </div>
           )}
-
-          {/* Centro de Cobranza Prejurídica y Paz y Salvos Oficiales (Ley 675) */}
-          <CobranzaPazYSalvoJuridico
-            onShowToast={onShowToast}
-            nombreCopropiedad={nombreCopropiedad}
-            nitCopropiedad={nitCopropiedad}
-            adminRepresentante={adminRepresentante}
-          />
         </div>
       )}
 
@@ -126,17 +101,6 @@ export default function SeccionTesoreriaConDIAN({
             onShowToast={onShowToast}
             nitCopropiedad={nitCopropiedad}
             nombreCopropiedad={nombreCopropiedad}
-          />
-        </div>
-      )}
-
-      {subTabTesoreria === 4 && (
-        <div className="animate-fade-in">
-          <CobranzaPazYSalvoJuridico
-            onShowToast={onShowToast}
-            nombreCopropiedad={nombreCopropiedad}
-            nitCopropiedad={nitCopropiedad}
-            adminRepresentante={adminRepresentante}
           />
         </div>
       )}

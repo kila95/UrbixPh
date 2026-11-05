@@ -174,9 +174,12 @@ export default function ModulosOperativosServiciosGenerales({
       {/* BARRA DE NAVEGACIÓN UNIFICADA Y FORZADA PARA TODOS LOS ROLES */}
       <nav className="flex items-center gap-2 overflow-x-auto py-1 px-2 bg-[#0b0f17]/90 border border-cyan-500/20 rounded-2xl shadow-lg w-full scrollbar-none whitespace-nowrap">
         <div className="flex items-center gap-2 w-full">
-          <span className="text-xs font-bold text-cyan-400 font-mono px-3 py-1.5 bg-cyan-500/10 rounded-xl border border-cyan-500/30 shrink-0">
-            ⚡ Módulos Sincronizados (Executive Glass)
-          </span>
+          <button
+            type="button"
+            className="px-4 py-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer pointer-events-auto border shrink-0 bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-[0_0_12px_rgba(0,242,254,0.25)]"
+          >
+            Vista General
+          </button>
           <span className="text-xs font-bold text-slate-300 font-mono px-3.5 py-2 bg-gradient-to-r from-cyan-500/20 to-teal-500/20 rounded-xl border border-cyan-500/40 shrink-0">
             🧹 Control de Turno, Checklist de Aseo &amp; Órdenes de Trabajo
           </span>

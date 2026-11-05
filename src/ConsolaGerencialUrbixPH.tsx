@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Building2, FileText, HardHat, DollarSign,
-  Wrench, Calendar, MessageSquare, ShieldCheck, Plus, Camera, AlertCircle, Search, Users, UserPlus, Trash2, Radio, Check, Edit3, Scan, FileSpreadsheet, LogOut, Calculator
+  Wrench, Calendar, MessageSquare, ShieldCheck, Plus, Camera, AlertCircle, AlertOctagon, Search, Users, UserPlus, Trash2, Radio, Check, Edit3, Scan, FileSpreadsheet, LogOut, Calculator
 } from 'lucide-react';
 import type { GuardIncidentReport, CommonAreaReservation } from './App';
 import { supabase, type UserProfile } from './supabaseClient';
@@ -31,6 +31,7 @@ import WhatsAppConfigCard from './WhatsAppConfigCard';
 import ModuloTesoreriaOCR from './ModuloTesoreriaOCR';
 import ModuloTesoreriaExogenaReal from './ModuloTesoreriaExogenaReal';
 import ModuloMantenimientoReal from './ModuloMantenimientoReal';
+import ModuloCobroPrejuridicoReal from './ModuloCobroPrejuridicoReal';
 
 
 export interface StaffMember {
@@ -70,7 +71,7 @@ export default function ConsolaGerencialUrbixPH({
 }: ConsolaGerencialUrbixPHProps) {
   const [saldoCajaMenor, setSaldoCajaMenor] = useState<number>(1880000);
   const [porcentajeRecaudo, setPorcentajeRecaudo] = useState<number>(2.0);
-  const [activeTab, setActiveTab] = useState<'general' | 'cartelera' | 'porteria' | 'comunicados' | 'asamblea' | 'actas' | 'contractors' | 'cartera' | 'facturas_ocr' | 'exogena_dian' | 'mantenimiento' | 'personal' | 'reservas' | 'pqrs' | 'whatsapp'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'cartelera' | 'porteria' | 'comunicados' | 'asamblea' | 'actas' | 'contractors' | 'cartera' | 'prejuridico' | 'facturas_ocr' | 'exogena_dian' | 'mantenimiento' | 'personal' | 'reservas' | 'pqrs' | 'whatsapp'>('general');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [mostrarModalCuadrilla, setMostrarModalCuadrilla] = useState(false);
@@ -711,7 +712,7 @@ export default function ConsolaGerencialUrbixPH({
           onChange={(e) => setActiveTab(e.target.value as any)}
           className="bg-slate-900 text-cyan-300 font-bold text-xs p-2 rounded-xl border border-slate-700 w-full outline-none focus:border-cyan-400 cursor-pointer"
         >
-          <option value="general">🏢 General (Portafolio & Macro-Salud)</option>
+          <option value="general">🏢 Vista General</option>
           <option value="cartelera">📢 Cartelera Virtual y Circulares Oficiales</option>
           <option value="asamblea">🗳️ Asambleas & Actas Legales (Ley 675)</option>
           <option value="contractors">🛡️ Contratistas & Obras (SG-SST)</option>
@@ -726,45 +727,26 @@ export default function ConsolaGerencialUrbixPH({
 
       {/* 2. BARRA DE NAVEGACIÓN EN UNA SOLA LÍNEA HORIZONTAL SIN SALTOS (SWIPE TÁCTIL) */}
       <nav className="w-full flex items-center gap-2 overflow-x-auto whitespace-nowrap scrollbar-none py-2 px-3 bg-[#0b0f17] border border-cyan-500/20 rounded-2xl shrink-0 shadow-lg touch-pan-x">
-        <span className="text-xs font-bold text-cyan-400 font-mono px-3 py-1.5 bg-cyan-500/10 rounded-xl border border-cyan-500/30 shrink-0">
-          ⚡ Módulos Sincronizados (Executive Glass)
-        </span>
-        <div className="flex items-center gap-2 overflow-x-auto py-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab('general')}
-            className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer shrink-0 ${
-              activeTab === 'general' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            📊 General
-          </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('general')}
+          className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer pointer-events-auto border shrink-0 ${
+            activeTab === 'general'
+              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-[0_0_12px_rgba(0,242,254,0.25)]'
+              : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700 hover:bg-slate-800'
+          }`}
+        >
+          Vista General
+        </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('cartelera')}
-            className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer shrink-0 ${
-              activeTab === 'cartelera' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            📢 Cartelera & Circulares
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('porteria')}
-            className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer shrink-0 ${
-              activeTab === 'porteria' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            🛡️ Portería (Tiempo Real)
-          </button>
-        </div>
         {[
           { id: 'asamblea', label: 'Asambleas & Actas Legales', icon: Users, color: 'text-cyan-400' },
           { id: 'contractors', label: 'Contratistas & Obras', icon: HardHat, color: 'text-emerald-400' },
           { id: 'cartera', label: 'Tesorería, OCR & DIAN', icon: DollarSign, color: 'text-teal-400' },
+          { id: 'prejuridico', label: 'Cobro Prejurídico & Acuerdos', icon: AlertOctagon, color: 'text-rose-400' },
           { id: 'mantenimiento', label: 'Mantenimiento', icon: Wrench, color: 'text-amber-400' },
+          { id: 'cartelera', label: 'Cartelera & Circulares', icon: FileText, color: 'text-sky-400' },
+          { id: 'porteria', label: 'Portería (Tiempo Real)', icon: ShieldCheck, color: 'text-blue-400' },
           { id: 'personal', label: 'Personal & Staff', icon: Users, color: 'text-purple-400' },
           { id: 'reservas', label: 'Áreas Comunes', icon: Calendar, color: 'text-indigo-400' },
           { id: 'pqrs', label: 'PQRS', icon: MessageSquare, color: 'text-cyan-400' },
@@ -930,6 +912,15 @@ export default function ConsolaGerencialUrbixPH({
         {/* 3. CONTRATISTAS & OBRAS */}
         {activeTab === 'contractors' && (
           <ContractorsModule tenantName={resolvedTenantName} onShowToast={onShowToast} />
+        )}
+
+        {/* COBRO PREJURÍDICO & ACUERDOS */}
+        {activeTab === 'prejuridico' && (
+          <ModuloCobroPrejuridicoReal
+            tenantId={tenantActivoId}
+            tenantName={resolvedTenantName}
+            onShowToast={onShowToast}
+          />
         )}
 
         {/* 4. SECCIÓN DE TESORERÍA CON SUB-PESTAÑAS (FLUJO DE CAJA, OCR FACTURAS, EXÓGENA DIAN & NIIF) */}

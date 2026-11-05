@@ -27,10 +27,13 @@ export default function ModuloMantenimientoReal({ tenantId = 't1', onShowToast }
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.warn('Aviso al consultar maintenance_reports:', error.message);
+        return;
+      }
       setReportes(data || []);
     } catch (err: any) {
-      console.error('Error cargando reportes reales de mantenimiento:', err.message);
+      console.warn('Aviso cargando reportes reales de mantenimiento:', err?.message);
     } finally {
       setCargando(false);
     }

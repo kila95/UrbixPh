@@ -813,9 +813,17 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
 
       {/* 2. BARRA DE NAVEGACIÓN EN UNA SOLA LÍNEA HORIZONTAL SIN SALTOS (SWIPE TÁCTIL) */}
       <nav className="w-full flex items-center gap-2 overflow-x-auto whitespace-nowrap scrollbar-none py-2 px-3 bg-[#0b0f17] border border-cyan-500/20 rounded-2xl shrink-0 shadow-lg touch-pan-x">
-        <span className="text-xs font-bold text-cyan-400 font-mono px-3 py-1.5 bg-cyan-500/10 rounded-xl border border-cyan-500/30 shrink-0">
-          ⚡ Módulos Sincronizados (Executive Glass)
-        </span>
+        <button
+          type="button"
+          onClick={() => setActiveTabResidente('mi_apartamento')}
+          className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer pointer-events-auto border shrink-0 ${
+            activeTabResidente === 'mi_apartamento'
+              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-[0_0_12px_rgba(0,242,254,0.25)]'
+              : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700 hover:bg-slate-800'
+          }`}
+        >
+          Vista General
+        </button>
         <button 
           onClick={() => setActiveTabResidente('mi_apartamento')} 
           className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer min-h-[40px] ${activeTabResidente === 'mi_apartamento' ? 'bg-gradient-to-r from-cyan-500/20 to-teal-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_15px_rgba(34,211,238,0.2)]' : 'text-slate-400 hover:text-white hover:bg-slate-900/60 border border-transparent'}`}

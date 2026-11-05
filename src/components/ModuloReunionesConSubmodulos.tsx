@@ -38,6 +38,8 @@ import { exportActaToLegalPDF } from '../ActaCardWithPDF';
 import ResilientMeetingRecorder from '../ResilientMeetingRecorder';
 import { EditorActaLegal } from './EditorActaLegal';
 import ModalLlamadaEntranteResidente from './ModalLlamadaEntranteResidente';
+import VotacionAsambleaEnVivo from './VotacionAsambleaEnVivo';
+import TarjetonVotacionReal from './TarjetonVotacionReal';
 
 export interface ModuloReunionesConSubmodulosProps {
   unidadResidenteActual?: string;
@@ -3420,71 +3422,16 @@ export default function ModuloReunionesConSubmodulos({
       {/* SUBMÓDULO 4: VOTACIONES */}
       {submoduloActivo === 'votaciones' && (
         <div className="space-y-6">
-          <div className="bg-[#0b0f17] border border-amber-500/30 p-6 rounded-3xl space-y-6 shadow-xl">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-              <div>
-                <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">
-                  MOCIÓN EN CURSO • LEY 675
-                </span>
-                <h4 className="text-base sm:text-lg font-black text-white mt-1.5 font-mono">
-                  Tarjetón Digital de Votación Nominal
-                </h4>
-                <p className="text-xs text-slate-300 font-medium mt-0.5">{mociónActual.titulo}</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">{mociónActual.tipoMayoria}</p>
-              </div>
-              <div className="text-right">
-                <span className="text-[11px] text-slate-400 font-mono block">Peso de voto ({unidadActiva}):</span>
-                <span className="text-sm font-black text-cyan-400 font-mono">1.05% Coeficiente</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <button
-                type="button"
-                disabled={mociónActual.haVotado}
-                onClick={() => handleVotar('favor')}
-                className={`p-4 rounded-2xl border text-center transition flex flex-col items-center gap-2 cursor-pointer ${
-                  mociónActual.miVoto === 'favor'
-                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-[0_0_20px_rgba(16,185,129,0.3)]'
-                    : 'bg-[#07090e] border-slate-800 hover:border-emerald-500/50 text-slate-200'
-                }`}
-              >
-                <CheckCircle2 className="w-6 h-6 text-emerald-400" />
-                <span className="font-bold text-sm">A Favor</span>
-                <span className="text-[10px] font-mono text-emerald-400">{mociónActual.coefFavor}% acumulado</span>
-              </button>
-
-              <button
-                type="button"
-                disabled={mociónActual.haVotado}
-                onClick={() => handleVotar('contra')}
-                className={`p-4 rounded-2xl border text-center transition flex flex-col items-center gap-2 cursor-pointer ${
-                  mociónActual.miVoto === 'contra'
-                    ? 'bg-rose-500/20 border-rose-500 text-rose-300 shadow-[0_0_20px_rgba(244,63,94,0.3)]'
-                    : 'bg-[#07090e] border-slate-800 hover:border-rose-500/50 text-slate-200'
-                }`}
-              >
-                <XCircle className="w-6 h-6 text-rose-400" />
-                <span className="font-bold text-sm">En Contra</span>
-                <span className="text-[10px] font-mono text-rose-400">{mociónActual.coefContra}% acumulado</span>
-              </button>
-
-              <button
-                type="button"
-                disabled={mociónActual.haVotado}
-                onClick={() => handleVotar('blanco')}
-                className={`p-4 rounded-2xl border text-center transition flex flex-col items-center gap-2 cursor-pointer ${
-                  mociónActual.miVoto === 'blanco'
-                    ? 'bg-slate-700/40 border-slate-400 text-slate-200'
-                    : 'bg-[#07090e] border-slate-800 hover:border-slate-600 text-slate-300'
-                }`}
-              >
-                <ShieldCheck className="w-6 h-6 text-slate-400" />
-                <span className="font-bold text-sm">En Blanco</span>
-                <span className="text-[10px] font-mono text-slate-400">{mociónActual.coefBlanco}% acumulado</span>
-              </button>
-            </div>
-          </div>
+          <TarjetonVotacionReal
+            tenantId="22079bb5-6ac7-4a15-be89-c53d14e4221b"
+            userProfile={{
+              full_name: miNombreReal,
+              unit_number: unidadActiva,
+              coefficient: 1.05,
+              role: rolUsuario
+            }}
+            onShowToast={onShowToast}
+          />
         </div>
       )}
 
