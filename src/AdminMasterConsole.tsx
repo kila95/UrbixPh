@@ -320,21 +320,30 @@ export default function AdminMasterConsole({
       return;
     }
 
-    const fechaHoy = new Date().toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
-    const codeVerif = `PYS-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
-    const signerTitle =
+    const escapeHtml = (str: string = '') =>
+      String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+
+    const fechaHoy = escapeHtml(new Date().toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' }));
+    const codeVerif = escapeHtml(`PYS-${Math.random().toString(36).substring(2, 9).toUpperCase()}`);
+    const signerTitle = escapeHtml(
       hierarchyRole === 'supervisor' && isReemplazoActivo
         ? 'ADMINISTRADOR(A) EN ENCARGO (SUPLENCIA DELEGADA / RELEVO)'
         : hierarchyRole === 'superadmin'
         ? 'GERENCIA GENERAL • FIRMA ADMINISTRADORA URBIX PH'
-        : 'ADMINISTRADOR(A) TITULAR Y REPRESENTANTE LEGAL';
+        : 'ADMINISTRADOR(A) TITULAR Y REPRESENTANTE LEGAL'
+    );
 
     const docHtml = `
       <!DOCTYPE html>
       <html lang="es">
       <head>
         <meta charset="UTF-8">
-        <title>Certificado de Paz y Salvo - ${item.unit}</title>
+        <title>Certificado de Paz y Salvo - ${escapeHtml(item.unit)}</title>
         <style>
           @page { size: letter; margin: 3cm 2.5cm; }
           body { font-family: 'Georgia', serif; color: #0f172a; line-height: 1.8; font-size: 11pt; padding: 20px; background: #ffffff; }
@@ -354,29 +363,29 @@ export default function AdminMasterConsole({
       <body>
         <button class="btn-print" onclick="window.print()">Guardar como PDF / Imprimir</button>
         <div class="header">
-          <h1>${activeTenant.name}</h1>
-          <p>NIT: ${activeTenant.nit} • ${activeTenant.zone} (${activeTenant.city})</p>
+          <h1>${escapeHtml(activeTenant.name)}</h1>
+          <p>NIT: ${escapeHtml(activeTenant.nit)} • ${escapeHtml(activeTenant.zone)} (${escapeHtml(activeTenant.city)})</p>
           <p>Personería Jurídica Registrada - Régimen de Propiedad Horizontal Ley 675 de 2001</p>
         </div>
 
         <div class="title">Certificado Oficial de Paz y Salvo</div>
 
         <div class="body-text">
-          La Administración de <span class="highlight">${activeTenant.name}</span>, legalmente constituida según las disposiciones de la Ley 675 de 2001,
+          La Administración de <span class="highlight">${escapeHtml(activeTenant.name)}</span>, legalmente constituida según las disposiciones de la Ley 675 de 2001,
           <br/><br/>
           <strong>HACE CONSTAR QUE:</strong>
           <br/><br/>
-          El inmueble distinguido como <span class="highlight">${item.unit}</span>, de propiedad de <span class="highlight">${item.owner}</span>, 
-          identificado(a) con cédula de ciudadanía No. <span class="highlight">${item.doc}</span>, se encuentra a la fecha 
+          El inmueble distinguido como <span class="highlight">${escapeHtml(item.unit)}</span>, de propiedad de <span class="highlight">${escapeHtml(item.owner)}</span>, 
+          identificado(a) con cédula de ciudadanía No. <span class="highlight">${escapeHtml(item.doc)}</span>, se encuentra a la fecha 
           <strong>TOTALMENTE A PAZ Y SALVO</strong> por concepto de expensas comunes ordinarias, extraordinarias, intereses moratorios y sanciones de convivencia.
           <br/><br/>
-          El presente certificado se expide a solicitud de la parte interesada en ${activeTenant.city}, a los <strong>${fechaHoy}</strong>, con una validez legal de treinta (30) días calendario contados a partir de su emisión, para los fines notariales, comerciales y de registro a que haya lugar.
+          El presente certificado se expide a solicitud de la parte interesada en ${escapeHtml(activeTenant.city)}, a los <strong>${fechaHoy}</strong>, con una validez legal de treinta (30) días calendario contados a partir de su emisión, para los fines notariales, comerciales y de registro a que haya lugar.
         </div>
 
         <div class="signatures">
           <div class="sig-box">
             <strong>${signerTitle}</strong><br/>
-            ${activeTenant.name}<br/>
+            ${escapeHtml(activeTenant.name)}<br/>
             C.C. ________________________
           </div>
           <div class="sig-box">
@@ -405,12 +414,20 @@ export default function AdminMasterConsole({
   // EXPORTADOR FORMAL DE ACTAS A PDF (LEY 675)
   // ==========================================================================
   const exportActaPDF = (acta: ActaLegalItem) => {
+    const escapeHtml = (str: string = '') =>
+      String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+
     const docHtml = `
       <!DOCTYPE html>
       <html lang="es">
       <head>
         <meta charset="UTF-8">
-        <title>${acta.number} - ${activeTenant.name}</title>
+        <title>${escapeHtml(acta.number)} - ${escapeHtml(activeTenant.name)}</title>
         <style>
           @page { size: letter; margin: 2.5cm 2cm; }
           body { font-family: 'Georgia', serif; color: #0f172a; line-height: 1.7; font-size: 11pt; padding: 20px; background: #ffffff; }
@@ -426,26 +443,26 @@ export default function AdminMasterConsole({
       <body>
         <button class="btn-print" onclick="window.print()">Descargar como PDF</button>
         <div class="header">
-          <h2>${activeTenant.name}</h2>
-          <p style="margin:2px 0 0; font-size:10pt;">NIT: ${activeTenant.nit} • ${acta.number}</p>
+          <h2>${escapeHtml(activeTenant.name)}</h2>
+          <p style="margin:2px 0 0; font-size:10pt;">NIT: ${escapeHtml(activeTenant.nit)} • ${escapeHtml(acta.number)}</p>
           <p style="margin:0; font-size:9pt; color:#475569;">Libro Oficial de Actas - Ley 675 de 2001</p>
         </div>
 
         <table class="table-meta">
-          <tr><td class="label">Reunión</td><td>${acta.type}</td><td class="label">Quórum</td><td>${acta.quorum}</td></tr>
-          <tr><td class="label">Fecha</td><td>${acta.date}</td><td class="label">Estado</td><td>${acta.status}</td></tr>
-          <tr><td class="label">Presidente</td><td>${acta.president}</td><td class="label">Secretario</td><td>${acta.secretary}</td></tr>
+          <tr><td class="label">Reunión</td><td>${escapeHtml(acta.type)}</td><td class="label">Quórum</td><td>${escapeHtml(acta.quorum)}</td></tr>
+          <tr><td class="label">Fecha</td><td>${escapeHtml(acta.date)}</td><td class="label">Estado</td><td>${escapeHtml(acta.status)}</td></tr>
+          <tr><td class="label">Presidente</td><td>${escapeHtml(acta.president)}</td><td class="label">Secretario</td><td>${escapeHtml(acta.secretary)}</td></tr>
         </table>
 
         <h3 style="text-transform:uppercase; border-bottom:1px solid #0f172a; padding-bottom:4px;">I. Deliberaciones y Acuerdos Principales</h3>
-        <p style="text-align:justify;">${acta.summary}</p>
+        <p style="text-align:justify;">${escapeHtml(acta.summary)}</p>
 
         <div style="margin-top:80px; display:flex; justify-content:space-between;">
           <div style="width:45%; border-top:1.5px solid #0f172a; text-align:center; padding-top:8px;">
-            <strong>${acta.president}</strong><br/>Presidente de Sesión
+            <strong>${escapeHtml(acta.president)}</strong><br/>Presidente de Sesión
           </div>
           <div style="width:45%; border-top:1.5px solid #0f172a; text-align:center; padding-top:8px;">
-            <strong>${acta.secretary}</strong><br/>Secretario(a) / Administrador
+            <strong>${escapeHtml(acta.secretary)}</strong><br/>Secretario(a) / Administrador
           </div>
         </div>
       </body>

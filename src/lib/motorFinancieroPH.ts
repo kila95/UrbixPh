@@ -174,12 +174,20 @@ export function imprimirReciboDeCajaPDF(
   payerName: string,
   res: interfaceResultadoPrelacion
 ) {
-  const fecha = new Date().toLocaleString('es-CO');
+  const escapeHtml = (str: string = '') =>
+    String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+
+  const fecha = escapeHtml(new Date().toLocaleString('es-CO'));
   const html = `<!DOCTYPE html>
   <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <title>Recibo de Caja ${res.receiptNumber}</title>
+    <title>Recibo de Caja ${escapeHtml(res.receiptNumber)}</title>
     <style>
       body { font-family: 'Segoe UI', Tahoma, sans-serif; color: #0f172a; padding: 30px; max-width: 720px; margin: auto; }
       .box { border: 2px solid #0f172a; border-radius: 12px; padding: 24px; }
@@ -195,15 +203,15 @@ export function imprimirReciboDeCajaPDF(
     <div class="box">
       <div class="header">
         <div>
-          <h2 style="margin:0;">${tenantName}</h2>
+          <h2 style="margin:0;">${escapeHtml(tenantName)}</h2>
           <p style="margin:4px 0 0; font-size:12px;">Comprobante Oficial de Ingreso - Régimen Ley 675 de 2001</p>
         </div>
         <div style="text-align:right;">
-          <strong style="font-size:16px; color:#059669;">${res.receiptNumber}</strong><br/>
+          <strong style="font-size:16px; color:#059669;">${escapeHtml(res.receiptNumber)}</strong><br/>
           <span style="font-size:11px;">Fecha: ${fecha}</span>
         </div>
       </div>
-      <p style="font-size:13px; margin:6px 0;"><strong>Inmueble:</strong> ${unitLabel} &nbsp;|&nbsp; <strong>Recibido de:</strong> ${payerName}</p>
+      <p style="font-size:13px; margin:6px 0;"><strong>Inmueble:</strong> ${escapeHtml(unitLabel)} &nbsp;|&nbsp; <strong>Recibido de:</strong> ${escapeHtml(payerName)}</p>
       <table class="table">
         <thead>
           <tr>
@@ -235,7 +243,7 @@ export function imprimirReciboDeCajaPDF(
         </tbody>
       </table>
       <p style="margin-top:16px; font-size:13px;">
-        <strong>Nuevo Saldo Pendiente de la Unidad:</strong> $${res.newTotalBalance.toLocaleString('es-CO')} COP (${res.status.toUpperCase()})
+        <strong>Nuevo Saldo Pendiente de la Unidad:</strong> $${res.newTotalBalance.toLocaleString('es-CO')} COP (${escapeHtml(res.status.toUpperCase())})
       </p>
       <div class="footer">
         Certificado digitalmente por Urbix PH · Imputación contable conforme al Art. 1653 del Código Civil y Art. 29-30 Ley 675 de 2001.

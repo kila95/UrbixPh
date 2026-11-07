@@ -125,6 +125,14 @@ export function buildActaPdfMakeSectionIII(actaData: LegalActaData) {
   ];
 }
 
+export const escapeHtml = (str: string = '') =>
+  String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
 // 3. GENERADOR DE ACTA FOLIADA CON COMPROBACIÓN DIGITAL Y QUÓRUM LEY 675
 export function buildActaLegalHTML(
   acta: LegalActaData,
@@ -139,15 +147,19 @@ export function buildActaLegalHTML(
   const balanceList = Array.isArray(acta.balanceFinanciero) ? acta.balanceFinanciero : [];
   const votacionesList = Array.isArray(acta.decisionesYVotaciones) ? acta.decisionesYVotaciones : [];
   const segmentsList = Array.isArray(acta.audio_segments) ? acta.audio_segments : [];
-  const cleanQuorum = String(acta.encabezado?.quorum || acta.quorum_percentage || '100').replace('%', '');
-  const verificationHash = acta.digital_stamp?.hash || `URBIX-PH-${acta.minute_number}-SEC-${Date.now().toString(16).toUpperCase()}`;
-  const nowFormatted = new Date().toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
+  const cleanQuorum = escapeHtml(String(acta.encabezado?.quorum || acta.quorum_percentage || '100').replace('%', ''));
+  const verificationHash = escapeHtml(
+    acta.digital_stamp?.hash || `URBIX-PH-${acta.minute_number}-SEC-${Date.now().toString(16).toUpperCase()}`
+  );
+  const nowFormatted = escapeHtml(
+    new Date().toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' })
+  );
 
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>${acta.minute_number} - ${tenantInfo.name}</title>
+  <title>${escapeHtml(acta.minute_number)} - ${escapeHtml(tenantInfo.name)}</title>
   <style>
     @page { size: letter; margin: 2cm 2cm 2cm 2cm; }
     body { font-family: 'Georgia', 'Times New Roman', serif; color: #0f172a; background: #ffffff; line-height: 1.65; font-size: 11pt; margin: 0; padding: 24px; }
@@ -198,7 +210,7 @@ export function buildActaLegalHTML(
     <div style="display: flex; align-items: center; gap: 18px;">
       ${tenantInfo.logoUrl ? `
         <div style="width: 72px; height: 72px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 8px; border: 1px solid #cbd5e1; background: #ffffff; padding: 4px;">
-          <img src="${tenantInfo.logoUrl}" alt="Logo ${tenantInfo.name}" style="max-width: 100%; max-height: 100%; object-fit: contain;" />
+          <img src="${escapeHtml(tenantInfo.logoUrl)}" alt="Logo ${escapeHtml(tenantInfo.name)}" style="max-width: 100%; max-height: 100%; object-fit: contain;" />
         </div>
       ` : `
         <div style="width: 58px; height: 58px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: #0f172a; color: #10b981; font-weight: 900; font-size: 22px;">
@@ -206,37 +218,37 @@ export function buildActaLegalHTML(
         </div>
       `}
       <div class="header-title">
-        <h1>${acta.encabezado?.copropiedad || tenantInfo.name}</h1>
-        <p>NIT: ${tenantInfo.nit} • Ubicación: ${tenantInfo.zone}</p>
+        <h1>${escapeHtml(acta.encabezado?.copropiedad || tenantInfo.name)}</h1>
+        <p>NIT: ${escapeHtml(tenantInfo.nit)} • Ubicación: ${escapeHtml(tenantInfo.zone)}</p>
         <p>Régimen de Propiedad Horizontal - Ley 675 de 2001 (Art. 47)</p>
       </div>
     </div>
 
     <div class="header-meta">
-      <strong>${acta.minute_number}</strong>
-      <span>Estado: <strong>${acta.status}</strong></span><br/>
-      <span>Fecha: ${acta.encabezado?.fecha || acta.meeting_date}</span>
+      <strong>${escapeHtml(acta.minute_number)}</strong>
+      <span>Estado: <strong>${escapeHtml(acta.status)}</strong></span><br/>
+      <span>Fecha: ${escapeHtml(acta.encabezado?.fecha || acta.meeting_date)}</span>
     </div>
   </div>
 
   <table class="legal-grid">
     <tr>
       <td class="label">Órgano Colegiado</td>
-      <td>${acta.encabezado?.organo || acta.meeting_type}</td>
+      <td>${escapeHtml(acta.encabezado?.organo || acta.meeting_type)}</td>
       <td class="label">Quórum Verificado</td>
       <td><strong>${cleanQuorum}%</strong> del Coeficiente Total (Ley 675 Art. 45)</td>
     </tr>
     <tr>
       <td class="label">Fecha de Sesión</td>
-      <td>${acta.encabezado?.fecha || acta.meeting_date}</td>
+      <td>${escapeHtml(acta.encabezado?.fecha || acta.meeting_date)}</td>
       <td class="label">Horario (Inicio / Fin)</td>
-      <td>${acta.encabezado?.horaInicio || acta.start_time || '18:00'}${acta.encabezado?.horaFin || acta.end_time ? ` — ${acta.encabezado?.horaFin || acta.end_time}` : ''}</td>
+      <td>${escapeHtml(acta.encabezado?.horaInicio || acta.start_time || '18:00')}${acta.encabezado?.horaFin || acta.end_time ? ` — ${escapeHtml(acta.encabezado?.horaFin || acta.end_time || '')}` : ''}</td>
     </tr>
     <tr>
       <td class="label">Presidente Designado</td>
-      <td>${acta.encabezado?.presidente || acta.president_name}</td>
+      <td>${escapeHtml(acta.encabezado?.presidente || acta.president_name)}</td>
       <td class="label">Secretario(a)</td>
-      <td>${acta.encabezado?.secretario || acta.secretary_name}</td>
+      <td>${escapeHtml(acta.encabezado?.secretario || acta.secretary_name)}</td>
     </tr>
   </table>
 
@@ -252,7 +264,7 @@ export function buildActaLegalHTML(
     <div style="margin-bottom: 14px;">
       <strong style="font-size: 10pt; text-transform: uppercase; color: #0f172a;">Orden del Día Aprobado:</strong>
       <ol class="agenda-list">
-        ${ordenDelDiaList.map(item => `<li>${String(item).replace(/^\d+[\.\)]\s*/, '')}</li>`).join('')}
+        ${ordenDelDiaList.map(item => `<li>${escapeHtml(String(item).replace(/^\d+[\.\)]\s*/, ''))}</li>`).join('')}
       </ol>
     </div>
   ` : ''}
@@ -260,7 +272,7 @@ export function buildActaLegalHTML(
   ${acta.summary ? `
     <div style="margin-bottom: 16px;">
       <strong style="font-size: 10pt; text-transform: uppercase; color: #0f172a;">Síntesis Ejecutiva y Constancia de Instalación:</strong>
-      <div class="content-block" style="margin-top: 6px;">${acta.summary}</div>
+      <div class="content-block" style="margin-top: 6px;">${escapeHtml(acta.summary)}</div>
     </div>
   ` : ''}
 
@@ -269,10 +281,10 @@ export function buildActaLegalHTML(
       <strong style="font-size: 10pt; text-transform: uppercase; color: #0f172a; display: block; margin-bottom: 10px;">Desarrollo Exhaustivo de los Puntos del Orden del Día:</strong>
       ${desarrolloList.map((puntoItem, idx) => `
         <div class="point-card">
-          <h3>${puntoItem.punto || `Punto ${idx + 1}`}</h3>
-          <p>${puntoItem.intervencionesClave || ''}</p>
+          <h3>${escapeHtml(puntoItem.punto || `Punto ${idx + 1}`)}</h3>
+          <p>${escapeHtml(puntoItem.intervencionesClave || '')}</p>
           ${Array.isArray(puntoItem.nombresMencionados) && puntoItem.nombresMencionados.length > 0 ? `
-            <div class="point-speakers">Intervinientes / Referencias registradas: ${puntoItem.nombresMencionados.join(', ')}</div>
+            <div class="point-speakers">Intervinientes / Referencias registradas: ${escapeHtml(puntoItem.nombresMencionados.join(', '))}</div>
           ` : ''}
         </div>
       `).join('')}
@@ -295,12 +307,12 @@ export function buildActaLegalHTML(
       <tbody>
         ${balanceList.map(item => `
           <tr>
-            <td><strong>${item.concepto || ''}</strong></td>
-            <td>${item.valorPresupuestado || item.valorCOP || '[Monto omitido en deliberación oral]'}</td>
-            <td>${item.valorCotizadoReal || item.valorCOP || '[Monto omitido en deliberación oral]'}</td>
-            <td>${item.variacionDescuento || '0%'}</td>
-            <td>${item.proveedorContratista || item.origen || 'Presupuesto General'}</td>
-            <td><strong>${item.estadoDecision || item.estado || 'En evaluación'}</strong></td>
+            <td><strong>${escapeHtml(item.concepto || '')}</strong></td>
+            <td>${escapeHtml(item.valorPresupuestado || item.valorCOP || '[Monto omitido en deliberación oral]')}</td>
+            <td>${escapeHtml(item.valorCotizadoReal || item.valorCOP || '[Monto omitido en deliberación oral]')}</td>
+            <td>${escapeHtml(item.variacionDescuento || '0%')}</td>
+            <td>${escapeHtml(item.proveedorContratista || item.origen || 'Presupuesto General')}</td>
+            <td><strong>${escapeHtml(item.estadoDecision || item.estado || 'En evaluación')}</strong></td>
           </tr>
         `).join('')}
       </tbody>
@@ -322,17 +334,17 @@ export function buildActaLegalHTML(
       <tbody>
         ${votacionesList.map(v => `
           <tr>
-            <td><strong>${v.proposicion || ''}</strong></td>
-            <td>${v.votosFavor || '0'}</td>
-            <td>${v.votosContra || '0'}</td>
-            <td>${v.abstenciones || '0'}</td>
-            <td><strong>${v.resultado || 'APROBADO'}</strong></td>
+            <td><strong>${escapeHtml(v.proposicion || '')}</strong></td>
+            <td>${escapeHtml(v.votosFavor || '0')}</td>
+            <td>${escapeHtml(v.votosContra || '0')}</td>
+            <td>${escapeHtml(v.abstenciones || '0')}</td>
+            <td><strong>${escapeHtml(v.resultado || 'APROBADO')}</strong></td>
           </tr>
         `).join('')}
       </tbody>
     </table>
   ` : acta.raw_transcript ? `
-    <div class="content-block">${acta.raw_transcript}</div>
+    <div class="content-block">${escapeHtml(acta.raw_transcript)}</div>
   ` : `<p class="content-block">No se registraron proposiciones formales sometidas a votación nominal en esta sesión.</p>`}
 
   <h2 class="section-title">V. Cuadro de Compromisos, Tareas y Responsables</h2>
@@ -348,9 +360,9 @@ export function buildActaLegalHTML(
       <tbody>
         ${commitmentsList.map((c: any) => `
           <tr>
-            <td><strong>${c.responsable || 'Administración'}</strong></td>
-            <td>${c.tarea || ''}</td>
-            <td>${c.fechaLimite || c.fecha_limite || 'Inmediato'}</td>
+            <td><strong>${escapeHtml(c.responsable || 'Administración')}</strong></td>
+            <td>${escapeHtml(c.tarea || '')}</td>
+            <td>${escapeHtml(c.fechaLimite || c.fecha_limite || 'Inmediato')}</td>
           </tr>
         `).join('')}
       </tbody>
@@ -363,12 +375,12 @@ export function buildActaLegalHTML(
     </p>
     <div class="signatures-grid">
       <div class="signature-box">
-        <strong>${acta.president_name}</strong>
+        <strong>${escapeHtml(acta.president_name)}</strong>
         <span>Presidente de la Sesión</span><br/>
         <span>Firma Digital / Autógrafa Verificada</span>
       </div>
       <div class="signature-box">
-        <strong>${acta.secretary_name}</strong>
+        <strong>${escapeHtml(acta.secretary_name)}</strong>
         <span>Secretario(a) de la Sesión / Administración</span><br/>
         <span>Firma Digital / Autógrafa Verificada</span>
       </div>

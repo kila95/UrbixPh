@@ -199,9 +199,17 @@ export default function CobranzaPrejuridicaYPazYSalvos({
 
   // Generador de Carta Prejurídica Foliada en HTML/PDF con datos reales
   const generarCartaPrejuridicaPDF = (exp: any) => {
+    const escapeHtml = (str: string = '') =>
+      String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+
     const total = Number(exp.capital_debt) + Number(exp.interest_debt);
-    const fechaHoy = new Date().toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
-    const radicado = `EXP-PJ-${new Date().getFullYear()}-${String(exp.id || '001').slice(0, 6).toUpperCase()}`;
+    const fechaHoy = escapeHtml(new Date().toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' }));
+    const radicado = escapeHtml(`EXP-PJ-${new Date().getFullYear()}-${String(exp.id || '001').slice(0, 6).toUpperCase()}`);
 
     const htmlDoc = `<!DOCTYPE html>
     <html lang="es">
@@ -222,20 +230,20 @@ export default function CobranzaPrejuridicaYPazYSalvos({
     </head>
     <body>
       <div class="header">
-        <h2>${resolvedTenantName}</h2>
+        <h2>${escapeHtml(resolvedTenantName)}</h2>
         <p>Régimen de Propiedad Horizontal - Ley 675 de 2001<br>Cobro Coactivo y Gestión Prejurídica de Cartera</p>
       </div>
 
       <div class="meta-box">
         <strong>Radicado:</strong> ${radicado}<br>
         <strong>Fecha de Emisión:</strong> ${fechaHoy}<br>
-        <strong>Deudor / Copropietario:</strong> ${exp.resident_name}<br>
-        <strong>Estado del Expediente:</strong> ${exp.stage}
+        <strong>Deudor / Copropietario:</strong> ${escapeHtml(exp.resident_name)}<br>
+        <strong>Estado del Expediente:</strong> ${escapeHtml(exp.stage)}
       </div>
 
       <div class="content">
         <p>Cordial saludo,</p>
-        <p>Por medio de la presente, la Administración de <strong>${resolvedTenantName}</strong>, en ejercicio de las facultades conferidas por el Artículo 51 de la Ley 675 de 2001, le notifica formalmente el estado de mora que presenta su unidad inmobiliaria por concepto de expensas comunes de administración.</p>
+        <p>Por medio de la presente, la Administración de <strong>${escapeHtml(resolvedTenantName)}</strong>, en ejercicio de las facultades conferidas por el Artículo 51 de la Ley 675 de 2001, le notifica formalmente el estado de mora que presenta su unidad inmobiliaria por concepto de expensas comunes de administración.</p>
 
         <table class="table-debt">
           <tr>
@@ -261,7 +269,7 @@ export default function CobranzaPrejuridicaYPazYSalvos({
         <div class="signature">
           __________________________________________<br>
           <strong>ADMINISTRACIÓN Y REPRESENTACIÓN LEGAL</strong><br>
-          ${resolvedTenantName}
+          ${escapeHtml(resolvedTenantName)}
         </div>
       </div>
       <script>window.onload = function() { window.print(); };</script>

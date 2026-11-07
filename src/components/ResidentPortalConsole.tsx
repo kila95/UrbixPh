@@ -440,10 +440,18 @@ export default function ResidentPortalConsole({
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 4500);
 
+      const { data: { session } } = await supabase.auth.getSession();
+      const copilotHeaders: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+      if (session?.access_token) {
+        copilotHeaders['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
       // Enviar consulta al backend pasando el historial de conversación y el contexto financiero
       const resServer = await fetch('/api/copilot-chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: copilotHeaders,
         signal: controller.signal,
         body: JSON.stringify({
           prompt: textoUsuario,

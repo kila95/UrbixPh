@@ -175,7 +175,7 @@ async function startServer() {
   >();
 
   // Copilot de consultas para residentes (Régimen Ley 675)
-  app.post("/api/copilot-chat", async (req, res) => {
+  app.post("/api/copilot-chat", requireAuth, async (req, res) => {
     const { prompt, residentContext } = req.body || {};
     if (!prompt) return res.status(400).json({ error: "El mensaje es obligatorio." });
 
@@ -474,7 +474,7 @@ INSTRUCCIONES OBLIGATORIAS PARA ENTREGAR EL ACTA BIEN DETALLADA CON TODOS LOS PU
   });
 
   // Endpoint de alta velocidad para recibir fragmentos binarios de archivos grandes (300MB+) sin límites ni bloqueos
-  app.post(["/api/upload-audio-chunk", "/api/transcribe-chunk", "/api/audio-chunk"], async (req, res) => {
+  app.post("/api/upload-audio-chunk", requireAuth, async (req, res) => {
     try {
       const rawUploadId = req.query.uploadId || req.body?.uploadId || `aud_${Date.now()}`;
       const safeUploadId = String(rawUploadId).replace(/[^a-zA-Z0-9_-]/g, "");

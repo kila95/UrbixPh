@@ -331,25 +331,41 @@ export default function ConsolaGerencialUrbixPH({
     if (!monto || monto <= 0) return;
 
     try {
-      const resultado = await registrarAbonoConPrelacion({
-        tenantId: tenantActivoId,
-        unitId: aptoId,
-        unitLabel: aptoInfo,
-        payerName: propietario,
-        amountPaid: monto
+      // Invocación de la Transacción Atómica en PostgreSQL (Prelación Legal Art. 1653 C.C.)
+      const { data: resultado, error: rpcError } = await supabase.rpc('registrar_abono_atomico_ph', {
+        p_tenant_id: tenantActivoId,
+        p_unit_id: aptoId,
+        p_unit_label: aptoInfo,
+        p_payer_name: propietario,
+        p_amount_paid: monto,
+        p_payment_method: 'Transferencia / PSE',
+        p_reference_code: `REF-${Date.now().toString().slice(-4)}`
       });
+
+      if (rpcError) throw rpcError;
 
       await cargarUnidadesReales(tenantActivoId);
       cargarMetricasTenant(tenantActivoId).then(res => { if (res) setMetricas(res); });
 
       onShowToast?.(
-        `✓ Recibo ${resultado.receiptNumber} emitido: $${monto.toLocaleString('es-CO')} aplicado (Mora: $${resultado.appliedToInterest.toLocaleString('es-CO')} | Capital: $${resultado.appliedToCapital.toLocaleString('es-CO')}).`
+        `✓ Recibo ${resultado.receiptNumber} emitido: $${monto.toLocaleString('es-CO')} aplicado (Mora: $${Number(resultado.appliedToInterest).toLocaleString('es-CO')} | Capital: $${Number(resultado.appliedToCapital).toLocaleString('es-CO')}).`
       );
 
       // Abrir Recibo Oficial de Caja en PDF listo para imprimir/guardar
-      imprimirReciboDeCajaPDF(resolvedTenantName, aptoInfo, propietario, resultado);
+      imprimirReciboDeCajaPDF(resolvedTenantName, aptoInfo, propietario, {
+        receiptNumber: resultado.receiptNumber,
+        totalPaid: monto,
+        appliedToInterest: Number(resultado.appliedToInterest),
+        appliedToSanctions: Number(resultado.appliedToSanctions),
+        appliedToCapital: Number(resultado.appliedToCapital),
+        newInterestBalance: Number(resultado.newInterestBalance),
+        newSanctionsBalance: Number(resultado.newSanctionsBalance),
+        newCapitalBalance: Number(resultado.newCapitalBalance),
+        newTotalBalance: Number(resultado.newTotalBalance),
+        status: resultado.status
+      });
     } catch (err: any) {
-      onShowToast?.(`Error aplicando abono: ${err.message}`);
+      onShowToast?.(`Error aplicando abono atómico: ${err.message}`);
     }
   };
 

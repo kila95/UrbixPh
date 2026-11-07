@@ -137,13 +137,21 @@ export default function ModuloCensoYMudanzasReal({ tenantId, tenantName, onShowT
 
   // Imprimir Salvoconducto Oficial para Portería y Ascensores
   const imprimirSalvoconductoMudanza = (m: any) => {
+    const escapeHtml = (str: string = '') =>
+      String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+
     const win = window.open('', '_blank', 'width=760,height=620');
     if (!win) return;
     win.document.write(`<!DOCTYPE html>
       <html>
       <head>
         <meta charset="UTF-8" />
-        <title>Salvoconducto de Mudanza ${m.permit_code}</title>
+        <title>Salvoconducto de Mudanza ${escapeHtml(m.permit_code)}</title>
         <style>
           body { font-family: system-ui, sans-serif; padding: 30px; color: #0f172a; }
           .card { border: 2px solid #0f172a; border-radius: 12px; padding: 24px; }
@@ -154,18 +162,18 @@ export default function ModuloCensoYMudanzasReal({ tenantId, tenantName, onShowT
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #0f172a;padding-bottom:12px;">
             <div>
-              <h2 style="margin:0;">${tenantName}</h2>
+              <h2 style="margin:0;">${escapeHtml(tenantName)}</h2>
               <p style="margin:2px 0 0;font-size:12px;">SALVOCONDUCTO OFICIAL DE MUDANZA / TRASTEO (LEY 675)</p>
             </div>
             <div style="text-align:right;">
-              <strong style="font-size:18px;">${m.permit_code}</strong><br/>
-              <span class="badge">${m.status}</span>
+              <strong style="font-size:18px;">${escapeHtml(m.permit_code)}</strong><br/>
+              <span class="badge">${escapeHtml(m.status)}</span>
             </div>
           </div>
-          <p><strong>Inmueble:</strong> ${m.unit_label} &nbsp;|&nbsp; <strong>Tipo:</strong> ${m.move_type}</p>
-          <p><strong>Solicitante:</strong> ${m.applicant_name} (${m.applicant_role})</p>
-          <p><strong>Fecha Autorizada:</strong> ${m.scheduled_date} (${m.time_window || 'Jornada Ordinaria'})</p>
-          <p><strong>Vehículo / Camión:</strong> Placa ${m.truck_plate} - Conductor: ${m.driver_name}</p>
+          <p><strong>Inmueble:</strong> ${escapeHtml(m.unit_label)} &nbsp;|&nbsp; <strong>Tipo:</strong> ${escapeHtml(m.move_type)}</p>
+          <p><strong>Solicitante:</strong> ${escapeHtml(m.applicant_name)} (${escapeHtml(m.applicant_role)})</p>
+          <p><strong>Fecha Autorizada:</strong> ${escapeHtml(m.scheduled_date)} (${escapeHtml(m.time_window || 'Jornada Ordinaria')})</p>
+          <p><strong>Vehículo / Camión:</strong> Placa ${escapeHtml(m.truck_plate)} - Conductor: ${escapeHtml(m.driver_name)}</p>
           <p><strong>Estado Cartera:</strong> ${m.is_paz_y_salvo ? 'PAZ Y SALVO VERIFICADO ✓' : 'EN MORA'} | <strong>Depósito Garantía ($200.000):</strong> ${m.deposit_paid ? 'CONSTITUIDO ✓' : 'PENDIENTE'}</p>
           <p style="font-size:11px;color:#475569;margin-top:24px;border-top:1px dashed #94a3b8;padding-top:10px;">
             Instrucción para Portería: Verificar este código en la Consola de Garita antes de abrir puerta vehicular y proteger cabina de ascensor.

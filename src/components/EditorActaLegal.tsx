@@ -201,6 +201,14 @@ VII. COMISIÓN VERIFICADORA DEL ACTA:
       const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
       const mimeType = file.type || 'audio/mp3';
 
+      const { data: { session } } = await supabase.auth.getSession();
+      const chunkHeaders: Record<string, string> = {
+        'Content-Type': 'application/octet-stream'
+      };
+      if (session?.access_token) {
+        chunkHeaders['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
       for (let i = 0; i < totalChunks; i++) {
         const start = i * chunkSize;
         const end = Math.min(start + chunkSize, file.size);
@@ -210,7 +218,7 @@ VII. COMISIÓN VERIFICADORA DEL ACTA:
           `/api/upload-audio-chunk?uploadId=${encodeURIComponent(uploadId)}&chunkIndex=${i}&totalChunks=${totalChunks}&mimeType=${encodeURIComponent(mimeType)}`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/octet-stream' },
+            headers: chunkHeaders,
             body: chunkBuffer
           }
         );
