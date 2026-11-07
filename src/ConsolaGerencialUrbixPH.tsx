@@ -40,6 +40,7 @@ import {
 } from './lib/motorFinancieroPH';
 import ModuloCensoYMudanzasReal from './ModuloCensoYMudanzasReal';
 import ModuloGobiernoYConsejoReal from './ModuloGobiernoYConsejoReal';
+import BotonPagoSuscripcionAdmin from './BotonPagoSuscripcionAdmin';
 
 
 export interface StaffMember {
@@ -113,7 +114,7 @@ export default function ConsolaGerencialUrbixPH({
       try {
         const { data: tenants, error } = await supabase
           .from('tenants')
-          .select('id, name')
+          .select('*')
           .order('created_at', { ascending: true });
 
         if (error) {
@@ -156,6 +157,7 @@ export default function ConsolaGerencialUrbixPH({
   }, [edificioActivoId]);
 
   const edificioActivo = edificiosAsignados.find(e => e.id === edificioActivoId) || null;
+  const tenantData = edificioActivo;
   const resolvedTenantName = edificioActivo?.name || currentTenant?.name || tenantName || 'Sin Copropiedad Seleccionada';
   const tenantActivoId = edificioActivoId || currentTenant?.id || '';
   const tenantId = tenantActivoId;
@@ -210,6 +212,7 @@ export default function ConsolaGerencialUrbixPH({
       console.warn('Error sincronizando porcentaje de recaudo:', err);
     }
   };
+  const cargarMetricasGenerales = syncMetricasGenerales;
 
   useEffect(() => {
     syncMetricasGenerales();
@@ -909,6 +912,17 @@ export default function ConsolaGerencialUrbixPH({
               }}
               metricas={metricas}
             />
+            <div className="mb-6">
+              <BotonPagoSuscripcionAdmin
+                tenantId={tenantActivoId}
+                tenantNombre={tenantData?.name}
+                montoCOP={tenantData?.monthly_fee || 0}
+                estadoSuscripcion={tenantData?.subscription_status || 'active'}
+                onPagoCompletado={() => {
+                  cargarMetricasGenerales();
+                }}
+              />
+            </div>
             <AdminGeneralInteractive 
               onShowToast={onShowToast} 
               metricas={metricas}

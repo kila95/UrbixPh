@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Building2, 
   Activity, 
@@ -10,6 +10,7 @@ import {
   CheckCircle2, 
   AlertTriangle 
 } from 'lucide-react';
+import { supabase } from '../supabaseClient';
 
 export function MatrizGlobalTenantsSoporte({
   onImpersonateTenant,
@@ -18,56 +19,73 @@ export function MatrizGlobalTenantsSoporte({
   onImpersonateTenant?: (tenantName: string) => void;
   onSelectTenantSupport?: (tenantId: string) => void;
 }) {
-  const [tenants, setTenants] = useState([
-    {
-      id: 't1',
-      nombre: 'Copropiedad PH',
-      ciudad: 'Medellín, Poblado',
-      unidades: 180,
-      garitaOnline: true,
-      llamadasHoy: 42,
-      ticketsPendientes: 0,
-      plan: 'Enterprise Anual',
-      licencia: 'Al Día',
-      version: 'v2.4'
-    },
-    {
-      id: 't2',
-      nombre: 'Torres de San Juan',
-      ciudad: 'Medellín, Laureles',
-      unidades: 96,
-      garitaOnline: false, // Garita desconectada (alerta soporte)
-      llamadasHoy: 12,
-      ticketsPendientes: 1,
-      plan: 'Pro Mensual',
-      licencia: 'Al Día',
-      version: 'v2.4'
-    },
-    {
-      id: 't3',
-      nombre: 'Edificio Vizcaya Panorámico',
-      ciudad: 'Medellín, El Poblado',
-      unidades: 120,
-      garitaOnline: true,
-      llamadasHoy: 68,
-      ticketsPendientes: 0,
-      plan: 'Enterprise Anual',
-      licencia: 'Al Día',
-      version: 'v2.4'
-    },
-    {
-      id: 't4',
-      nombre: 'Conjunto Portal de la 80',
-      ciudad: 'Bogotá, Engativá',
-      unidades: 240,
-      garitaOnline: true,
-      llamadasHoy: 114,
-      ticketsPendientes: 1,
-      plan: 'Enterprise Anual',
-      licencia: 'Al Día',
-      version: 'v2.4'
+  const [tenants, setTenants] = useState<any[]>([]);
+  const [metricasSaaS, setMetricasSaaS] = useState({
+    totalTenants: 0,
+    totalUnidades: 0,
+    totalUsuarios: 0,
+    recaudoPromedio: 0,
+    cargando: true
+  });
+
+  const cargarDatosReales = async () => {
+    try {
+      const { data: tenantsData, count: countTenants } = await supabase
+        .from('tenants')
+        .select('*', { count: 'exact' })
+        .order('created_at', { ascending: false });
+
+      const { count: countUnits } = await supabase
+        .from('units')
+        .select('*', { count: 'exact', head: true });
+
+      const { count: countUsers } = await supabase
+        .from('user_profiles')
+        .select('*', { count: 'exact', head: true });
+
+      const { data: unidadesData } = await supabase
+        .from('units')
+        .select('debt_status');
+
+      let porcentajeRecaudoReal = 0;
+      if (unidadesData && unidadesData.length > 0) {
+        const alDia = unidadesData.filter(u => u.debt_status === 'al_dia' || u.debt_status === 'Al día').length;
+        porcentajeRecaudoReal = (alDia / unidadesData.length) * 100;
+      }
+
+      if (tenantsData) {
+        setTenants(
+          tenantsData.map((t: any) => ({
+            id: t.id,
+            nombre: t.name,
+            ciudad: t.city || 'Colombia',
+            unidades: t.units_count || countUnits || 0,
+            garitaOnline: t.status !== 'suspended',
+            llamadasHoy: 0,
+            ticketsPendientes: 0,
+            plan: t.plan || 'Plan Pro',
+            licencia: t.status === 'suspended' ? 'Suspendida' : 'Al Día',
+            version: 'v2.4'
+          }))
+        );
+      }
+
+      setMetricasSaaS({
+        totalTenants: countTenants || 0,
+        totalUnidades: countUnits || 0,
+        totalUsuarios: countUsers || 0,
+        recaudoPromedio: Number(porcentajeRecaudoReal.toFixed(1)),
+        cargando: false
+      });
+    } catch (err) {
+      console.warn('Error cargando MatrizGlobalTenantsSoporte:', err);
+      setMetricasSaaS(prev => ({ ...prev, cargando: false }));
     }
-  ]);
+  };
+
+  useEffect(() => {
+    cargarDatosReales();
+  }, []);
 
   return (
     <div className="bg-[#05080e] border border-cyan-500/20 rounded-3xl p-6 font-mono text-xs select-none space-y-6">
@@ -90,9 +108,7 @@ export function MatrizGlobalTenantsSoporte({
 
         <button
           type="button"
-          onClick={() => {
-            setTenants(prev => prev.map(t => ({ ...t, llamadasHoy: t.llamadasHoy + Math.floor(Math.random() * 3) })));
-          }}
+          onClick={cargarDatosReales}
           className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-slate-300 hover:text-cyan-300 hover:border-cyan-500/40 text-[11px] font-mono transition flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
         >
           <RefreshCw className="w-3.5 h-3.5 text-cyan-400" />
@@ -104,25 +120,25 @@ export function MatrizGlobalTenantsSoporte({
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-[#090d14] border border-slate-800 p-3.5 rounded-2xl">
           <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Copropiedades</span>
-          <span className="text-lg font-black text-white">{tenants.length} Activas</span>
+          <span className="text-lg font-black text-white">{metricasSaaS.totalTenants} Activas</span>
         </div>
         <div className="bg-[#090d14] border border-slate-800 p-3.5 rounded-2xl">
-          <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Porterías Conectadas</span>
+          <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Total Unidades</span>
           <span className="text-lg font-black text-emerald-400 flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            {tenants.filter(t => t.garitaOnline).length} / {tenants.length}
+            {metricasSaaS.totalUnidades} Unds
           </span>
         </div>
         <div className="bg-[#090d14] border border-slate-800 p-3.5 rounded-2xl">
-          <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Túneles WebRTC Hoy</span>
+          <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Usuarios Activos</span>
           <span className="text-lg font-black text-cyan-300">
-            {tenants.reduce((acc, t) => acc + t.llamadasHoy, 0)} Llamadas
+            {metricasSaaS.totalUsuarios} Perfiles
           </span>
         </div>
         <div className="bg-[#090d14] border border-slate-800 p-3.5 rounded-2xl">
-          <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Incidentes Técnicos</span>
+          <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Recaudo Promedio</span>
           <span className="text-lg font-black text-amber-300">
-            {tenants.reduce((acc, t) => acc + t.ticketsPendientes, 0)} Pendientes
+            {metricasSaaS.recaudoPromedio}%
           </span>
         </div>
       </div>

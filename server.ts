@@ -1,4 +1,5 @@
 import express from "express";
+import crypto from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -135,8 +136,15 @@ function extractAudioPartsFromDisk(filePath: string, mimeType: string): Array<{ 
 
 export const supabaseAuthVerifier = createClient(
   process.env.VITE_SUPABASE_URL || "https://bhowrovxddvaykffwbbz.supabase.co",
-  process.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_z3h_VaPJ1Gl7dPD9PkIPfw_MhVUQBpZ"
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_z3h_VaPJ1Gl7dPD9PkIPfw_MhVUQBpZ"
 );
+const supabase = supabaseAuthVerifier;
+
+// Variables de entorno de Wompi (deben ir en tu .env)
+const WOMPI_PUB_KEY = process.env.WOMPI_PUBLIC_KEY || 'pub_prod_QWVJdygRbyKzRBP4Tm8isTC2JqNUj5DS';
+const WOMPI_PRIVATE_KEY = process.env.WOMPI_PRIVATE_KEY || 'prv_prod_uoaYPVVxlyjADVPZjAgdAQgTwsnnb21t';
+const WOMPI_EVENTS_SECRET = process.env.WOMPI_EVENTS_SECRET || 'prod_events_AQPZGonM0MEqbVwA4mh3KmM9GAhFJOPj';
+const WOMPI_INTEGRITY_SECRET = process.env.WOMPI_INTEGRITY_SECRET || 'prod_integrity_R59qe5dNMmp09ChkLR3XiQjIEfPNoRY4';
 
 // Middleware de verificación de token JWT para endpoints protegidos
 export async function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -740,6 +748,123 @@ INSTRUCCIONES OBLIGATORIAS PARA ENTREGAR EL ACTA BIEN DETALLADA CON TODOS LOS PU
       return res.status(500).json({ error: "WHATSAPP_API_TOKEN o WHATSAPP_PHONE_ID no configurados en el servidor." });
     } catch (err: any) {
       console.error("Error despachando WhatsApp:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Iniciar Checkout: genera firma y referencia segura
+  app.post('/api/wompi-checkout-init', async (req, res) => {
+    try {
+      const { tenantId, amountInCents } = req.body;
+
+      if (!tenantId || !amountInCents) {
+        return res.status(400).json({ error: 'Faltan parámetros requeridos (tenantId, amountInCents).' });
+      }
+
+      // Referencia única de pago
+      const reference = `URBIX-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+
+      // Fórmula estricta de Wompi: referencia + montoEnCentavos + moneda + secretoIntegridad
+      const rawCadena = `${reference}${amountInCents}COP${WOMPI_INTEGRITY_SECRET}`;
+      const signature = crypto.createHash('sha256').update(rawCadena).digest('hex');
+
+      // Registrar intención de cobro en Supabase
+      await supabase.from('saas_subscription_invoices').insert({
+        tenant_id: tenantId,
+        reference,
+        amount_in_cents: amountInCents,
+        currency: 'COP',
+        status: 'PENDING'
+      });
+
+      return res.json({
+        success: true,
+        publicKey: WOMPI_PUB_KEY,
+        reference,
+        amountInCents,
+        currency: 'COP',
+        signature
+      });
+    } catch (err: any) {
+      console.error('Error iniciando Wompi:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 2. Webhook oficial de Wompi para confirmación automática de pagos en línea
+  app.post('/api/wompi-webhook', async (req, res) => {
+    try {
+      const event = req.body;
+      const { data, signature, timestamp } = event || {};
+
+      if (!data?.transaction) {
+        return res.status(400).send('Payload inválido');
+      }
+
+      const tx = data.transaction;
+      const { id: txId, reference, status, amount_in_cents, payment_method_type } = tx;
+
+      // Validación opcional de firma de eventos de Wompi
+      if (WOMPI_EVENTS_SECRET && signature?.checksum) {
+        const properties = signature.properties || [];
+        let strToHash = '';
+        for (const prop of properties) {
+          const parts = prop.split('.');
+          let val = data;
+          for (const p of parts) val = val ? val[p] : undefined;
+          strToHash += val ?? '';
+        }
+        strToHash += `${timestamp}${WOMPI_EVENTS_SECRET}`;
+        const calculatedChecksum = crypto.createHash('sha256').update(strToHash).digest('hex');
+        
+        if (calculatedChecksum !== signature.checksum) {
+          console.warn('Firma de webhook de Wompi no coincide.');
+          return res.status(401).send('Firma inválida');
+        }
+      }
+
+      // Si el pago fue aprobado por Wompi
+      if (status === 'APPROVED') {
+        // 1. Actualizar el estado de la factura SaaS
+        const { data: invoice } = await supabase
+          .from('saas_subscription_invoices')
+          .update({
+            status: 'APPROVED',
+            wompi_transaction_id: txId,
+            payment_method: payment_method_type,
+            updated_at: new Date().toISOString()
+          })
+          .eq('reference', reference)
+          .select('tenant_id')
+          .maybeSingle();
+
+        // 2. Renovar la licencia de la copropiedad por 30 días adicionales
+        if (invoice?.tenant_id) {
+          await supabase
+            .from('tenants')
+            .update({
+              subscription_status: 'active',
+              last_payment_date: new Date().toISOString(),
+              license_valid_until: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+            })
+            .eq('id', invoice.tenant_id);
+
+          console.log(`✓ Licencia renovada con éxito para el tenant: ${invoice.tenant_id}`);
+        }
+      } else if (status === 'DECLINED' || status === 'ERROR') {
+        await supabase
+          .from('saas_subscription_invoices')
+          .update({
+            status: status,
+            wompi_transaction_id: txId,
+            updated_at: new Date().toISOString()
+          })
+          .eq('reference', reference);
+      }
+
+      return res.status(200).json({ received: true });
+    } catch (err: any) {
+      console.error('Error procesando webhook de Wompi:', err.message);
       return res.status(500).json({ error: err.message });
     }
   });

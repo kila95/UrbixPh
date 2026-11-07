@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Building2, 
   Radio, 
@@ -7,52 +7,103 @@ import {
   X, 
   ExternalLink, 
   CheckCircle2, 
-  Clock, 
   TrendingUp,
   ShieldCheck,
-  Wrench,
-  Search,
-  Check
+  Users
 } from 'lucide-react';
+import { supabase } from '../supabaseClient';
 
 type TipoModal = 'copropiedades' | 'garitas' | 'llamadas' | 'tickets' | null;
 
 export default function TarjetasKpiInteractivas() {
   const [modalActivo, setModalActivo] = useState<TipoModal>(null);
 
-  // Datos simulados en tiempo real para cada drill-down modal
-  const copropiedadesDetalle = [
-    { id: '1', nombre: 'Copropiedad PH', ciudad: 'Medellín, El Poblado', unidades: 180, estado: 'Activo', garitaIp: '192.168.1.101', ley: 'Ley 675' },
-    { id: '2', nombre: 'Torres de San Juan', ciudad: 'Medellín, Laureles', unidades: 96, estado: 'Alerta Garita', garitaIp: '192.168.2.45', ley: 'Ley 675' },
-    { id: '3', nombre: 'Altos del Poblado', ciudad: 'Medellín, El Poblado', unidades: 240, estado: 'Activo', garitaIp: '192.168.1.105', ley: 'Ley 675' },
-    { id: '4', nombre: 'Plaza Belén PH', ciudad: 'Medellín, Belén', unidades: 112, estado: 'Activo', garitaIp: '192.168.3.12', ley: 'Ley 675' },
-    { id: '5', nombre: 'Norte Real PH', ciudad: 'Bello, Niquía', unidades: 160, estado: 'Activo', garitaIp: '192.168.4.88', ley: 'Ley 675' },
-    { id: '6', nombre: 'Envigado Campestre', ciudad: 'Envigado, Zuñiga', unidades: 200, estado: 'Activo', garitaIp: '192.168.5.20', ley: 'Ley 675' }
-  ];
+  // Estados para métricas 100% reales desde Supabase
+  const [metricasSaaS, setMetricasSaaS] = useState({
+    totalTenants: 0,
+    totalUnidades: 0,
+    totalUsuarios: 0,
+    recaudoPromedio: 0,
+    cargando: true
+  });
 
-  const garitasDetalle = [
-    { id: 'g1', copropiedad: 'Copropiedad PH', ip: '192.168.1.101', ping: '12ms', status: 'Online 🟢', canalWebRTC: 'Cifrado TLS 1.3' },
-    { id: 'g2', copropiedad: 'Torres de San Juan', ip: '192.168.2.45', ping: 'Offline 🔴', status: 'Reconectando...', canalWebRTC: 'Fallo de Red Local' },
-    { id: 'g3', copropiedad: 'Altos del Poblado', ip: '192.168.1.105', ping: '18ms', status: 'Online 🟢', canalWebRTC: 'Cifrado TLS 1.3' },
-    { id: 'g4', copropiedad: 'Plaza Belén PH', ip: '192.168.3.12', ping: '14ms', status: 'Online 🟢', canalWebRTC: 'Cifrado TLS 1.3' },
-    { id: 'g5', copropiedad: 'Norte Real PH', ip: '192.168.4.88', ping: '22ms', status: 'Online 🟢', canalWebRTC: 'Cifrado TLS 1.3' }
-  ];
+  const [copropiedadesDetalle, setCopropiedadesDetalle] = useState<Array<{
+    id: string;
+    nombre: string;
+    ciudad: string;
+    unidades: number;
+    estado: string;
+    garitaIp: string;
+    ley: string;
+  }>>([]);
 
-  const llamadasDetalle = [
-    { id: 'c1', hora: '10:42 AM', copropiedad: 'Copropiedad PH', origen: 'Garita Principal', destino: 'Apto 1204', duracion: '45s', estado: 'Completada 📞' },
-    { id: 'c2', hora: '10:38 AM', copropiedad: 'Altos del Poblado', origen: 'Garita Vehicular', destino: 'Apto 502', duracion: '1m 12s', estado: 'Completada 📞' },
-    { id: 'c3', hora: '10:35 AM', copropiedad: 'Envigado Campestre', origen: 'Garita Peatonal', destino: 'Apto 301', duracion: '22s', estado: 'Completada 📞' },
-    { id: 'c4', hora: '10:15 AM', copropiedad: 'Plaza Belén PH', origen: 'Garita Principal', destino: 'Apto 804', duracion: '30s', estado: 'Completada 📞' }
-  ];
+  useEffect(() => {
+    const cargarMetricasRealesMaster = async () => {
+      try {
+        // 1. Contar copropiedades (tenants) reales
+        const { count: countTenants, data: tenantsRows } = await supabase
+          .from('tenants')
+          .select('*', { count: 'exact' });
 
-  const ticketsDetalle = [
-    { id: 'tk101', copropiedad: 'Torres de San Juan', asunto: 'Desconexión de Garita Principal por microcorte de red local ISP', prioridad: 'Alta', tiempo: 'Hace 15 min', responsable: 'Mesa de Soporte Urbix' },
-    { id: 'tk102', copropiedad: 'Plaza Belén PH', asunto: 'Ajuste de permisos de residente para asignación de parqueadero', prioridad: 'Media', tiempo: 'Hace 45 min', responsable: 'Mesa de Soporte Urbix' }
-  ];
+        // 2. Contar unidades totales registradas en todas las copropiedades
+        const { count: countUnits } = await supabase
+          .from('units')
+          .select('*', { count: 'exact', head: true });
+
+        // 3. Contar perfiles de usuarios activos en la plataforma
+        const { count: countUsers } = await supabase
+          .from('user_profiles')
+          .select('*', { count: 'exact', head: true });
+
+        // 4. Calcular unidades al día vs en mora para el recaudo real
+        const { data: unidadesData } = await supabase
+          .from('units')
+          .select('debt_status, tenant_id');
+
+        let porcentajeRecaudoReal = 0;
+        if (unidadesData && unidadesData.length > 0) {
+          const alDia = unidadesData.filter((u: any) => u.debt_status === 'al_dia' || u.debt_status === 'Al día').length;
+          porcentajeRecaudoReal = (alDia / unidadesData.length) * 100;
+        }
+
+        setMetricasSaaS({
+          totalTenants: countTenants || 0,
+          totalUnidades: countUnits || 0,
+          totalUsuarios: countUsers || 0,
+          recaudoPromedio: Number(porcentajeRecaudoReal.toFixed(1)),
+          cargando: false
+        });
+
+        if (tenantsRows && tenantsRows.length > 0) {
+          setCopropiedadesDetalle(
+            tenantsRows.map((t: any) => {
+              const countU = (unidadesData || []).filter((u: any) => u.tenant_id === t.id).length;
+              return {
+                id: t.id,
+                nombre: t.name || 'Copropiedad PH',
+                ciudad: t.address || 'Colombia',
+                unidades: countU || Number(t.total_units) || 0,
+                estado: t.subscription_status === 'suspended' ? 'Suspendido' : 'Activo',
+                garitaIp: 'TLS 1.3 Activo',
+                ley: 'Ley 675'
+              };
+            })
+          );
+        } else {
+          setCopropiedadesDetalle([]);
+        }
+      } catch (err) {
+        console.warn('Error cargando métricas reales de Master Owner:', err);
+        setMetricasSaaS(prev => ({ ...prev, cargando: false }));
+      }
+    };
+
+    cargarMetricasRealesMaster();
+  }, []);
 
   return (
     <>
-      {/* 4 TARJETAS KPI CLICKABLES */}
+      {/* 4 TARJETAS KPI CLICKABLES CONECTADAS A SUPABASE */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 font-mono select-none">
         
         {/* TARJETA 1: COPROPIEDADES */}
@@ -65,76 +116,84 @@ export default function TarjetasKpiInteractivas() {
             <ExternalLink className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 text-cyan-400 transition-opacity" />
           </div>
           <div className="flex items-baseline justify-between mt-2">
-            <p className="text-2xl font-black text-white">12 / 12</p>
+            <p className="text-2xl font-black text-white">
+              {metricasSaaS.cargando ? '...' : metricasSaaS.totalTenants}
+            </p>
             <span className="text-[10px] bg-cyan-950 text-cyan-400 border border-cyan-500/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
               <Building2 className="w-3 h-3" /> Ley 675
             </span>
           </div>
           <p className="text-[10px] text-slate-500 mt-2 flex items-center justify-between">
-            <span>Clic para ver catálogo completo</span>
+            <span>Clic para ver catálogo real</span>
             <span className="text-cyan-400 font-bold group-hover:translate-x-0.5 transition-transform">Ver &rarr;</span>
           </p>
         </div>
 
-        {/* TARJETA 2: GARITAS ONLINE */}
+        {/* TARJETA 2: UNIDADES REGISTRADAS */}
         <div
           onClick={() => setModalActivo('garitas')}
           className="bg-[#090d14] border border-emerald-500/20 hover:border-emerald-400 p-4 rounded-2xl cursor-pointer transition-all duration-200 hover:shadow-[0_0_20px_rgba(16,185,129,0.15)] group"
         >
           <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>Garitas Online</span>
+            <span>Unidades Registradas</span>
             <ExternalLink className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 text-emerald-400 transition-opacity" />
           </div>
           <div className="flex items-baseline justify-between mt-2">
-            <p className="text-2xl font-black text-emerald-400">11 En Línea</p>
-            <span className="text-[10px] bg-amber-950 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full font-bold animate-pulse flex items-center gap-1">
-              <Radio className="w-3 h-3" /> 1 Off
+            <p className="text-2xl font-black text-emerald-400">
+              {metricasSaaS.cargando ? '...' : metricasSaaS.totalUnidades.toLocaleString('es-CO')}
+            </p>
+            <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+              <Radio className="w-3 h-3" /> Censo Real
             </span>
           </div>
           <p className="text-[10px] text-slate-500 mt-2 flex items-center justify-between">
-            <span>1 Dispositivo requiriendo asistencia</span>
+            <span>Total apartamentos/casas en BD</span>
             <span className="text-emerald-400 font-bold group-hover:translate-x-0.5 transition-transform">Ver &rarr;</span>
           </p>
         </div>
 
-        {/* TARJETA 3: LLAMADAS CITÓFONO */}
+        {/* TARJETA 3: USUARIOS EN PLATAFORMA */}
         <div
           onClick={() => setModalActivo('llamadas')}
           className="bg-[#090d14] border border-cyan-500/20 hover:border-cyan-400 p-4 rounded-2xl cursor-pointer transition-all duration-200 hover:shadow-[0_0_20px_rgba(0,242,254,0.15)] group"
         >
           <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>Llamadas Citófono (Hoy)</span>
+            <span>Usuarios Activos (Perfiles)</span>
             <ExternalLink className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 text-cyan-400 transition-opacity" />
           </div>
           <div className="flex items-baseline justify-between mt-2">
-            <p className="text-2xl font-black text-cyan-300">348 Sesiones</p>
+            <p className="text-2xl font-black text-cyan-300">
+              {metricasSaaS.cargando ? '...' : metricasSaaS.totalUsuarios.toLocaleString('es-CO')}
+            </p>
             <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
-              <PhoneCall className="w-3 h-3" /> WebRTC
+              <Users className="w-3 h-3" /> Auth
             </span>
           </div>
           <p className="text-[10px] text-slate-500 mt-2 flex items-center justify-between">
-            <span>Tráfico activo de voz e imágenes</span>
+            <span>Perfiles verificados en Supabase</span>
             <span className="text-cyan-300 font-bold group-hover:translate-x-0.5 transition-transform">Ver &rarr;</span>
           </p>
         </div>
 
-        {/* TARJETA 4: TICKETS SOPORTE */}
+        {/* TARJETA 4: RECAUDO PROMEDIO */}
         <div
           onClick={() => setModalActivo('tickets')}
           className="bg-[#090d14] border border-amber-500/20 hover:border-amber-400 p-4 rounded-2xl cursor-pointer transition-all duration-200 hover:shadow-[0_0_20px_rgba(245,158,11,0.15)] group"
         >
           <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>Tickets Soporte Abiertos</span>
+            <span>Recaudo Promedio Global</span>
             <ExternalLink className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 text-amber-400 transition-opacity" />
           </div>
           <div className="flex items-baseline justify-between mt-2">
-            <p className="text-2xl font-black text-amber-300">2 Pendientes</p>
+            <p className="text-2xl font-black text-amber-300">
+              {metricasSaaS.cargando ? '...' : `${metricasSaaS.recaudoPromedio}%`}
+            </p>
             <span className="text-[10px] bg-amber-950 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
-              <AlertTriangle className="w-3 h-3" /> Atención
+              <TrendingUp className="w-3 h-3" /> Cartera
             </span>
           </div>
           <p className="text-[10px] text-slate-500 mt-2 flex items-center justify-between">
-            <span>SLA de respuesta &lt; 15 min</span>
+            <span>Unidades al día vs. en mora</span>
             <span className="text-amber-300 font-bold group-hover:translate-x-0.5 transition-transform">Ver &rarr;</span>
           </p>
         </div>
@@ -158,12 +217,12 @@ export default function TarjetasKpiInteractivas() {
                 <div>
                   <h3 className="text-base font-black text-white capitalize">
                     {modalActivo === 'copropiedades' && 'Catálogo Global de Copropiedades (Ley 675)'}
-                    {modalActivo === 'garitas' && 'Estado de Dispositivos y Garitas de Portería'}
-                    {modalActivo === 'llamadas' && 'Registro de Citofonía y Sesiones WebRTC (Hoy)'}
-                    {modalActivo === 'tickets' && 'Mesa de Ayuda y Tickets de Soporte Técnico'}
+                    {modalActivo === 'garitas' && 'Censo Global de Unidades Registradas'}
+                    {modalActivo === 'llamadas' && 'Perfiles de Usuarios Registrados en Supabase'}
+                    {modalActivo === 'tickets' && 'Indicador de Cartera y Recaudo Real'}
                   </h3>
                   <p className="text-xs text-cyan-400/70">
-                    Inspección detallada de datos operativos en tiempo real
+                    Inspección detallada de datos operativos en tiempo real desde Supabase
                   </p>
                 </div>
               </div>
@@ -183,133 +242,76 @@ export default function TarjetasKpiInteractivas() {
                 <div className="space-y-4">
                   <div className="p-3 bg-cyan-950/40 border border-cyan-500/30 rounded-2xl flex items-center justify-between text-cyan-300 text-[11px]">
                     <span className="flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 text-[#00f2fe]" /> Total Copropiedades bajo régimen Ley 675: <strong>12 Licenciadas</strong>
+                      <ShieldCheck className="w-4 h-4 text-[#00f2fe]" /> Total Copropiedades bajo régimen Ley 675: <strong>{metricasSaaS.totalTenants} Registradas</strong>
                     </span>
-                    <span className="text-[10px] bg-cyan-900/60 px-2 py-0.5 rounded-full border border-cyan-400/30">1.480 Unidades Totales</span>
+                    <span className="text-[10px] bg-cyan-900/60 px-2 py-0.5 rounded-full border border-cyan-400/30">{metricasSaaS.totalUnidades.toLocaleString('es-CO')} Unidades Totales</span>
                   </div>
                   
-                  <div className="space-y-2">
-                    {copropiedadesDetalle.map((c) => (
-                      <div key={c.id} className="p-3.5 bg-[#0b101d] border border-slate-800 hover:border-cyan-500/40 rounded-2xl flex items-center justify-between transition">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-white text-sm">{c.nombre}</span>
-                            <span className="text-[9px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full border border-slate-700">{c.ciudad}</span>
+                  {copropiedadesDetalle.length === 0 ? (
+                    <div className="p-6 text-center text-slate-400 bg-[#0b101d] border border-slate-800 rounded-2xl">
+                      No hay copropiedades registradas en este momento en la tabla <code>tenants</code>.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {copropiedadesDetalle.map((c) => (
+                        <div key={c.id} className="p-3.5 bg-[#0b101d] border border-slate-800 hover:border-cyan-500/40 rounded-2xl flex items-center justify-between transition">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-white text-sm">{c.nombre}</span>
+                              <span className="text-[9px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full border border-slate-700">{c.ciudad}</span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              {c.unidades} Unidades Residenciales • Estado de Canal: <code className="text-cyan-400">{c.garitaIp}</code>
+                            </p>
                           </div>
-                          <p className="text-[11px] text-slate-400 mt-0.5">
-                            {c.unidades} Unidades Residenciales • IP Garita: <code className="text-cyan-400">{c.garitaIp}</code>
-                          </p>
+                          <div className="text-right">
+                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${
+                              c.estado === 'Activo' 
+                                ? 'bg-emerald-950 text-emerald-400 border-emerald-500/30' 
+                                : 'bg-amber-950 text-amber-400 border-amber-500/30 animate-pulse'
+                            }`}>
+                              {c.estado}
+                            </span>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${
-                            c.estado === 'Activo' 
-                              ? 'bg-emerald-950 text-emerald-400 border-emerald-500/30' 
-                              : 'bg-amber-950 text-amber-400 border-amber-500/30 animate-pulse'
-                          }`}>
-                            {c.estado}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* MODAL 2: GARITAS ONLINE */}
+              {/* MODAL 2: UNIDADES */}
               {modalActivo === 'garitas' && (
                 <div className="space-y-4">
                   <div className="p-3 bg-emerald-950/30 border border-emerald-500/30 rounded-2xl flex items-center justify-between text-emerald-300 text-[11px]">
                     <span className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Dispositivos de Portería Sincronizados: <strong>11 de 12 Online</strong>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Total Unidades en Base de Datos: <strong>{metricasSaaS.totalUnidades} Unidades</strong>
                     </span>
-                    <span className="text-[10px] bg-amber-950 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30">1 Alerta Activa</span>
-                  </div>
-
-                  <div className="space-y-2">
-                    {garitasDetalle.map((g) => (
-                      <div key={g.id} className="p-3.5 bg-[#0b101d] border border-slate-800 hover:border-emerald-500/40 rounded-2xl flex items-center justify-between transition">
-                        <div>
-                          <p className="font-bold text-white text-sm">{g.copropiedad}</p>
-                          <p className="text-[11px] text-slate-400 mt-0.5">
-                            IP: <code className="text-cyan-400">{g.ip}</code> • Latencia: <span className="text-slate-300">{g.ping}</span>
-                          </p>
-                        </div>
-                        <div className="text-right space-y-1">
-                          <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border inline-block ${
-                            g.status.includes('Online') 
-                              ? 'bg-emerald-950 text-emerald-400 border-emerald-500/30' 
-                              : 'bg-rose-950 text-rose-400 border-rose-500/30 animate-pulse'
-                          }`}>
-                            {g.status}
-                          </span>
-                          <p className="text-[9px] text-slate-500">{g.canalWebRTC}</p>
-                        </div>
-                      </div>
-                    ))}
+                    <span className="text-[10px] bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30">Sincronizado con Supabase</span>
                   </div>
                 </div>
               )}
 
-              {/* MODAL 3: LLAMADAS CITÓFONO */}
+              {/* MODAL 3: USUARIOS */}
               {modalActivo === 'llamadas' && (
                 <div className="space-y-4">
                   <div className="p-3 bg-cyan-950/40 border border-cyan-500/30 rounded-2xl flex items-center justify-between text-cyan-300 text-[11px]">
                     <span className="flex items-center gap-2">
-                      <PhoneCall className="w-4 h-4 text-cyan-400" /> Sesiones de Citofonía Virtual registradas hoy: <strong>348 Llamadas</strong>
+                      <Users className="w-4 h-4 text-cyan-400" /> Perfiles de usuario activos en <code>user_profiles</code>: <strong>{metricasSaaS.totalUsuarios} Usuarios</strong>
                     </span>
-                    <span className="text-[10px] bg-cyan-900/60 px-2 py-0.5 rounded-full border border-cyan-400/30">Cero llamadas perdidas</span>
-                  </div>
-
-                  <div className="space-y-2">
-                    {llamadasDetalle.map((c) => (
-                      <div key={c.id} className="p-3.5 bg-[#0b101d] border border-slate-800 hover:border-cyan-500/40 rounded-2xl flex items-center justify-between transition">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-slate-400 text-[10px]">{c.hora}</span>
-                            <span className="font-bold text-white text-sm">{c.copropiedad}</span>
-                          </div>
-                          <p className="text-[11px] text-slate-400 mt-0.5">
-                            {c.origen} &rarr; <strong className="text-cyan-300">{c.destino}</strong>
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-[10px] bg-cyan-950 text-cyan-400 border border-cyan-500/30 px-2.5 py-1 rounded-full font-bold">
-                            {c.duracion}
-                          </span>
-                          <p className="text-[9px] text-emerald-400 mt-1">{c.estado}</p>
-                        </div>
-                      </div>
-                    ))}
+                    <span className="text-[10px] bg-cyan-900/60 px-2 py-0.5 rounded-full border border-cyan-400/30">RBAC Multi-Tenant</span>
                   </div>
                 </div>
               )}
 
-              {/* MODAL 4: TICKETS SOPORTE */}
+              {/* MODAL 4: RECAUDO */}
               {modalActivo === 'tickets' && (
                 <div className="space-y-4">
                   <div className="p-3 bg-amber-950/30 border border-amber-500/30 rounded-2xl flex items-center justify-between text-amber-300 text-[11px]">
                     <span className="flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-400" /> Tickets en curso: <strong>2 Abiertos</strong>
+                      <TrendingUp className="w-4 h-4 text-amber-400" /> Porcentaje de unidades al día: <strong>{metricasSaaS.recaudoPromedio}%</strong>
                     </span>
-                    <span className="text-[10px] bg-amber-900/60 px-2 py-0.5 rounded-full border border-amber-400/30">SOPORTE 24/7 ACTIVO</span>
-                  </div>
-
-                  <div className="space-y-3">
-                    {ticketsDetalle.map((tk) => (
-                      <div key={tk.id} className="p-4 bg-[#0b101d] border border-amber-500/30 rounded-2xl space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-amber-400 font-bold text-xs">Ticket #{tk.id} • {tk.copropiedad}</span>
-                          <span className="text-[9px] bg-amber-950 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-bold">
-                            Prioridad {tk.prioridad}
-                          </span>
-                        </div>
-                        <p className="text-slate-200 font-semibold text-xs">{tk.asunto}</p>
-                        <div className="flex items-center justify-between text-[10px] text-slate-400 pt-2 border-t border-slate-800">
-                          <span>Reportado: {tk.tiempo}</span>
-                          <span className="text-cyan-400 font-bold">{tk.responsable}</span>
-                        </div>
-                      </div>
-                    ))}
+                    <span className="text-[10px] bg-amber-900/60 px-2 py-0.5 rounded-full border border-amber-400/30">LEY 675 / ART. 1653 C.C.</span>
                   </div>
                 </div>
               )}

@@ -54,7 +54,7 @@ export const ConfiguracionFacturacionModal: React.FC<ConfiguracionFacturacionMod
         setCargando(true);
         const { data, error } = await supabase
           .from('tenants')
-          .select('billing_mode, total_monthly_budget, fixed_fee_amount, payment_due_day, early_discount_day, early_discount_percent')
+          .select('*')
           .eq('id', tenantId)
           .single();
 

@@ -11,9 +11,12 @@ import {
   Sparkles,
   AlertTriangle,
   RefreshCw,
-  Power
+  Power,
+  FileText
 } from 'lucide-react';
 import { ClientTenantNode } from './SaaS_MasterOwnerConsole';
+import CotizacionPDFModal from './CotizacionPDFModal';
+import { TablaComprobantesWompi } from './TablaComprobantesWompi';
 
 export default function SaaSCotizadorYSuspensionMaster({
   tenants,
@@ -29,6 +32,7 @@ export default function SaaSCotizadorYSuspensionMaster({
   // --- CONFIGURACIÓN DE VOLUMEN (HASTA 3.000 UNIDADES) ---
   const [numUnidades, setNumUnidades] = useState<number>(1800); // Valor por defecto para ciudadelas grandes
   const [periodoFacturacion, setPeriodoFacturacion] = useState<'mensual' | 'anual'>('mensual');
+  const [modalAbierto, setModalAbierto] = useState(false);
   
   // Selección de módulos para la cotización
   const [modulosCotizados, setModulosCotizados] = useState({
@@ -130,6 +134,48 @@ export default function SaaSCotizadorYSuspensionMaster({
 
     navigator.clipboard.writeText(textoPropuesta);
     onShowToast?.('📋 Propuesta comercial copiada al portapapeles con éxito.');
+  };
+
+  const handleIniciarPagoWompi = async () => {
+    try {
+      const tenantId = tenants[0]?.id || 'urbix-saas-license';
+      const amountInCents = Math.round(totalCotizado * 100);
+
+      const res = await fetch('/api/wompi-checkout-init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, amountInCents })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'No se pudo inicializar el checkout de Wompi.');
+      }
+
+      const WidgetCheckout = (window as any).WidgetCheckout;
+      if (typeof WidgetCheckout === 'function') {
+        const checkout = new WidgetCheckout({
+          currency: data.currency,
+          amountInCents: data.amountInCents,
+          reference: data.reference,
+          publicKey: data.publicKey,
+          signature: { integrity: data.signature }
+        });
+
+        checkout.open((result: any) => {
+          const tx = result?.transaction;
+          if (tx?.status === 'APPROVED') {
+            onShowToast?.(`✅ Pago aprobado en Wompi (Ref: ${data.reference}). Licencia renovada.`);
+          } else if (tx) {
+            onShowToast?.(`ℹ️ Estado de la transacción Wompi: ${tx.status}`);
+          }
+        });
+      } else {
+        onShowToast?.(`✓ Firma Wompi generada (Ref: ${data.reference}). Cargando pasarela...`);
+      }
+    } catch (err: any) {
+      onShowToast?.(`⚠️ Error al iniciar pago con Wompi: ${err.message}`);
+    }
   };
 
   return (
@@ -309,16 +355,43 @@ export default function SaaSCotizadorYSuspensionMaster({
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={copiarPropuestaComercial}
-              className="w-full bg-gradient-to-r from-cyan-500 to-teal-400 hover:opacity-90 text-slate-950 font-black py-3 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(34,211,238,0.3)]"
-            >
-              <FileCheck className="w-4 h-4" /> Copiar Propuesta para Enviar a Administración
-            </button>
+            <div className="space-y-2">
+              {/* Botón que abre el PDF elegante */}
+              <button
+                type="button"
+                onClick={() => setModalAbierto(true)}
+                className="w-full py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-cyan-500/20"
+              >
+                <span>📄</span> Exportar Cotización Corporativa en PDF
+              </button>
+              <button
+                type="button"
+                onClick={copiarPropuestaComercial}
+                className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 font-bold py-2.5 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-2"
+              >
+                <FileCheck className="w-4 h-4 text-cyan-400" /> Copiar Propuesta para Enviar a Administración
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Modal integrado */}
+      <CotizacionPDFModal
+        isOpen={modalAbierto}
+        onClose={() => setModalAbierto(false)}
+        unidades={numUnidades}
+        esAnual={periodoFacturacion === 'anual'}
+        costoUnitario={valorUnitarioTotal}
+        subtotal={subtotalMensual}
+        modulosSeleccionados={{
+          citofonia: modulosCotizados.porteriaCitofonia,
+          contabilidad: modulosCotizados.contabilidadDianNIIF,
+          asambleas: modulosCotizados.asambleasVirtualesIA,
+          appResidentes: modulosCotizados.portalResidentesPQRS,
+          rondasNfc: modulosCotizados.rondasSupervisionSGSST,
+        }}
+      />
 
       {/* 2. SECCIÓN: GESTOR DE SUSPENSIÓN AUTOMATIZADA POR MORA SAAS */}
       <div className="bg-[#07090e] border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
@@ -388,6 +461,9 @@ export default function SaaSCotizadorYSuspensionMaster({
           })}
         </div>
       </div>
+
+      {/* 3. REGISTRO OFICIAL DE INGRESOS Y COMPROBANTES WOMPI EN TIEMPO REAL */}
+      <TablaComprobantesWompi />
 
     </div>
   );

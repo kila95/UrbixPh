@@ -29,6 +29,7 @@ import {
   Car
 } from 'lucide-react';
 import { UrbixIsotipoSvg } from '../UrbixLogo';
+import CotizacionPDFModal from './CotizacionPDFModal';
 
 interface UrbixLandingPageProps {
   onEnterApp: (role?: string) => void;
@@ -82,6 +83,10 @@ export default function UrbixLandingPage({ onEnterApp, onGoToLogin }: UrbixLandi
   // 4. ESTADO CALCULADORA FINANCIERA DE ROI
   // =========================================================================
   const [unidadesCalc, setUnidadesCalc] = useState<number>(140);
+  const [modalAbierto, setModalAbierto] = useState<boolean>(false);
+  const [esAnual, setEsAnual] = useState<boolean>(false);
+  const costoUnitarioCalc = 10200;
+  const subtotalCalc = unidadesCalc * costoUnitarioCalc;
   const costoAsambleaPresencial = Math.round(unidadesCalc * 32000 + 1200000);
   const ahorroPapeleriaAnual = Math.round(unidadesCalc * 18500);
   const horasAhorradasMes = Math.round(18 + (unidadesCalc / 10));
@@ -1347,14 +1352,40 @@ export default function UrbixLandingPage({ onEnterApp, onGoToLogin }: UrbixLandi
                       Cero tutelas por PQRSD extemporáneas y actas de asamblea firmadas la misma noche.
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => onEnterApp('super_admin')}
-                    className="px-4 py-2 text-xs font-semibold text-zinc-950 bg-cyan-400 rounded-lg hover:bg-cyan-300 transition-colors whitespace-nowrap cursor-pointer shadow-sm shadow-cyan-500/20"
-                  >
-                    Implementar en mi Copropiedad
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setModalAbierto(true)}
+                      className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-cyan-500/20"
+                    >
+                      <span>📄</span> Exportar Cotización Corporativa en PDF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onEnterApp('super_admin')}
+                      className="px-4 py-2 text-xs font-semibold text-zinc-200 bg-zinc-800 rounded-xl hover:bg-zinc-700 transition-colors whitespace-nowrap cursor-pointer border border-zinc-700"
+                    >
+                      Implementar en mi Copropiedad
+                    </button>
+                  </div>
                 </div>
+
+                {/* Modal integrado */}
+                <CotizacionPDFModal
+                  isOpen={modalAbierto}
+                  onClose={() => setModalAbierto(false)}
+                  unidades={unidadesCalc}
+                  esAnual={esAnual}
+                  costoUnitario={costoUnitarioCalc}
+                  subtotal={subtotalCalc}
+                  modulosSeleccionados={{
+                    citofonia: true,
+                    contabilidad: true,
+                    asambleas: true,
+                    appResidentes: true,
+                    rondasNfc: true,
+                  }}
+                />
 
               </div>
             </div>
