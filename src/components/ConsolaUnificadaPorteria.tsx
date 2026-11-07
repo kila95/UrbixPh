@@ -199,7 +199,7 @@ export default function ConsolaUnificadaPorteria({
     }
   };
 
-  // 2. Cargar las 100 unidades reales vinculadas a Tricentenario
+  // 2. Cargar las 100 unidades reales vinculadas a Copropiedad_PH
   const cargarDirectorio = async () => {
     try {
       setCargando(true);
@@ -223,9 +223,9 @@ export default function ConsolaUnificadaPorteria({
         console.warn('Auth check fallback:', authErr);
       }
 
-      // Si no hay sesión directa en auth, usar el perfil activo o el ID de Tricentenario
+      // Si no hay sesión directa en auth, usar el perfil activo o el ID de Copropiedad_PH
       if (!tenantId) {
-        tenantId = userProfile?.tenant_id || '22079bb5-6ac7-4a15-be89-c53d14e4221b';
+        tenantId = userProfile?.tenant_id || '';
       }
 
       // Consultar el censo real de unidades
@@ -521,7 +521,7 @@ export default function ConsolaUnificadaPorteria({
       setEncomiendasShared((prev: any[]) => [nuevoPaquete, ...prev]);
     }
 
-    dispararAlertaWhatsApp('NEW_PACKAGE', nuevoPaquete, 'urb Tricentenario');
+    dispararAlertaWhatsApp('NEW_PACKAGE', nuevoPaquete, 'Copropiedad PH');
 
     setTorreApto('');
     setDestinatario('');
@@ -753,7 +753,7 @@ export default function ConsolaUnificadaPorteria({
             {/* INTEGRACIÓN TOTAL DE TODAS LAS CARACTERÍSTICAS DEL MÓDULO 7 (PARQUEADEROS DE VISITANTES & BOTÓN SOS) */}
             <GaritaParqueaderosYSosHub
               onShowToast={onShowToast}
-              nombreCopropiedad="P.H. Reserva del Tesoro"
+              nombreCopropiedad="Copropiedad PH"
               celdasExternal={celdasGarita}
               onActualizarCeldasExternal={setCeldasGarita}
             />
@@ -1142,7 +1142,7 @@ export default function ConsolaUnificadaPorteria({
                     Censo Oficial &amp; Directorio Telefónico
                   </span>
                   <span className="text-xs px-2.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full font-mono font-bold">
-                    urb Tricentenario
+                    urb Copropiedad_PH
                   </span>
                 </div>
                 <h3 className="text-xl font-black text-white mt-1 flex items-center gap-2">
@@ -1245,7 +1245,7 @@ export default function ConsolaUnificadaPorteria({
                             try {
                               await supabase.from('intercom_logs').insert([
                                 {
-                                  tenant_id: userProfile?.tenant_id || '22079bb5-6ac7-4a15-be89-c53d14e4221b',
+                                  tenant_id: userProfile?.tenant_id || '',
                                   event_type: 'Llamada de Voz WebRTC',
                                   tower: String(u.tower || '1'),
                                   apartment: String(u.apartment || ''),

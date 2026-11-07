@@ -160,3 +160,6 @@ export async function conciliarPagoOcrEnBaseDeDatos(
     reference_number: ocrResult.reference_number || undefined
   });
 }
+
+export * from '../services/prelacionPagosService';
+

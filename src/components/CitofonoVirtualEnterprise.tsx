@@ -172,7 +172,7 @@ export default function CitofonoVirtualEnterprise({
 
       await supabase.from('intercom_logs').insert([
         {
-          tenant_id: '22079bb5-6ac7-4a15-be89-c53d14e4221b',
+          tenant_id: '',
           event_type: eventType,
           tower,
           apartment,

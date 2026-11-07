@@ -36,7 +36,7 @@ export const isSupabaseConfigured = Boolean(
   !SUPABASE_ANON_KEY.includes('placeholder')
 );
 
-export const DEFAULT_TENANT_UUID = '22079bb5-6ac7-4a15-be89-c53d14e4221b';
+export const DEFAULT_TENANT_UUID = '';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

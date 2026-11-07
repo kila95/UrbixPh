@@ -47,7 +47,7 @@ export function SalaAsambleaVirtualReal({
   assemblyId = 'asamblea_ordinaria_actual',
   userProfile = { full_name: 'Administrador PH', role: 'admin', unit_number: 'Administración', coefficient: 0 },
   onShowToast,
-  copropiedadNombre = 'Urb. Tricentenario'
+  copropiedadNombre = 'Copropiedad PH'
 }: Props) {
   // 1. Asegurar que lea el tenant y el apartamento del usuario logueado
   const tenantId = userProfile?.tenant_id || normalizeTenantUuid(rawTenantId);

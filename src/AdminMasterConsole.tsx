@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from './supabaseClient';
 import { 
   Building2, Users, FileText, HardHat, DollarSign, 
   MessageSquare, ShieldCheck, AlertTriangle, Plus, 
@@ -108,25 +109,49 @@ export default function AdminMasterConsole({
   isReadOnly = false
 }: AdminMasterConsoleProps) {
   // 1. ESTADO MULTI-TENANT (SWITCHER) Y JERARQUÍA CORPORATIVA (3 RANGOS)
-  const [tenants] = useState<MasterTenantItem[]>([
-    { id: 't1', name: 'Edificio Reserva del Tesoro P.H.', nit: '900.456.789-1', zone: 'El Poblado, Medellín', city: 'Medellín, Antioquia', units: 64 },
-    { id: 't2', name: 'Conjunto Residencial Bosques de San Lucas', nit: '901.887.332-4', zone: 'Envigado', city: 'Envigado, Antioquia', units: 112 },
-    { id: 't3', name: 'Torres de la Castellana P.H.', nit: '890.112.544-9', zone: 'Laureles, Medellín', city: 'Medellín, Antioquia', units: 48 }
-  ]);
-  const [currentTenantId, setCurrentTenantId] = useState<string>(selectedTenantId || 't1');
-  const activeTenant = tenants.find(t => t.id === currentTenantId) || tenants[0];
+  const [tenants, setTenants] = useState<MasterTenantItem[]>([]);
+  const [currentTenantId, setCurrentTenantId] = useState<string>(selectedTenantId || '');
+  const activeTenant = tenants.find(t => t.id === currentTenantId) || {
+    id: '',
+    name: 'Sin Copropiedad Activa',
+    nit: 'S/N',
+    zone: '',
+    city: '',
+    units: 0
+  };
+
+  useEffect(() => {
+    const cargarTenantsSupabase = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('tenants')
+          .select('id, name')
+          .order('created_at', { ascending: true });
+        if (!error && data && data.length > 0) {
+          const list: MasterTenantItem[] = data.map(t => ({
+            id: t.id,
+            name: t.name || 'Copropiedad',
+            nit: 'S/N',
+            zone: 'Antioquia',
+            city: 'Medellín',
+            units: 0
+          }));
+          setTenants(list);
+          setCurrentTenantId(prev => prev || list[0].id);
+        }
+      } catch (err) {
+        console.warn('Aviso cargando tenants en AdminMasterConsole:', err);
+      }
+    };
+    cargarTenantsSupabase();
+  }, []);
 
   // Estado de Jerarquía Operativa ('superadmin' | 'administrador' | 'supervisor') y Modo Relevo
   const [hierarchyRole, setHierarchyRole] = useState<HierarchyRole>(initialHierarchyRole);
   const [isReemplazoActivo, setIsReemplazoActivo] = useState<boolean>(false);
 
   // Bitácora de Auditoría en Sitio del Supervisor Operativo
-  const [supervisorChecklist, setSupervisorChecklist] = useState([
-    { id: 'chk-1', item: 'Inspección de Cuarto de Bombas Hidroneumáticas y Red Contra Incendios', done: true, time: '08:30 AM' },
-    { id: 'chk-2', item: 'Auditoría de Minuta de Portería, Presentación Personal y Relevos de Guarda', done: true, time: '09:10 AM' },
-    { id: 'chk-3', item: 'Verificación en Sitio de Planilla ARL / Certificados de Alturas de Contratistas', done: false, time: 'Pendiente' },
-    { id: 'chk-4', item: 'Recorrido de Aseo, Shut de Basuras e Iluminación de Sótanos 1 y 2', done: false, time: 'Pendiente' }
-  ]);
+  const [supervisorChecklist, setSupervisorChecklist] = useState<any[]>([]);
 
   // Determina si el usuario actual posee facultades plenas de Representante Legal (Superadmin, Admin Titular o Supervisor en Modo Relevo)
   const hasLegalAdminPowers =
@@ -167,20 +192,14 @@ export default function AdminMasterConsole({
   const [equiposCriticosShared, setEquiposCriticosShared] = useState<EquipoCriticoPH[]>(INITIAL_EQUIPOS_CRITICOS);
   const [reformasMudanzasShared, setReformasMudanzasShared] = useState<ReformaMudanzaPH[]>(INITIAL_REFORMAS_MUDANZAS);
   const [inventarioBodegaShared, setInventarioBodegaShared] = useState<InsumoBodegaPH[]>(INITIAL_INVENTARIO_BODEGA);
-  const [auditLogsShared, setAuditLogsShared] = useState<any[]>([
-    { id: 1, timestamp: new Date().toLocaleString(), user_executor: 'Carlos Mario Pineda (Admin)', action_type: 'INIT_CARTERA', details: 'Inicializó módulo de cartera Ley 675' }
-  ]);
+  const [auditLogsShared, setAuditLogsShared] = useState<any[]>([]);
 
   const appendAuditLogShared = (action: string, details: string) => {
     setAuditLogsShared(prev => [{ id: Date.now(), timestamp: new Date().toLocaleString(), user_executor: 'Carlos Mario Pineda (Admin)', action_type: action, details }, ...prev]);
   };
 
   // 3. ESTADO DE PQRSD Y CONVIVENCIA
-  const [tickets, setTickets] = useState<PqrsdTicketItem[]>([
-    { id: 't-1', number: 'PQR-2026-031', unit: 'Apto 201', applicant: 'Carolina Echeverri', category: 'Convivencia / Ruidos', desc: 'Ruido reiterado en horas de la madrugada los fines de semana.', deadline: '2026-11-04', daysLeft: 5, status: 'En Trámite' },
-    { id: 't-2', number: 'PQR-2026-032', unit: 'Apto 504', applicant: 'Santiago Gómez', category: 'Mantenimiento / Locativo', desc: 'Humedad en techo de alcoba principal proveniente de jardinera superior.', deadline: '2026-10-31', daysLeft: 2, status: 'Radicado' },
-    { id: 't-3', number: 'PQR-2026-033', unit: 'Apto 302', applicant: 'Beatriz Ospina', category: 'Financiero / Recaudo', desc: 'Solicitud de revisión en cobro de intereses moratorios de expensa de agosto.', deadline: '2026-11-08', daysLeft: 8, status: 'Remitido a Comité' }
-  ]);
+  const [tickets, setTickets] = useState<PqrsdTicketItem[]>([]);
   const [showNewPqrModal, setShowNewPqrModal] = useState(false);
   const [newPqrForm, setNewPqrForm] = useState({
     unit: '',
@@ -192,11 +211,7 @@ export default function AdminMasterConsole({
   const [responseText, setResponseText] = useState('');
 
   // 4. ESTADO DE CONTRATISTAS Y SEGURIDAD SOCIAL
-  const [contractors, setContractors] = useState<ContractorSummaryItem[]>([
-    { id: 'c1', name: 'Hidráulicas & Redes del Valle S.A.S.', specialty: 'Plomería / Redes', arl: 'SURA Riesgo V', validUntil: '2026-11-20', active: true, phone: '300 456 7890' },
-    { id: 'c2', name: 'Acabados y Pisos Medellín', specialty: 'Obra Civil / Enchapes', arl: 'Positiva Riesgo IV', validUntil: '2026-11-12', active: true, phone: '311 889 0011' },
-    { id: 'c3', name: 'Mantenimiento de Fachadas Verticales', specialty: 'Alturas / Fachadas', arl: 'SURA Riesgo V', validUntil: '2026-10-15', active: false, phone: '314 222 3344' }
-  ]);
+  const [contractors, setContractors] = useState<ContractorSummaryItem[]>([]);
   const [showNewContractorModal, setShowNewContractorModal] = useState(false);
   const [newContractorForm, setNewContractorForm] = useState({
     name: '',
@@ -207,10 +222,7 @@ export default function AdminMasterConsole({
   });
 
   // 5. ESTADO DE ACTAS CON LEY 675
-  const [actas] = useState<ActaLegalItem[]>([
-    { id: 'act-1', number: 'ACT-CONS-2026-10', type: 'Consejo de Administración', date: '2026-10-24', quorum: '100%', president: 'Mauricio Restrepo', secretary: 'Esteban Ochoa', status: 'Firmada / Publicada', summary: 'Aprobación del plan de impermeabilización y revisión de cartera morosa.' },
-    { id: 'act-2', number: 'ACT-ASAM-2026-01', type: 'Asamblea Ordinaria', date: '2026-03-15', quorum: '78.5%', president: 'Carlos Mario Ruiz', secretary: 'Laura Henao', status: 'Firmada / Publicada', summary: 'Aprobación de presupuesto anual y fijación de cuota de administración ordinaria.' }
-  ]);
+  const [actas, setActas] = useState<ActaLegalItem[]>([]);
 
   const handleTenantChange = (tenantId: string) => {
     setCurrentTenantId(tenantId);

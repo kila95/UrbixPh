@@ -20,7 +20,7 @@ interface TenantInfo {
 }
 
 const TENANTS_DEMO: TenantInfo[] = [
-  { id: 't1', nombre: 'Reserva del Tesoro PH', unidades: 180, garitaActiva: true },
+  { id: 't1', nombre: 'Copropiedad PH', unidades: 180, garitaActiva: true },
   { id: 't2', nombre: 'Torres de San Juan', unidades: 96, garitaActiva: false },
   { id: 't3', nombre: 'Altos del Poblado', unidades: 240, garitaActiva: true }
 ];
@@ -43,7 +43,7 @@ export default function SoporteTecnicoImpersonacion({
   // Logs de eventos de soporte técnico
   const [logs] = useState([
     { id: '1', hora: '15:42:10', tipo: 'warn', msg: 'Residente Torre 1 - 204: Micrófono denegado en Chrome Mobile (Android).' },
-    { id: '2', hora: '15:38:05', tipo: 'info', msg: 'Garita Reserva del Tesoro: Enlace WebRTC P2P establecido (Duración: 01:45).' },
+    { id: '2', hora: '15:38:05', tipo: 'info', msg: 'Garita Portería Principal: Enlace WebRTC P2P establecido (Duración: 01:45).' },
     { id: '3', hora: '15:20:12', tipo: 'ok', msg: 'Urbix Copilot: 12 consultas Ley 675 procesadas con éxito vía Gemini API.' },
     { id: '4', hora: '14:55:00', tipo: 'warn', msg: 'Garita Torres de San Juan: Desconexión de socket detectada (Posible corte de luz o red local).' }
   ]);

@@ -21,7 +21,7 @@ export function MatrizGlobalTenantsSoporte({
   const [tenants, setTenants] = useState([
     {
       id: 't1',
-      nombre: 'Reserva del Tesoro PH',
+      nombre: 'Copropiedad PH',
       ciudad: 'Medellín, Poblado',
       unidades: 180,
       garitaOnline: true,

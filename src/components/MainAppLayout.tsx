@@ -60,7 +60,7 @@ interface Props {
 
 export default function MainAppLayout({
   userProfile = { full_name: 'Administrador General', role: 'admin', email: 'admin@copropiedad.com' },
-  copropiedadNombre = 'Urb. Tricentenario',
+  copropiedadNombre = 'Copropiedad PH',
   moduloActivo,
   onSelectModulo,
   onSwitchRole,

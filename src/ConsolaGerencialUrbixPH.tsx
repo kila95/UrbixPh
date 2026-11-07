@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Building2, FileText, HardHat, DollarSign,
-  Wrench, Calendar, MessageSquare, ShieldCheck, Plus, Camera, AlertCircle, AlertOctagon, Search, Users, UserPlus, Trash2, Radio, Check, Edit3, Scan, FileSpreadsheet, LogOut, Calculator
+  Wrench, Calendar, MessageSquare, ShieldCheck, Plus, Camera, AlertCircle, AlertOctagon, Search, Users, UserPlus, Trash2, Radio, Check, Edit3, Scan, FileSpreadsheet, LogOut, Calculator, Truck, Scale
 } from 'lucide-react';
 import type { GuardIncidentReport, CommonAreaReservation } from './App';
 import { supabase, type UserProfile } from './supabaseClient';
@@ -32,6 +32,14 @@ import ModuloTesoreriaOCR from './ModuloTesoreriaOCR';
 import ModuloTesoreriaExogenaReal from './ModuloTesoreriaExogenaReal';
 import ModuloMantenimientoReal from './ModuloMantenimientoReal';
 import ModuloCobroPrejuridicoReal from './ModuloCobroPrejuridicoReal';
+import {
+  registrarAbonoConPrelacion,
+  ejecutarCausacionMensualCopropiedad,
+  imprimirReciboDeCajaPDF,
+  exportarContabilidadSiigoWorldOffice
+} from './lib/motorFinancieroPH';
+import ModuloCensoYMudanzasReal from './ModuloCensoYMudanzasReal';
+import ModuloGobiernoYConsejoReal from './ModuloGobiernoYConsejoReal';
 
 
 export interface StaffMember {
@@ -69,10 +77,9 @@ export default function ConsolaGerencialUrbixPH({
   onCerrarSesion,
   onShowToast
 }: ConsolaGerencialUrbixPHProps) {
-  const [saldoCajaMenor, setSaldoCajaMenor] = useState<number>(1880000);
-  const [porcentajeRecaudo, setPorcentajeRecaudo] = useState<number>(2.0);
-  const [activeTab, setActiveTab] = useState<'general' | 'cartelera' | 'porteria' | 'comunicados' | 'asamblea' | 'actas' | 'contractors' | 'cartera' | 'prejuridico' | 'facturas_ocr' | 'exogena_dian' | 'mantenimiento' | 'personal' | 'reservas' | 'pqrs' | 'whatsapp'>('general');
-
+  const [saldoCajaMenor, setSaldoCajaMenor] = useState<number>(0);
+  const [porcentajeRecaudo, setPorcentajeRecaudo] = useState<number>(0);
+  const [activeTab, setActiveTab] = useState<'general' | 'cartelera' | 'porteria' | 'comunicados' | 'asamblea' | 'actas' | 'contractors' | 'cartera' | 'prejuridico' | 'facturas_ocr' | 'exogena_dian' | 'mantenimiento' | 'personal' | 'reservas' | 'pqrs' | 'whatsapp' | 'mudanzas' | 'gobierno'>('general');
   const [searchQuery, setSearchQuery] = useState('');
   const [mostrarModalCuadrilla, setMostrarModalCuadrilla] = useState(false);
   const [modalCobroAbierto, setModalCobroAbierto] = useState(false);
@@ -82,9 +89,8 @@ export default function ConsolaGerencialUrbixPH({
   const setAbrirModalRecaudo = setModalRecaudoAbierto;
   const setAbrirModalCajaMenor = setModalCajaMenorAbierto;
 
-  // Panel de configuración de WhatsApp para el Administrador PH
   const [whatsappEnabled, setWhatsappEnabled] = useState(true);
-  const [whatsappToken, setWhatsappToken] = useState('token_copropiedad_xyz');
+  const [whatsappToken, setWhatsappToken] = useState('');
 
   const handleSaveWhatsAppConfig = () => {
     try {
@@ -98,63 +104,42 @@ export default function ConsolaGerencialUrbixPH({
     onShowToast?.('Configuración de WhatsApp actualizada para la copropiedad');
   };
 
-  // Edificios asignados al administrador desde Supabase (Tricentenario por defecto)
-  const TRICENTENARIO_ID = '22079bb5-6ac7-4a15-be89-c53d14e4221b';
-  const [edificiosAsignados, setEdificiosAsignados] = useState<any[]>([
-    { id: TRICENTENARIO_ID, name: 'urb Tricentenario' }
-  ]);
-  const [edificioActivoId, setEdificioActivoId] = useState<string>(TRICENTENARIO_ID);
+  // Edificios reales desde Supabase (Inicia vacío, sin Copropiedad_PH ni demos)
+  const [edificiosAsignados, setEdificiosAsignados] = useState<any[]>([]);
+  const [edificioActivoId, setEdificioActivoId] = useState<string>('');
 
   useEffect(() => {
     const cargarEdificiosDelAdmin = async () => {
-      let userId = userProfile?.id;
-      let userEmail = userProfile?.email;
-
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          userId = userId || user.id;
-          userEmail = userEmail || user.email;
-        }
-      } catch (authErr) {
-        console.warn('Aviso obteniendo usuario actual de auth:', authErr);
-      }
-      
-      // Traer los tenants donde ella es la administradora asignada o Tricentenario
-      try {
-        const isUuid = (val?: string | null) =>
-          Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val));
-        const adminIdFiltro = isUuid(userId) ? userId : 'dde881f7-cfe4-40b8-95bf-33d6e7a3ddfe';
-        const adminEmailFiltro = userEmail || 'siux95@hotmail.com';
-
         const { data: tenants, error } = await supabase
           .from('tenants')
           .select('id, name')
-          .or(`assigned_admin_id.eq.${adminIdFiltro},admin_email.eq.${adminEmailFiltro},id.eq.${TRICENTENARIO_ID}`);
+          .order('created_at', { ascending: true });
 
         if (error) {
-          console.warn('Aviso cargando edificios del admin:', error.message);
+          console.warn('Aviso cargando edificios:', error.message);
           return;
         }
 
         if (tenants && tenants.length > 0) {
           setEdificiosAsignados(tenants);
-          const tricentenarioMatch = tenants.find(t => t.id === TRICENTENARIO_ID);
-          setEdificioActivoId(tricentenarioMatch ? tricentenarioMatch.id : tenants[0].id);
+          setEdificioActivoId((prev) => prev || tenants[0].id);
+        } else {
+          setEdificiosAsignados([]);
+          setEdificioActivoId('');
         }
       } catch (err: any) {
         console.warn('Aviso en cargarEdificiosDelAdmin:', err?.message);
       }
     };
-
     cargarEdificiosDelAdmin();
   }, [userProfile?.id, userProfile?.email]);
 
-  // Métricas reales del tenant activo desde Supabase (tabla units)
+  // Métricas inicializadas en 0 real
   const [metricas, setMetricas] = useState<MetricasTenant>({
     recaudo: '0.0%',
     unidadesMora: '0 Aptos',
-    totalUnidades: 100,
+    totalUnidades: 0,
     alDia: 0,
     enMora: 0,
     unidadesPagadas: 0,
@@ -170,17 +155,13 @@ export default function ConsolaGerencialUrbixPH({
     }
   }, [edificioActivoId]);
 
-  const isUuidTenant = (val?: string | null) =>
-    Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val));
-  const edificioActivo = edificiosAsignados.find(e => e.id === edificioActivoId) || edificiosAsignados[0];
-  const resolvedTenantName = edificioActivo?.name || currentTenant?.name || tenantName || 'urb Tricentenario';
-  const tenantActivoId =
-    (isUuidTenant(edificioActivoId) && edificioActivoId) ||
-    (isUuidTenant(currentTenant?.id) && currentTenant?.id) ||
-    TRICENTENARIO_ID;
+  const edificioActivo = edificiosAsignados.find(e => e.id === edificioActivoId) || null;
+  const resolvedTenantName = edificioActivo?.name || currentTenant?.name || tenantName || 'Sin Copropiedad Seleccionada';
+  const tenantActivoId = edificioActivoId || currentTenant?.id || '';
   const tenantId = tenantActivoId;
-  const resolvedAdminName = userProfile?.full_name || adminName || 'Esteban Ochoa';
+  const resolvedAdminName = userProfile?.full_name || adminName || 'Administrador';
 
+  // Sincronización de caja menor y recaudo en vivo
   const syncMetricasGenerales = async () => {
     if (!tenantId) return;
 
@@ -201,16 +182,8 @@ export default function ConsolaGerencialUrbixPH({
           .reduce((sum, m) => sum + Number(m.amount), 0);
 
         setSaldoCajaMenor(ingresos - gastos);
-      } else if (typeof window !== 'undefined') {
-        const savedLocal = localStorage.getItem('urbix_caja_menor_tricentenario_v1');
-        if (savedLocal) {
-          const parsed = JSON.parse(savedLocal);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            const ing = parsed.filter((m: any) => m.tipo === 'ingreso').reduce((s: number, m: any) => s + Number(m.monto || 0), 0);
-            const egr = parsed.filter((m: any) => m.tipo === 'egreso').reduce((s: number, m: any) => s + Number(m.monto || 0), 0);
-            setSaldoCajaMenor(ing - egr);
-          }
-        }
+      } else {
+        setSaldoCajaMenor(0);
       }
     } catch (err) {
       console.warn('Error sincronizando petty_cash_movements:', err);
@@ -227,7 +200,11 @@ export default function ConsolaGerencialUrbixPH({
         const alDia = unidades.filter(u => u.debt_status === 'al_dia' || u.debt_status === 'Al día').length;
         if (alDia > 0) {
           setPorcentajeRecaudo((alDia / unidades.length) * 100);
+        } else {
+          setPorcentajeRecaudo(0);
         }
+      } else {
+        setPorcentajeRecaudo(0);
       }
     } catch (err) {
       console.warn('Error sincronizando porcentaje de recaudo:', err);
@@ -239,50 +216,40 @@ export default function ConsolaGerencialUrbixPH({
   }, [tenantId]);
 
   // Catálogo de copropiedades / edificios disponibles para asignación a supervisores
-  const catalogCopropiedades = [
-    'P.H. Reserva del Tesoro (Torre 1 & 2)',
-    'Conjunto Altavista PH',
-    'Edificio Portal del Campestre',
-    'Torres de Vizcaya PH',
-    'Mirador del Poblado PH'
-  ];
+  const catalogCopropiedades = edificiosAsignados.length > 0
+    ? edificiosAsignados.map(e => e.name)
+    : [
+        'Copropiedad PH',
+        'Conjunto Altavista PH',
+        'Edificio Portal del Campestre',
+        'Torres de Vizcaya PH',
+        'Mirador del Poblado PH'
+      ];
 
-  // ✅ AHORA (Base Real desde Supabase):
+  // Cargar nómina real filtrando exclusivamente por el tenantActivoId actual
   const [personalStaff, setPersonalStaff] = useState<StaffMember[]>([]);
-  const [cargandoStaff, setCargandoStaff] = useState<boolean>(true);
+  const [cargandoStaff, setCargandoStaff] = useState<boolean>(false);
 
   useEffect(() => {
     const cargarNominaReal = async () => {
+      if (!tenantActivoId) {
+        setPersonalStaff([]);
+        return;
+      }
       try {
         setCargandoStaff(true);
-        const { data: tenantData } = await supabase
-          .from('tenants')
-          .select('id, name')
-          .ilike('name', '%Tricentenario%')
-          .limit(1)
-          .single();
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, full_name, email, role, is_active')
+          .eq('tenant_id', tenantActivoId)
+          .neq('role', 'residente')
+          .order('role', { ascending: true });
 
-        if (tenantData) {
-          const { data: profiles } = await supabase
-            .from('profiles')
-            .select('id, full_name, email, role, is_active')
-            .eq('tenant_id', tenantData.id)
-            .neq('role', 'residente')
-            .order('role', { ascending: true });
-
-          if (profiles && profiles.length > 0) {
-            let idsEliminados: string[] = [];
-            try {
-              const raw = localStorage.getItem('urbix_deleted_staff_ids');
-              if (raw) idsEliminados = JSON.parse(raw);
-            } catch {
-              // ignore
-            }
-            const perfilesActivos = profiles.filter(
-              p => p.is_active !== false && !idsEliminados.includes(p.id)
-            );
-            setPersonalStaff(
-              perfilesActivos.map(p => ({
+        if (profiles && profiles.length > 0) {
+          setPersonalStaff(
+            profiles
+              .filter(p => p.is_active !== false)
+              .map(p => ({
                 id: p.id,
                 nombre: p.full_name || 'Sin Nombre',
                 rol:
@@ -290,28 +257,26 @@ export default function ConsolaGerencialUrbixPH({
                   p.role === 'vigilante' ? 'Vigilancia / Portería' :
                   p.role === 'aseo' ? 'Servicios Generales' : 'Supervisor Ops',
                 email: p.email || '',
-                estado: p.is_active ? 'Activo (En nómina)' : 'Inactivo',
-                edificios: [tenantData.name]
+                estado: 'Activo (En nómina)',
+                edificios: [resolvedTenantName]
               }))
-            );
-          } else {
-            setPersonalStaff([]);
-          }
+          );
+        } else {
+          setPersonalStaff([]);
         }
       } catch (err: any) {
-        console.error('Error cargando nómina real en ConsolaGerencialUrbixPH:', err.message);
+        console.error('Error cargando nómina real:', err.message);
       } finally {
         setCargandoStaff(false);
       }
     };
-
     cargarNominaReal();
-  }, [activeTab]);
+  }, [tenantActivoId, activeTab, resolvedTenantName]);
   const [nombreNuevo, setNombreNuevo] = useState('');
   const [emailNuevo, setEmailNuevo] = useState('');
   const [rolNuevo, setRolNuevo] = useState('Supervisor Operativo');
   const [edificiosSeleccionados, setEdificiosSeleccionados] = useState<string[]>([
-    'P.H. Reserva del Tesoro (Torre 1 & 2)'
+    'Copropiedad PH'
   ]);
   const [nuevoEdificioPersonalizado, setNuevoEdificioPersonalizado] = useState('');
 
@@ -320,7 +285,7 @@ export default function ConsolaGerencialUrbixPH({
   const [edificiosEdicionTemp, setEdificiosEdicionTemp] = useState<string[]>([]);
   const [inputCustomEdicion, setInputCustomEdicion] = useState('');
 
-  // Datos consolidados de Cartera (Ley 675) conectados a Supabase units (Tricentenario)
+  // Datos consolidados de Cartera (Ley 675) conectados a Supabase units 
   const [apartments, setApartments] = useState<any[]>([]);
 
   const cargarUnidadesReales = async (tId: string) => {
@@ -356,54 +321,140 @@ export default function ConsolaGerencialUrbixPH({
     }
   }, [tenantActivoId]);
 
-  const handleRegistrarPago = async (aptoId: string, aptoInfo: string, monto: number) => {
+  const handleRegistrarPago = async (aptoId: string, aptoInfo: string, propietario: string, saldoActual: number) => {
+    const inputMonto = window.prompt(
+      `Registrar abono o pago total para ${aptoInfo} (${propietario}).\nSaldo actual: $${saldoActual.toLocaleString('es-CO')} COP.\n\nIngresa el valor pagado ($ COP):`,
+      String(saldoActual)
+    );
+    if (!inputMonto) return;
+    const monto = Number(inputMonto.replace(/\D/g, ''));
+    if (!monto || monto <= 0) return;
+
     try {
-      const { error } = await supabase
-        .from('units')
-        .update({
-          pending_balance: 0,
-          debt_status: 'Al día',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', aptoId);
-
-      if (error) throw error;
-
-      setApartments(prev =>
-        prev.map(item => item.id === aptoId ? { ...item, saldo: 0, estado: 'Al día' } : item)
-      );
-
-      cargarMetricasTenant(tenantActivoId).then(res => {
-        if (res) setMetricas(res);
+      const resultado = await registrarAbonoConPrelacion({
+        tenantId: tenantActivoId,
+        unitId: aptoId,
+        unitLabel: aptoInfo,
+        payerName: propietario,
+        amountPaid: monto
       });
 
-      onShowToast?.(`💳 Pago de $${monto.toLocaleString('es-CO')} aplicado a ${aptoInfo}. Unidad a Paz y Salvo.`);
+      await cargarUnidadesReales(tenantActivoId);
+      cargarMetricasTenant(tenantActivoId).then(res => { if (res) setMetricas(res); });
+
+      onShowToast?.(
+        `✓ Recibo ${resultado.receiptNumber} emitido: $${monto.toLocaleString('es-CO')} aplicado (Mora: $${resultado.appliedToInterest.toLocaleString('es-CO')} | Capital: $${resultado.appliedToCapital.toLocaleString('es-CO')}).`
+      );
+
+      // Abrir Recibo Oficial de Caja en PDF listo para imprimir/guardar
+      imprimirReciboDeCajaPDF(resolvedTenantName, aptoInfo, propietario, resultado);
     } catch (err: any) {
-      console.error('Error aplicando pago:', err.message);
-      onShowToast?.(`Error aplicando pago: ${err.message}`);
+      onShowToast?.(`Error aplicando abono: ${err.message}`);
     }
   };
 
-  // Datos consolidados de Mantenimiento
-  const [reports, setReports] = useState([
-    { id: 'rep-1', area: 'Sótano 1', categoria: 'Iluminación', detalle: 'Balasto quemado lámpara salida parqueadero', prioridad: 'Media', asignado: 'Don José (Todero)', estado: 'En proceso' },
-    { id: 'rep-2', area: 'Piscina', categoria: 'Motobombas', detalle: 'Ruido anormal en motor de recirculación', prioridad: 'Alta', asignado: 'Contratista Hidráulico', estado: 'Pendiente' }
-  ]);
+  // 1. Estados limpios (Sin datos ficticios quemados)
+  const [reports, setReports] = useState<any[]>([]);
+  const [localReservations, setLocalReservations] = useState<any[]>([]);
+  const [pqrsList, setPqrsList] = useState<any[]>([]);
+  const [cargandoModulosAdmin, setCargandoModulosAdmin] = useState<boolean>(false);
 
-  // Reservas de áreas comunes con validación de Paz y Salvo y Depósito ($100.000 COP)
-  const [localReservations, setLocalReservations] = useState([
-    { id: 'res-1', zona: 'Salón Social', apto: 'Torre 1 - 302', residente: 'Esteban Ochoa', fecha: 'Sábado 31 Oct - 6:00 PM', deposito: 100000, pazYSalvo: true, estado: 'Aprobada ✓' },
-    { id: 'res-2', zona: 'Zona BBQ', apto: 'Torre 1 - 102', residente: 'Carolina Herrera', fecha: 'Domingo 1 Nov - 1:00 PM', deposito: 100000, pazYSalvo: false, estado: 'Bloqueado por mora' },
-    { id: 'res-3', zona: 'Cancha Sintética', apto: 'Torre 1 - 101', residente: 'Mateo Zuluaga', fecha: 'Domingo 1 Nov - 4:00 PM', deposito: 100000, pazYSalvo: true, estado: 'Pendiente aprobación' }
-  ]);
-
-  // Datos consolidados de PQRS (Ley 1755)
-  const [pqrsList, setPqrsList] = useState([
-    { id: 'pqr-1', radicado: 'RAD-2026-0841', apto: 'Torre 2 - 301', tipo: 'Reclamo Técnico (10 días hábiles)', asunto: 'Filtración de humedad en cielo raso', estado: 'En término legal' }
-  ]);
   const [isCircularOpen, setIsCircularOpen] = useState(false);
   const [circularTitle, setCircularTitle] = useState('');
   const [circularBody, setCircularBody] = useState('');
+
+  // 2. Función para calcular fecha límite legal en días hábiles (Ley 1755/2015)
+  const calcularFechaLimiteHabiles = (diasHabiles: number): string => {
+    const fecha = new Date();
+    let sumados = 0;
+    while (sumados < diasHabiles) {
+      fecha.setDate(fecha.getDate() + 1);
+      const diaSemana = fecha.getDay();
+      if (diaSemana !== 0 && diaSemana !== 6) {
+        sumados++;
+      }
+    }
+    return fecha.toISOString().split('T')[0];
+  };
+
+  // 3. Cargar Reservas y PQRSD reales desde Supabase para el edificio activo
+  const cargarReservasYPqrsReales = async (tId: string) => {
+    if (!tId) return;
+    setCargandoModulosAdmin(true);
+    try {
+      // A. Consultar Reservas de Áreas Comunes
+      const { data: resData } = await supabase
+        .from('common_area_reservations')
+        .select('*')
+        .eq('tenant_id', tId)
+        .order('created_at', { ascending: false });
+
+      if (resData) {
+        setLocalReservations(
+          resData.map((r: any) => ({
+            id: r.id,
+            zona: r.amenity_name,
+            apto: r.unit_label,
+            residente: r.resident_name,
+            phone: r.resident_phone,
+            fecha: r.reservation_date,
+            deposito: Number(r.deposit_amount || 100000),
+            pazYSalvo: Boolean(r.is_paz_y_salvo),
+            estado: r.status
+          }))
+        );
+      }
+
+      // B. Consultar Bandeja PQRSD y Circulares Oficiales
+      const { data: pqrData } = await supabase
+        .from('pqrsd_requests')
+        .select('*')
+        .eq('tenant_id', tId)
+        .order('created_at', { ascending: false });
+
+      if (pqrData) {
+        setPqrsList(
+          pqrData.map((p: any) => ({
+            id: p.id,
+            radicado: p.radicado,
+            apto: p.unit_label,
+            tipo: p.request_type,
+            asunto: p.subject,
+            estado: p.status,
+            vence: p.legal_deadline
+          }))
+        );
+      }
+    } catch (err: any) {
+      console.warn('Error sincronizando reservas y PQRSD:', err.message);
+    } finally {
+      setCargandoModulosAdmin(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!tenantActivoId) return;
+    cargarReservasYPqrsReales(tenantActivoId);
+
+    // Suscripción Realtime para que lleguen al instante desde el Portal del Residente
+    const canalAdmin = supabase
+      .channel(`realtime_admin_ops_${tenantActivoId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'common_area_reservations' },
+        () => cargarReservasYPqrsReales(tenantActivoId)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pqrsd_requests' },
+        () => cargarReservasYPqrsReales(tenantActivoId)
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(canalAdmin);
+    };
+  }, [tenantActivoId]);
 
   const toggleEdificioForm = (edificio: string) => {
     setEdificiosSeleccionados((prev) =>
@@ -427,7 +478,7 @@ export default function ConsolaGerencialUrbixPH({
     const edificiosFinales =
       edificiosSeleccionados.length > 0
         ? edificiosSeleccionados
-        : [resolvedTenantName || 'P.H. Reserva del Tesoro (Torre 1 & 2)'];
+        : [resolvedTenantName || 'Copropiedad PH'];
 
     const nuevoTrabajador: StaffMember = {
       id: `st_${Date.now()}`,
@@ -441,13 +492,13 @@ export default function ConsolaGerencialUrbixPH({
     setPersonalStaff([nuevoTrabajador, ...personalStaff]);
     setNombreNuevo('');
     setEmailNuevo('');
-    setEdificiosSeleccionados(['P.H. Reserva del Tesoro (Torre 1 & 2)']);
+    setEdificiosSeleccionados(['Copropiedad PH']);
     onShowToast?.(`✅ ${rolNuevo} "${nuevoTrabajador.nombre}" registrado con ${edificiosFinales.length} edificio(s) asignados a cargo.`);
   };
 
   const handleAbrirEdicionEdificios = (staff: StaffMember) => {
     setStaffEnEdicion(staff);
-    setEdificiosEdicionTemp(staff.edificios || ['P.H. Reserva del Tesoro (Torre 1 & 2)']);
+    setEdificiosEdicionTemp(staff.edificios || ['Copropiedad PH']);
   };
 
   const toggleEdificioModal = (edificio: string) => {
@@ -467,7 +518,7 @@ export default function ConsolaGerencialUrbixPH({
 
   const handleGuardarEdificiosStaff = () => {
     if (!staffEnEdicion) return;
-    const finalList = edificiosEdicionTemp.length > 0 ? edificiosEdicionTemp : ['P.H. Reserva del Tesoro (Torre 1 & 2)'];
+    const finalList = edificiosEdicionTemp.length > 0 ? edificiosEdicionTemp : ['Copropiedad PH'];
 
     setPersonalStaff((prev) =>
       prev.map((s) => (s.id === staffEnEdicion.id ? { ...s, edificios: finalList } : s))
@@ -482,24 +533,37 @@ export default function ConsolaGerencialUrbixPH({
     onShowToast?.(`🚫 Acceso revocado y empleado "${nombre}" dado de baja.`);
   };
 
-  const handleEmitCircular = (e: React.FormEvent) => {
+  // 4. Emitir Circular Oficial persistiendo en Supabase
+  const handleEmitCircular = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!circularTitle.trim()) return;
-    setPqrsList((prev) => [
-      {
-        id: `pqr-${Date.now()}`,
-        radicado: `RAD-2026-${Math.floor(1000 + Math.random() * 9000)}`,
-        apto: 'Todas las Torres',
-        tipo: 'Circular Oficial Ley 675',
-        asunto: `${circularTitle.trim()}: ${circularBody.trim() || 'Comunicado oficial de administración'}`,
-        estado: 'Publicada ✓'
-      },
-      ...prev
-    ]);
-    setCircularTitle('');
-    setCircularBody('');
-    setIsCircularOpen(false);
-    onShowToast?.('📢 Circular oficial emitida a toda la copropiedad');
+
+    const nuevoRadicado = `RAD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const asuntoCompleto = `${circularTitle.trim()}: ${circularBody.trim() || 'Comunicado oficial de administración'}`;
+
+    try {
+      const { error } = await supabase.from('pqrsd_requests').insert([
+        {
+          tenant_id: tenantActivoId,
+          radicado: nuevoRadicado,
+          unit_label: 'Todas las Torres',
+          request_type: 'Circular Oficial Ley 675',
+          subject: asuntoCompleto,
+          legal_deadline: calcularFechaLimiteHabiles(15),
+          status: 'Publicada ✓'
+        }
+      ]);
+
+      if (error) throw error;
+
+      setCircularTitle('');
+      setCircularBody('');
+      setIsCircularOpen(false);
+      cargarReservasYPqrsReales(tenantActivoId);
+      onShowToast?.('✓ Circular oficial guardada en base de datos y emitida a la copropiedad');
+    } catch (err: any) {
+      onShowToast?.(`Error publicando circular: ${err.message}`);
+    }
   };
 
   const combinedReports = [
@@ -719,6 +783,8 @@ export default function ConsolaGerencialUrbixPH({
           <option value="cartera">💰 Tesorería, OCR & Exógena DIAN</option>
           <option value="mantenimiento">🔧 Mantenimiento & Órdenes</option>
           <option value="porteria">🚨 Portería & Minuta (Tiempo Real Supabase)</option>
+          <option value="mudanzas">🚚 Censo & Salvoconductos de Mudanza</option>
+          <option value="gobierno">⚖️ Consejo, Licitaciones & Poderes</option>
           <option value="personal">👥 Personal & Staff</option>
           <option value="reservas">📅 Áreas Comunes & Depósitos</option>
           <option value="pqrs">💬 PQRS (Ley 1755)</option>
@@ -730,12 +796,14 @@ export default function ConsolaGerencialUrbixPH({
         {[
           { id: 'general', label: 'Vista General', icon: Building2, color: 'text-cyan-400' },
           { id: 'asamblea', label: 'Asambleas & Actas Legales', icon: Users, color: 'text-cyan-400' },
+          { id: 'gobierno', label: 'Gobierno & Consejo', icon: Scale, color: 'text-emerald-400' },
           { id: 'contractors', label: 'Contratistas & Obras', icon: HardHat, color: 'text-emerald-400' },
           { id: 'cartera', label: 'Tesorería, OCR & DIAN', icon: DollarSign, color: 'text-teal-400' },
           { id: 'prejuridico', label: 'Cobro Prejurídico & Acuerdos', icon: AlertOctagon, color: 'text-rose-400' },
           { id: 'mantenimiento', label: 'Mantenimiento', icon: Wrench, color: 'text-amber-400' },
           { id: 'cartelera', label: 'Cartelera & Circulares', icon: FileText, color: 'text-sky-400' },
           { id: 'porteria', label: 'Portería (Tiempo Real)', icon: ShieldCheck, color: 'text-blue-400' },
+          { id: 'mudanzas', label: 'Censo & Mudanzas', icon: Truck, color: 'text-amber-400' },
           { id: 'personal', label: 'Personal & Staff', icon: Users, color: 'text-purple-400' },
           { id: 'reservas', label: 'Áreas Comunes', icon: Calendar, color: 'text-indigo-400' },
           { id: 'pqrs', label: 'PQRS', icon: MessageSquare, color: 'text-cyan-400' },
@@ -925,7 +993,7 @@ export default function ConsolaGerencialUrbixPH({
             {/* Pestaña o Sección de Ajustes de Notificaciones */}
             <div className="mt-6">
               <WhatsAppConfigCard 
-                tenantName="Reserva del Tesoro" 
+                tenantName="Copropiedad PH" 
                 onShowToast={onShowToast} 
               />
             </div>
@@ -937,12 +1005,19 @@ export default function ConsolaGerencialUrbixPH({
 
         {/* 2. CENTRO INTEGRAL DE ASAMBLEAS & ACTAS LEGALES (LEY 675 DE 2001) */}
         {(activeTab === 'asamblea' || activeTab === 'actas') && (
-          <ModuloReunionesConSubmodulos
-            unidadResidenteActual="Administración Principal"
-            rolUsuario="admin"
-            esConsejero={true}
-            onShowToast={onShowToast}
-          />
+          <div className="space-y-6">
+            <ModuloGobiernoYConsejoReal
+              tenantId={tenantActivoId}
+              tenantName={resolvedTenantName}
+              onShowToast={onShowToast}
+            />
+            <ModuloReunionesConSubmodulos
+              unidadResidenteActual="Administración Principal"
+              rolUsuario="admin"
+              esConsejero={true}
+              onShowToast={onShowToast}
+            />
+          </div>
         )}
 
         {/* 3. CONTRATISTAS & OBRAS */}
@@ -1014,10 +1089,26 @@ export default function ConsolaGerencialUrbixPH({
                     </button>
                     <button
                       type="button"
-                      onClick={() => onShowToast?.('📄 Cuentas de cobro mensuales generadas conforme a Ley 675')}
+                      onClick={async () => {
+                        try {
+                          const total = await ejecutarCausacionMensualCopropiedad(tenantActivoId, 2.1);
+                          await cargarUnidadesReales(tenantActivoId);
+                          onShowToast?.(`✓ Causación mensual Ley 675 ejecutada en ${total} unidades (+1% Fondo Imprevistos).`);
+                        } catch (e: any) {
+                          onShowToast?.(`Error en causación: ${e.message}`);
+                        }
+                      }}
                       className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white rounded-xl transition flex items-center gap-1.5 cursor-pointer"
                     >
-                      <FileText className="w-3.5 h-3.5" /> Generar Cobros
+                      <FileText className="w-3.5 h-3.5" /> Causar Mes (Ley 675)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => exportarContabilidadSiigoWorldOffice(tenantActivoId, resolvedTenantName)}
+                      className="px-3 py-1.5 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-xs font-bold text-emerald-300 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" /> Exportar PUC (Siigo / World Office)
                     </button>
                   </div>
                 </div>
@@ -1058,7 +1149,7 @@ export default function ConsolaGerencialUrbixPH({
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => handleRegistrarPago(a.id, `Torre ${a.torre} - ${a.apto}`, a.saldo || a.cuota || 300000)}
+                                onClick={() => handleRegistrarPago(a.id, `Torre ${a.torre} - ${a.apto}`, a.propietario, a.saldo || a.cuota || 300000)}
                                 className="text-[11px] font-bold text-amber-400 hover:underline cursor-pointer"
                               >
                                 Registrar Pago
@@ -1145,6 +1236,11 @@ export default function ConsolaGerencialUrbixPH({
                       <button
                         type="button"
                         onClick={async () => {
+                          await supabase
+                            .from('common_area_reservations')
+                            .update({ status: 'Aprobada ✓' })
+                            .eq('id', res.id);
+
                           setLocalReservations((prev) =>
                             prev.map((item) => (item.id === res.id ? { ...item, estado: 'Aprobada ✓' } : item))
                           );
@@ -1184,8 +1280,17 @@ export default function ConsolaGerencialUrbixPH({
             {/* Pestaña o Sección de Ajustes de Notificaciones */}
             <div className="mt-6">
               <WhatsAppConfigCard 
-                tenantName="Reserva del Tesoro" 
+                tenantName="Copropiedad PH" 
                 onShowToast={onShowToast} 
+              />
+            </div>
+
+            {/* Módulo de Censo Integral y Salvoconductos de Mudanza */}
+            <div className="mt-6 pt-6 border-t border-slate-800">
+              <ModuloCensoYMudanzasReal
+                tenantId={tenantActivoId}
+                tenantName={resolvedTenantName}
+                onShowToast={onShowToast}
               />
             </div>
           </div>
@@ -1254,27 +1359,40 @@ export default function ConsolaGerencialUrbixPH({
                       <span className="font-mono font-bold text-cyan-400">{p.radicado}</span>
                       <span className="font-bold text-white">{p.tipo}</span>
                       <span className="text-slate-400">• {p.apto}</span>
+                      {p.vence && (
+                        <span className="text-[10px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                          Vence: {p.vence}
+                        </span>
+                      )}
                     </div>
                     <p className="text-slate-300 mt-1">{p.asunto}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`px-3 py-1 rounded-lg font-bold border ${
-                      p.estado.includes('Respondido') || p.estado.includes('Publicada')
+                      (p.estado || '').includes('Respondido') || (p.estado || '').includes('Publicada')
                         ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                         : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
                     }`}>
                       {p.estado}
                     </span>
-                    {!p.estado.includes('Respondido') && !p.estado.includes('Publicada') && (
+                    {!(p.estado || '').includes('Respondido') && !(p.estado || '').includes('Publicada') && (
                       <button
                         type="button"
-                        onClick={() => {
+                        onClick={async () => {
+                          await supabase
+                            .from('pqrsd_requests')
+                            .update({
+                              status: 'Respondido con Firma Digital ✓',
+                              responded_at: new Date().toISOString()
+                            })
+                            .eq('id', p.id);
+
                           setPqrsList((prev) =>
                             prev.map((item) =>
                               item.id === p.id ? { ...item, estado: 'Respondido con Firma Digital ✓' } : item
                             )
                           );
-                          onShowToast?.(`✍️ Radicado ${p.radicado} respondido con Firma Digital Ley 1755`);
+                          onShowToast?.(`✓ Radicado ${p.radicado} respondido y sellado en Supabase (Ley 1755)`);
                         }}
                         className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg transition cursor-pointer"
                       >
@@ -1301,10 +1419,28 @@ export default function ConsolaGerencialUrbixPH({
           />
         )}
 
+        {/* 11. CENSO INTEGRAL & SALVOCONDUCTOS DE MUDANZA */}
+        {activeTab === 'mudanzas' && (
+          <ModuloCensoYMudanzasReal
+            tenantId={tenantActivoId}
+            tenantName={resolvedTenantName}
+            onShowToast={onShowToast}
+          />
+        )}
+
+        {/* 12. GOBIERNO CORPORATIVO, CONSEJO & PODERES */}
+        {activeTab === 'gobierno' && (
+          <ModuloGobiernoYConsejoReal
+            tenantId={tenantActivoId}
+            tenantName={resolvedTenantName}
+            onShowToast={onShowToast}
+          />
+        )}
+
         {/* 11. NOTIFICACIONES WHATSAPP */}
         {activeTab === 'whatsapp' && (
           <WhatsAppConfigCard
-            tenantName={resolvedTenantName || 'Reserva del Tesoro'}
+            tenantName={resolvedTenantName || 'Copropiedad PH'}
             onShowToast={onShowToast}
           />
         )}

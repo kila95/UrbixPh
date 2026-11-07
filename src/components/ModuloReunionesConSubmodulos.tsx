@@ -77,7 +77,7 @@ export default function ModuloReunionesConSubmodulos({
   unidadResidenteActual = 'Torre 2 - 301',
   esConsejero = true,
   rolUsuario = 'residente',
-  copropiedadNombre = 'Urb. Tricentenario',
+  copropiedadNombre = 'Copropiedad PH',
   onShowToast
 }: ModuloReunionesConSubmodulosProps) {
   const [submoduloActivo, setSubmoduloActivo] = useState<'video' | 'convocatorias' | 'quorum' | 'votaciones' | 'acta'>('video');
@@ -2336,7 +2336,7 @@ export default function ModuloReunionesConSubmodulos({
               ? 'Sesión del Consejo de Administración'
               : 'Asamblea General Ordinaria',
           meetingDate: new Date().toISOString().split('T')[0],
-          tenantName: 'P.H. Reserva del Tesoro',
+          tenantName: 'Copropiedad PH',
           quorumPercentage: quorumRegistrado,
           contextNotes: contextoCompleto
         })
@@ -3429,7 +3429,7 @@ export default function ModuloReunionesConSubmodulos({
       {submoduloActivo === 'votaciones' && (
         <div className="space-y-6">
           <TarjetonVotacionReal
-            tenantId="22079bb5-6ac7-4a15-be89-c53d14e4221b"
+            tenantId=""
             userProfile={{
               full_name: miNombreReal,
               unit_number: unidadActiva,
@@ -3459,7 +3459,7 @@ export default function ModuloReunionesConSubmodulos({
           )}
 
           <EditorActaLegal
-            tenantId="22079bb5-6ac7-4a15-be89-c53d14e4221b"
+            tenantId=""
             audioBlobOrUrl={grabacionUrl}
             contextNotes={`Órgano: ${
               invitacionEntrante?.tipo === 'consejo' ? 'Consejo de Administración' : 'Asamblea General Ordinaria'
@@ -3475,7 +3475,7 @@ export default function ModuloReunionesConSubmodulos({
 
           <div className="mt-6">
             <ResilientMeetingRecorder
-              tenantId="22079bb5-6ac7-4a15-be89-c53d14e4221b"
+              tenantId=""
               tenantName={copropiedadNombre}
               onShowToast={onShowToast}
             />

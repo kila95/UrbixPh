@@ -61,13 +61,13 @@ export default function AuthLoginExecutive({
     }
 
     return {
-      id: 'dde881f7-cfe4-40b8-95bf-33d6e7a3ddfe',
+      id: '',
       email: cleanEmail,
       full_name: resolvedName,
       role: resolvedRole,
       unidad: resolvedUnit,
       coeficiente: resolvedCoef,
-      tenant_id: '22079bb5-6ac7-4a15-be89-c53d14e4221b',
+      tenant_id: '',
       is_active: true
     };
   };
@@ -415,7 +415,7 @@ export default function AuthLoginExecutive({
                     id:
                       demo.role === 'master_owner'
                         ? 'usr_esteban_master'
-                        : 'dde881f7-cfe4-40b8-95bf-33d6e7a3ddfe',
+                        : '',
                     email: demo.email,
                     full_name: demo.name,
                     role: demo.role,
@@ -424,7 +424,7 @@ export default function AuthLoginExecutive({
                     tenant_id:
                       demo.role === 'master_owner'
                         ? undefined
-                        : '22079bb5-6ac7-4a15-be89-c53d14e4221b',
+                        : '',
                     is_active: true
                   });
                 }}

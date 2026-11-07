@@ -14,7 +14,7 @@ export function PortalPublicoPreRegistroContratista() {
     empresaContratista: '',
     nitEmpresa: '',
     especialidad: 'Plomería y Tuberías',
-    copropiedadDestino: 'Reserva del Tesoro - Torre 2',
+    copropiedadDestino: 'Unidad Residencial',
     apartamentoZona: 'Apto 1402',
     residenteAnfitrion: 'María Fernanda Gómez',
     fechaTrabajo: new Date().toISOString().split('T')[0],

@@ -22,7 +22,7 @@ export default function TarjetasKpiInteractivas() {
 
   // Datos simulados en tiempo real para cada drill-down modal
   const copropiedadesDetalle = [
-    { id: '1', nombre: 'Reserva del Tesoro PH', ciudad: 'Medellín, El Poblado', unidades: 180, estado: 'Activo', garitaIp: '192.168.1.101', ley: 'Ley 675' },
+    { id: '1', nombre: 'Copropiedad PH', ciudad: 'Medellín, El Poblado', unidades: 180, estado: 'Activo', garitaIp: '192.168.1.101', ley: 'Ley 675' },
     { id: '2', nombre: 'Torres de San Juan', ciudad: 'Medellín, Laureles', unidades: 96, estado: 'Alerta Garita', garitaIp: '192.168.2.45', ley: 'Ley 675' },
     { id: '3', nombre: 'Altos del Poblado', ciudad: 'Medellín, El Poblado', unidades: 240, estado: 'Activo', garitaIp: '192.168.1.105', ley: 'Ley 675' },
     { id: '4', nombre: 'Plaza Belén PH', ciudad: 'Medellín, Belén', unidades: 112, estado: 'Activo', garitaIp: '192.168.3.12', ley: 'Ley 675' },
@@ -31,7 +31,7 @@ export default function TarjetasKpiInteractivas() {
   ];
 
   const garitasDetalle = [
-    { id: 'g1', copropiedad: 'Reserva del Tesoro', ip: '192.168.1.101', ping: '12ms', status: 'Online 🟢', canalWebRTC: 'Cifrado TLS 1.3' },
+    { id: 'g1', copropiedad: 'Copropiedad PH', ip: '192.168.1.101', ping: '12ms', status: 'Online 🟢', canalWebRTC: 'Cifrado TLS 1.3' },
     { id: 'g2', copropiedad: 'Torres de San Juan', ip: '192.168.2.45', ping: 'Offline 🔴', status: 'Reconectando...', canalWebRTC: 'Fallo de Red Local' },
     { id: 'g3', copropiedad: 'Altos del Poblado', ip: '192.168.1.105', ping: '18ms', status: 'Online 🟢', canalWebRTC: 'Cifrado TLS 1.3' },
     { id: 'g4', copropiedad: 'Plaza Belén PH', ip: '192.168.3.12', ping: '14ms', status: 'Online 🟢', canalWebRTC: 'Cifrado TLS 1.3' },
@@ -39,7 +39,7 @@ export default function TarjetasKpiInteractivas() {
   ];
 
   const llamadasDetalle = [
-    { id: 'c1', hora: '10:42 AM', copropiedad: 'Reserva del Tesoro', origen: 'Garita Principal', destino: 'Apto 1204', duracion: '45s', estado: 'Completada 📞' },
+    { id: 'c1', hora: '10:42 AM', copropiedad: 'Copropiedad PH', origen: 'Garita Principal', destino: 'Apto 1204', duracion: '45s', estado: 'Completada 📞' },
     { id: 'c2', hora: '10:38 AM', copropiedad: 'Altos del Poblado', origen: 'Garita Vehicular', destino: 'Apto 502', duracion: '1m 12s', estado: 'Completada 📞' },
     { id: 'c3', hora: '10:35 AM', copropiedad: 'Envigado Campestre', origen: 'Garita Peatonal', destino: 'Apto 301', duracion: '22s', estado: 'Completada 📞' },
     { id: 'c4', hora: '10:15 AM', copropiedad: 'Plaza Belén PH', origen: 'Garita Principal', destino: 'Apto 804', duracion: '30s', estado: 'Completada 📞' }

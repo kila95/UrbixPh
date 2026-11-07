@@ -13,7 +13,7 @@ interface Props {
 }
 
 export default function TableroGeneralEjecutivo({
-  copropiedadNombre = 'Urbanización Tricentenario',
+  copropiedadNombre = 'Copropiedad PH',
   onNavigateModulo,
   onShowToast
 }: Props) {
@@ -181,7 +181,7 @@ export default function TableroGeneralEjecutivo({
               onChange={(e) => setCopropiedadSeleccionada(e.target.value)}
               className="bg-[#1E293B] border border-slate-700 text-xs text-white rounded-xl px-3.5 py-2 pr-8 appearance-none focus:outline-none focus:border-cyan-500 font-medium cursor-pointer"
             >
-              <option value="Urbanización Tricentenario">Urbanización Tricentenario</option>
+              <option value="Copropiedad PH">Urbanización Copropiedad_PH</option>
               <option value="Torres del Poblado PH">Torres del Poblado PH</option>
               <option value="Altos de Laureles">Altos de Laureles</option>
             </select>

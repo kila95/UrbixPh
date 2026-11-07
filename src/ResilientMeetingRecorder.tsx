@@ -106,8 +106,8 @@ export interface ResilientMeetingRecorderProps {
 }
 
 export default function ResilientMeetingRecorder({
-  tenantId = '22079bb5-6ac7-4a15-be89-c53d14e4221b',
-  tenantName = 'Reserva del Tesoro',
+  tenantId = '',
+  tenantName = 'Copropiedad PH',
   tenantLogoUrl,
   suspendedMinutes = [],
   onActaCreated,
@@ -264,7 +264,7 @@ export default function ResilientMeetingRecorder({
     }
   };
 
-  // Sube el archivo de audio en fragmentos binarios de 5 MB al backend para que Gemini escuche el audio real sin error 413
+  // Sube el archivo de audio en fragmentos binarios de 5 MB al backend con reintentos automáticos
   const uploadAudioToServerChunks = async (
     blob: Blob,
     onProgress?: (pct: number) => void
@@ -273,6 +273,7 @@ export default function ResilientMeetingRecorder({
     const chunkSize = 5 * 1024 * 1024; // 5 MB por fragmento
     const totalBytes = blob.size;
     const totalChunks = Math.max(1, Math.ceil(totalBytes / chunkSize));
+    const mimeType = blob.type || 'audio/mp3';
 
     for (let i = 0; i < totalChunks; i++) {
       const start = i * chunkSize;
@@ -280,21 +281,38 @@ export default function ResilientMeetingRecorder({
       const chunkBlob = blob.slice(start, end);
       const arrayBuffer = await chunkBlob.arrayBuffer();
 
-      const res = await fetch(
-        `/api/upload-audio-chunk?uploadId=${encodeURIComponent(uploadId)}&chunkIndex=${i}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/octet-stream' },
-          body: arrayBuffer
-        }
-      );
+      let uploaded = false;
+      let lastErrorMsg = '';
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const res = await fetch(
+            `/api/upload-audio-chunk?uploadId=${encodeURIComponent(uploadId)}&chunkIndex=${i}&totalChunks=${totalChunks}&mimeType=${encodeURIComponent(mimeType)}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/octet-stream' },
+              body: arrayBuffer
+            }
+          );
 
-      if (!res.ok) {
-        throw new Error(`Error al enviar fragmento de audio (${i + 1}/${totalChunks})`);
+          if (res.ok) {
+            uploaded = true;
+            break;
+          } else {
+            const errJson = await res.json().catch(() => ({}));
+            lastErrorMsg = errJson.error || `HTTP ${res.status}`;
+          }
+        } catch (netErr: any) {
+          lastErrorMsg = netErr?.message || 'Error de red';
+        }
+        await new Promise((r) => setTimeout(r, 400 * attempt));
+      }
+
+      if (!uploaded) {
+        throw new Error(`Error al enviar fragmento de audio (${i + 1}/${totalChunks}): ${lastErrorMsg}`);
       }
 
       if (onProgress) {
-        onProgress(Math.round(((i + 1) / totalChunks) * 70));
+        onProgress(Math.round(((i + 1) / totalChunks) * 75));
       }
     }
 
@@ -321,46 +339,31 @@ export default function ResilientMeetingRecorder({
       const fullAudioBlob = new Blob(chunks, { type: 'audio/webm' });
       const finalFileName = `${tenantId}/${targetSessionId}_completo.webm`;
 
-      notifyMessage('info', 'Audio recuperado del disco local. Conectando con Gemini IA...');
+      notifyMessage('info', 'Audio recuperado del disco local. Transfiriendo fragmentos a Gemini IA...');
 
-      // 3. Convertir audio a Base64 para envío directo al servidor
-      const reader = new FileReader();
-      const base64Audio = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => {
-          const result = reader.result as string;
-          resolve(result.includes(',') ? result.split(',')[1] : result);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(fullAudioBlob);
+      // 3. Subir el audio en fragmentos de 5 MB al backend para soportar grabaciones de 3h+
+      const uploadId = await uploadAudioToServerChunks(fullAudioBlob);
+
+      // 4. Procesar el acta completa y detallada en el servidor
+      const response = await fetch('/api/process-meeting', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uploadId,
+          mimeType: 'audio/webm',
+          audioPath: finalFileName,
+          tenantId,
+          tenantName,
+          meetingType,
+          meetingDate: new Date().toISOString().split('T')[0]
+        })
       });
 
-      // 4. Envío directo al endpoint del servidor sin depender de Edge Functions de Supabase
-      let generatedActa: any = null;
-      try {
-        const response = await fetch('/api/process-meeting', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            base64Audio,
-            mimeType: 'audio/webm',
-            audioPath: finalFileName,
-            tenantId,
-            tenantName,
-            meetingType,
-            meetingDate: new Date().toISOString().split('T')[0]
-          })
-        });
+      const data = await response.json();
+      const generatedActa = data?.acta;
 
-        const data = await response.json();
-        if (data?.acta) {
-          generatedActa = data.acta;
-        }
-      } catch (apiErr) {
-        console.warn('Fallo en llamada primaria, reintentando:', apiErr);
-      }
-
-      if (!generatedActa) {
-        throw new Error('El modelo de IA no devolvió el acta estructurada.');
+      if (!response.ok || !generatedActa) {
+        throw new Error(data?.error || 'El modelo de IA no devolvió el acta estructurada.');
       }
 
       // 5. Limpieza de disco solo cuando el acta se generó exitosamente
@@ -372,7 +375,7 @@ export default function ResilientMeetingRecorder({
 
       // 6. Descarga inmediata automática
       prepararYDescargarActa(generatedActa);
-      notifyMessage('success', '¡Acta oficial generada y descargada con éxito!');
+      notifyMessage('success', '¡Acta oficial detallada generada y descargada con éxito!');
       if (onActaCreated) onActaCreated(generatedActa);
 
     } catch (err: any) {
@@ -413,6 +416,7 @@ export default function ResilientMeetingRecorder({
     if (!droppedFile) return;
     setAnalyzingDroppedFile(true);
     setDropUploadProgress(5);
+    setBannerAlert(null);
 
     try {
       const fileSizeMB = droppedFile.size / (1024 * 1024);
@@ -429,16 +433,16 @@ export default function ResilientMeetingRecorder({
           console.warn('Omitiendo Supabase Storage por restricciones de tamaño:', storageErr);
         }
       } else {
-        notifyMessage('info', `Archivo pesado (${fileSizeMB.toFixed(1)} MB): Transfiriendo audio real a Gemini IA sin límite de Supabase...`);
+        notifyMessage('info', `Archivo de gran dimensión (${fileSizeMB.toFixed(1)} MB): Transfiriendo fragmentos de alta velocidad al servidor...`);
       }
 
-      // Subir el binario real en fragmentos de 5 MB al backend para que Gemini escuche la grabación
+      // Subir el binario real en fragmentos de 5 MB al backend
       const uploadId = await uploadAudioToServerChunks(droppedFile, (pct) => {
-        setDropUploadProgress(Math.max(10, pct));
+        setDropUploadProgress(Math.max(8, pct));
       });
 
-      setDropUploadProgress(80);
-      notifyMessage('info', 'Transcribiendo intervenciones, nombres, cifras en COP y votaciones reales con Gemini IA...');
+      setDropUploadProgress(85);
+      notifyMessage('info', 'Redactando acta exhaustiva punto por punto con Gemini IA (Orden del Día, Deliberaciones, Finanzas, Votaciones y Compromisos)...');
 
       // Llamada directa al endpoint de procesamiento con el uploadId del audio real
       const response = await fetch('/api/process-meeting', {
@@ -452,7 +456,7 @@ export default function ResilientMeetingRecorder({
           tenantName,
           meetingType,
           meetingDate: new Date().toISOString().split('T')[0],
-          contextNotes: `Archivo de audio original: ${droppedFile.name} (${fileSizeMB.toFixed(1)} MB).`
+          contextNotes: `Archivo de audio original: ${droppedFile.name} (${fileSizeMB.toFixed(2)} MB).`
         })
       });
 
@@ -465,7 +469,7 @@ export default function ResilientMeetingRecorder({
 
       const actaGenerada = resData?.acta;
       prepararYDescargarActa(actaGenerada);
-      notifyMessage('success', `¡Acta oficial transcrita desde ${droppedFile.name} y descargada al dispositivo!`);
+      notifyMessage('success', `¡Acta oficial detallada con todos los puntos generada desde ${droppedFile.name} y descargada!`);
       if (onActaCreated) onActaCreated(actaGenerada);
       setDroppedFile(null);
     } catch (err: any) {
@@ -534,42 +538,88 @@ export default function ResilientMeetingRecorder({
         </div>
       )}
 
-      {/* TARJETA DE DESCARGA DIRECTA CUANDO EL ACTA YA ESTÁ LISTA */}
+      {/* TARJETA DE DESCARGA DIRECTA Y VISTA DETALLADA PUNTO POR PUNTO CUANDO EL ACTA YA ESTÁ LISTA */}
       {actaListaParaDescargar && (
-        <div className="bg-gradient-to-r from-emerald-950/40 via-teal-950/30 to-[#070b12] border-2 border-emerald-500/60 rounded-3xl p-5 shadow-[0_0_35px_rgba(16,185,129,0.25)] flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-              <span className="font-mono text-xs font-black uppercase tracking-wider text-emerald-300 bg-emerald-500/10 px-2.5 py-0.5 rounded-md border border-emerald-500/30">
-                ✓ Acta Procesada y Foliada con Éxito
-              </span>
-              <span className="text-xs text-slate-400 font-mono">
-                {actaListaParaDescargar.minute_number}
-              </span>
+        <div className="bg-gradient-to-r from-emerald-950/40 via-teal-950/30 to-[#070b12] border-2 border-emerald-500/60 rounded-3xl p-5 shadow-[0_0_35px_rgba(16,185,129,0.25)] space-y-5 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+                <span className="font-mono text-xs font-black uppercase tracking-wider text-emerald-300 bg-emerald-500/10 px-2.5 py-0.5 rounded-md border border-emerald-500/30">
+                  ✓ Acta Detallada Procesada y Foliada con Éxito
+                </span>
+                <span className="text-xs text-slate-400 font-mono">
+                  {actaListaParaDescargar.minute_number}
+                </span>
+              </div>
+              <h4 className="text-base font-black text-white">
+                {actaListaParaDescargar.meeting_type} • {tenantName}
+              </h4>
+              <p className="text-xs text-slate-300 font-mono">
+                Quórum verificado: <strong className="text-emerald-400">{actaListaParaDescargar.quorum_percentage}%</strong> • {actaListaParaDescargar.desarrolloDetallado?.length || 0} puntos desarrollados en detalle.
+              </p>
             </div>
-            <h4 className="text-base font-black text-white">
-              {actaListaParaDescargar.meeting_type} • {tenantName}
-            </h4>
-            <p className="text-xs text-slate-300 line-clamp-1 font-mono">
-              Quórum verificado: <strong className="text-emerald-400">{actaListaParaDescargar.quorum_percentage}%</strong> • Lista para archivar o imprimir.
-            </p>
+
+            <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+              <button
+                type="button"
+                onClick={() => exportActaToLegalPDF(actaListaParaDescargar, tenantLegalInfo, onShowToast)}
+                className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:brightness-110 text-slate-950 font-black px-5 py-3 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(16,185,129,0.4)] cursor-pointer active:scale-95"
+              >
+                <Printer className="w-4 h-4" /> Descargar Ya (PDF / Imprimir)
+              </button>
+              <button
+                type="button"
+                onClick={() => downloadActaLegalHTML(actaListaParaDescargar, tenantLegalInfo, onShowToast)}
+                className="flex-1 md:flex-none flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold px-4 py-3 rounded-2xl text-xs font-mono transition border border-slate-700 cursor-pointer"
+              >
+                <FileDown className="w-4 h-4 text-emerald-400" /> Foliado (.html)
+              </button>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
-            <button
-              type="button"
-              onClick={() => exportActaToLegalPDF(actaListaParaDescargar, tenantLegalInfo, onShowToast)}
-              className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:brightness-110 text-slate-950 font-black px-5 py-3 rounded-2xl text-xs font-mono uppercase tracking-wider transition shadow-[0_0_20px_rgba(16,185,129,0.4)] cursor-pointer active:scale-95"
-            >
-              <Printer className="w-4 h-4" /> Descargar Ya (PDF / Imprimir)
-            </button>
-            <button
-              type="button"
-              onClick={() => downloadActaLegalHTML(actaListaParaDescargar, tenantLegalInfo, onShowToast)}
-              className="flex-1 md:flex-none flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold px-4 py-3 rounded-2xl text-xs font-mono transition border border-slate-700 cursor-pointer"
-            >
-              <FileDown className="w-4 h-4 text-emerald-400" /> Foliado (.html)
-            </button>
+          {/* Vista previa estructurada con todos los puntos del acta */}
+          <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 space-y-4 max-h-96 overflow-y-auto text-xs">
+            {Array.isArray(actaListaParaDescargar.ordenDelDia) && actaListaParaDescargar.ordenDelDia.length > 0 && (
+              <div>
+                <h5 className="font-mono font-bold text-emerald-400 uppercase mb-1.5">
+                  I. Orden del Día ({actaListaParaDescargar.ordenDelDia.length} Puntos)
+                </h5>
+                <ol className="list-decimal list-inside space-y-1 text-slate-300">
+                  {actaListaParaDescargar.ordenDelDia.map((pt, idx) => (
+                    <li key={idx}>{String(pt).replace(/^\d+[\.\)]\s*/, '')}</li>
+                  ))}
+                </ol>
+              </div>
+            )}
+
+            {actaListaParaDescargar.summary && (
+              <div>
+                <h5 className="font-mono font-bold text-cyan-400 uppercase mb-1">
+                  II. Síntesis Ejecutiva Legal
+                </h5>
+                <p className="text-slate-300 whitespace-pre-line leading-relaxed">{actaListaParaDescargar.summary}</p>
+              </div>
+            )}
+
+            {Array.isArray(actaListaParaDescargar.desarrolloDetallado) && actaListaParaDescargar.desarrolloDetallado.length > 0 && (
+              <div className="space-y-2.5">
+                <h5 className="font-mono font-bold text-emerald-400 uppercase">
+                  III. Desarrollo Detallado Punto por Punto
+                </h5>
+                {actaListaParaDescargar.desarrolloDetallado.map((item, idx) => (
+                  <div key={idx} className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-1">
+                    <div className="font-bold text-white">{item.punto || `Punto ${idx + 1}`}</div>
+                    <p className="text-slate-300 whitespace-pre-line leading-relaxed">{item.intervencionesClave}</p>
+                    {Array.isArray(item.nombresMencionados) && item.nombresMencionados.length > 0 && (
+                      <div className="text-[11px] text-cyan-300 font-mono">
+                        Intervinientes: {item.nombresMencionados.join(', ')}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

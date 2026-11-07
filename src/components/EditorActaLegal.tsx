@@ -10,7 +10,7 @@ interface Props {
   onShowToast?: (msg: string) => void;
 }
 
-const DEFAULT_TRICENTENARIO_TENANT_ID = '22079bb5-6ac7-4a15-be89-c53d14e4221b';
+const DEFAULT_TRICENTENARIO_TENANT_ID = '';
 
 export const EditorActaLegal: React.FC<Props> = ({
   tenantId,
@@ -18,7 +18,7 @@ export const EditorActaLegal: React.FC<Props> = ({
   contextNotes = '',
   onShowToast
 }) => {
-  // 1. Estados dinámicos (sin texto quemado de Reserva del Tesoro)
+  // 1. Estados dinámicos 100% conectados a Supabase
   const [copropiedadInfo, setCopropiedadInfo] = useState<{ name: string; nit?: string }>({
     name: 'Cargando...',
     nit: ''
@@ -30,15 +30,18 @@ export const EditorActaLegal: React.FC<Props> = ({
   const [unidadesCenso, setUnidadesCenso] = useState<any[]>([]);
   const [archivoAudioLocal, setArchivoAudioLocal] = useState<File | null>(null);
   const [ultimoResultadoIA, setUltimoResultadoIA] = useState<{
+    ordenDelDia?: string[];
+    desarrolloDetallado?: any[];
     balanceFinanciero?: any[];
     decisionesYVotaciones?: any[];
     compromisos?: any[];
     quorum?: string;
     horaInicio?: string;
     tipoOrgano?: string;
+    summary?: string;
   }>({});
 
-  // 2. Cargar datos reales de la copropiedad (Urb. Tricentenario) y lista de propietarios
+  // 2. Cargar datos reales de la copropiedad (Urb. Copropiedad_PH) y lista de propietarios
   useEffect(() => {
     const cargarDatosCopropiedad = async () => {
       try {
@@ -61,7 +64,7 @@ export const EditorActaLegal: React.FC<Props> = ({
               }
             }
           } catch {
-            // Fallback al UUID de Tricentenario
+            // Fallback al UUID de Copropiedad_PH
           }
         }
 
@@ -78,12 +81,12 @@ export const EditorActaLegal: React.FC<Props> = ({
 
         if (tenant) {
           setCopropiedadInfo({
-            name: tenant.name || 'Urb. Tricentenario',
+            name: tenant.name || 'Copropiedad PH',
             nit: (tenant as any).nit || '900.814.320-1'
           });
         } else {
           setCopropiedadInfo({
-            name: 'Urb. Tricentenario',
+            name: 'Copropiedad PH',
             nit: '900.814.320-1'
           });
         }
@@ -98,7 +101,6 @@ export const EditorActaLegal: React.FC<Props> = ({
 
         if (units && units.length > 0) {
           setUnidadesCenso(units);
-          // Preseleccionar los 2 primeros o dejarlos listos para elegir
           setComision1(`${units[0].owner_name} (Torre ${units[0].tower} - ${units[0].apartment})`);
           if (units[1]) {
             setComision2(`${units[1].owner_name} (Torre ${units[1].tower} - ${units[1].apartment})`);
@@ -106,93 +108,158 @@ export const EditorActaLegal: React.FC<Props> = ({
         }
       } catch (err) {
         console.error('Error cargando datos de copropiedad en EditorActaLegal:', err);
-        setCopropiedadInfo({ name: 'Urb. Tricentenario', nit: '900.814.320-1' });
+        setCopropiedadInfo({ name: 'Copropiedad PH', nit: '900.814.320-1' });
       }
     };
 
     cargarDatosCopropiedad();
   }, [tenantId]);
 
-  // 3. Procesar archivos pesados de audio sin pasar por la base de datos (Subida Resumable a Gemini Files API)
+  const formatearActaDetalladaTexto = (acta: any, nombreCopropiedad: string) => {
+    const ordenTexto = Array.isArray(acta.ordenDelDia) && acta.ordenDelDia.length > 0
+      ? acta.ordenDelDia.map((p: string, i: number) => `${i + 1}. ${String(p).replace(/^\d+[\.\)]\s*/, '')}`).join('\n')
+      : '1. Verificación del quórum\n2. Lectura y aprobación del orden del día\n3. Informes de gestión y estados financieros\n4. Deliberaciones, proposiciones y varios';
+
+    const desarrolloTexto = Array.isArray(acta.desarrolloDetallado) && acta.desarrolloDetallado.length > 0
+      ? acta.desarrolloDetallado
+          .map(
+            (d: any, i: number) =>
+              `▶ ${d.punto || `PUNTO ${i + 1}`}:\n${d.intervencionesClave || ''}${
+                Array.isArray(d.nombresMencionados) && d.nombresMencionados.length > 0
+                  ? `\n(Intervinientes: ${d.nombresMencionados.join(', ')})`
+                  : ''
+              }`
+          )
+          .join('\n\n')
+      : acta.summary || '';
+
+    const balanceTexto = Array.isArray(acta.balanceFinanciero) && acta.balanceFinanciero.length > 0
+      ? acta.balanceFinanciero
+          .map(
+            (b: any) =>
+              `• ${b.concepto}: Presupuestado ${b.valorPresupuestado || 'N/A'} | Cotizado/Real ${b.valorCotizadoReal || 'N/A'} | Proveedor: ${b.proveedorContratista || 'Presupuesto PH'} | Estado: ${b.estadoDecision || 'Aprobado'}`
+          )
+          .join('\n')
+      : '• Sin partidas extraordinarias adicionales registradas en la sesión.';
+
+    const decisionesTexto = Array.isArray(acta.decisionesYVotaciones) && acta.decisionesYVotaciones.length > 0
+      ? acta.decisionesYVotaciones
+          .map(
+            (v: any) =>
+              `• Proposición: ${v.proposicion} — A favor: ${v.votosFavor || '100%'} | En contra: ${v.votosContra || '0%'} | Abstenciones: ${v.abstenciones || '0%'} → RESULTADO: ${v.resultado || 'APROBADO'}`
+          )
+          .join('\n')
+      : '• Moción de aprobación general verificada por el órgano colegiado.';
+
+    const compromisosTexto = Array.isArray(acta.compromisos) && acta.compromisos.length > 0
+      ? acta.compromisos
+          .map(
+            (c: any) =>
+              `• [${c.responsable || 'Administración'}] ${c.tarea || ''} (Fecha límite: ${c.fechaLimite || c.fecha_limite || 'Inmediato'})`
+          )
+          .join('\n')
+      : '• Seguimiento ordinario a cargo de la Administración.';
+
+    return `ACTA OFICIAL DETALLADA • ${acta.meeting_type || 'ASAMBLEA / CONSEJO DE ADMINISTRACIÓN'}
+${nombreCopropiedad.toUpperCase()} • LEY 675 DE 2001 (ART. 47)
+Acta N°: ${acta.minute_number || 'ACT-OFICIAL'} | Fecha: ${acta.meeting_date || new Date().toLocaleDateString('es-CO')}
+
+I. VERIFICACIÓN DEL QUÓRUM E INSTALACIÓN:
+Siendo las ${acta.start_time || '18:00'} se dio inicio a la sesión de ${nombreCopropiedad}. Quórum verificado: ${acta.quorum_percentage || '100'}%.
+${acta.summary || ''}
+
+II. ORDEN DEL DÍA APROBADO:
+${ordenTexto}
+
+III. DESARROLLO DETALLADO PUNTO POR PUNTO:
+${desarrolloTexto}
+
+IV. BALANCE ECONÓMICO Y DETERMINACIONES FINANCIERAS ($ COP):
+${balanceTexto}
+
+V. DECISIONES FORMALES Y RELACIÓN DE VOTACIONES:
+${decisionesTexto}
+
+VI. CUADRO DE COMPROMISOS, TAREAS Y RESPONSABLES:
+${compromisosTexto}
+
+VII. COMISIÓN VERIFICADORA DEL ACTA:
+- ${comision1 || 'Pendiente de asignar'}
+- ${comision2 || 'Pendiente de asignar'}`;
+  };
+
+  // 3. Procesar archivos pesados de audio por fragmentos binarios de 5 MB hacia /api/upload-audio-chunk y /api/process-meeting
   const procesarAudioSinBaseDeDatos = async (file: File) => {
     setProcesandoIA(true);
-    setContenidoActa('⏳ Iniciando sesión de subida directa a Google Gemini y transcribiendo audio completo ($ COP, votaciones y compromisos)...');
-    onShowToast?.(`🎙️ Subiendo "${file.name}" directamente al motor de IA y redactando acta oficial...`);
+    const fileSizeMB = file.size / (1024 * 1024);
+    setContenidoActa(`⏳ Subiendo "${file.name}" (${fileSizeMB.toFixed(2)} MB) en fragmentos seguros y redactando acta oficial con todos los puntos...`);
+    onShowToast?.(`🎙️ Procesando "${file.name}" (${fileSizeMB.toFixed(1)} MB) con Gemini IA...`);
 
     try {
+      const uploadId = `aud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const chunkSize = 5 * 1024 * 1024;
+      const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
       const mimeType = file.type || 'audio/mp3';
 
-      // 1. Obtener la sesión de subida de Google desde tu backend (petición de 1 KB)
-      const initRes = await fetch('/api/obtener-url-gemini', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mimeType, fileSize: file.size, displayName: file.name })
-      });
-      if (!initRes.ok) {
-        const errInit = await initRes.json().catch(() => ({}));
-        throw new Error(errInit.error || 'No se pudo obtener la sesión de subida de Gemini.');
-      }
-      const { uploadUrl } = await initRes.json();
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * chunkSize;
+        const end = Math.min(start + chunkSize, file.size);
+        const chunkBuffer = await file.slice(start, end).arrayBuffer();
 
-      // 2. Subir el archivo PESADO directamente desde el navegador a Google
-      // No toca tu base de datos ni satura Vercel (con respaldo automático si el navegador restringe CORS)
-      let uploadData: any = null;
-      try {
-        const uploadRes = await fetch(uploadUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': mimeType,
-            'X-Goog-Upload-Command': 'upload, finalize',
-            'X-Goog-Upload-Offset': '0',
-          },
-          body: file,
-        });
-        if (!uploadRes.ok) throw new Error(`HTTP ${uploadRes.status}`);
-        uploadData = await uploadRes.json();
-      } catch {
-        const fallbackRes = await fetch(
-          `/api/upload-stream-gemini?uploadUrl=${encodeURIComponent(uploadUrl)}&mimeType=${encodeURIComponent(mimeType)}`,
+        const upRes = await fetch(
+          `/api/upload-audio-chunk?uploadId=${encodeURIComponent(uploadId)}&chunkIndex=${i}&totalChunks=${totalChunks}&mimeType=${encodeURIComponent(mimeType)}`,
           {
             method: 'POST',
-            headers: { 'Content-Type': mimeType },
-            body: file,
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: chunkBuffer
           }
         );
-        if (!fallbackRes.ok) {
-          const errUp = await fallbackRes.json().catch(() => ({}));
-          throw new Error(errUp.error || 'Error al transferir el archivo de audio a Gemini Files API.');
+
+        if (!upRes.ok) {
+          const errUp = await upRes.json().catch(() => ({}));
+          throw new Error(errUp.error || `Error al enviar fragmento (${i + 1}/${totalChunks})`);
         }
-        uploadData = await fallbackRes.json();
       }
 
-      const fileUri = uploadData?.file?.uri;
-      if (!fileUri) {
-        throw new Error('Google Gemini no devolvió un URI válido para el archivo de audio.');
-      }
+      const tenantNombre =
+        copropiedadInfo.name && copropiedadInfo.name !== 'Cargando...'
+          ? copropiedadInfo.name
+          : 'Copropiedad PH';
 
-      // 3. Solicitar la redacción del acta usando el URI temporal
-      const respuesta = await fetch('/api/generar-acta-gemini', {
+      const respuesta = await fetch('/api/process-meeting', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fileUri: fileUri,
+          uploadId,
           mimeType,
-          tenantNombre: copropiedadInfo.name && copropiedadInfo.name !== 'Cargando...' ? copropiedadInfo.name : 'Urb. Tricentenario',
-          comision1,
-          comision2,
-          contextNotes
+          audioPath: file.name,
+          tenantName: tenantNombre,
+          meetingType: 'Asamblea / Consejo de Administración',
+          meetingDate: new Date().toISOString().split('T')[0],
+          contextNotes: `${contextNotes ? contextNotes + ' | ' : ''}Archivo procesado: ${file.name} (${fileSizeMB.toFixed(2)} MB). Comisión verificadora: ${comision1}, ${comision2}.`
         })
       });
 
-      if (!respuesta.ok) {
-        const errGen = await respuesta.json().catch(() => ({}));
-        throw new Error(errGen.error || 'Error redactando el acta con Gemini.');
+      const resData = await respuesta.json();
+      if (!respuesta.ok || !resData?.acta) {
+        throw new Error(resData?.error || 'Error redactando el acta detallada con Gemini.');
       }
 
-      const data = await respuesta.json();
-      setUltimoResultadoIA(data);
-      setContenidoActa(data.actaFinal || '');
-      onShowToast?.('✨ ¡Acta oficial redactada con IA exitosamente!');
+      const acta = resData.acta;
+      setUltimoResultadoIA({
+        ordenDelDia: acta.ordenDelDia || [],
+        desarrolloDetallado: acta.desarrolloDetallado || [],
+        balanceFinanciero: acta.balanceFinanciero || [],
+        decisionesYVotaciones: acta.decisionesYVotaciones || [],
+        compromisos: acta.compromisos || acta.commitments || [],
+        quorum: String(acta.quorum_percentage || '100'),
+        horaInicio: acta.start_time || '18:00',
+        tipoOrgano: acta.meeting_type || 'Asamblea / Consejo de Administración',
+        summary: acta.summary
+      });
+
+      setContenidoActa(formatearActaDetalladaTexto(acta, tenantNombre));
+      onShowToast?.('✨ ¡Acta oficial detallada con todos los puntos redactada exitosamente!');
     } catch (error: any) {
       console.error('Error procesando audio grande:', error);
       setContenidoActa(`❌ Fallo al procesar: ${error.message}`);
@@ -204,13 +271,11 @@ export const EditorActaLegal: React.FC<Props> = ({
 
   // 4. Función que conecta el botón con la IA y el audio real
   const generarActaDesdeGrabacion = async () => {
-    // Si hay un archivo local seleccionado, usar el flujo directo sin base de datos
     if (archivoAudioLocal) {
       await procesarAudioSinBaseDeDatos(archivoAudioLocal);
       return;
     }
 
-    // Si viene un Blob desde la grabadora en vivo, convertirlo a File y usar el mismo flujo sin base de datos
     if (audioBlobOrUrl instanceof Blob) {
       const recordedFile =
         audioBlobOrUrl instanceof File
@@ -236,71 +301,47 @@ export const EditorActaLegal: React.FC<Props> = ({
       }
     }
 
-    const fuenteAudio = archivoAudioLocal || audioBlobOrUrl;
-
-    if (!fuenteAudio && !contextNotes) {
-      if (onShowToast) {
-        onShowToast('⚠️ No hay una grabación de audio activa o cargada para procesar. Graba en la sala o adjunta un archivo de audio.');
-      }
-      setContenidoActa(
-        '⚠️ No hay una grabación de audio activa o cargada para procesar. Por favor grabe la sesión en la sala o seleccione un archivo de audio (.mp3, .webm, .wav, .m4a) arriba.'
-      );
-      return;
-    }
-
     try {
       setProcesandoIA(true);
-      setContenidoActa('⏳ Transcribiendo grabación y extrayendo cifras exactas ($ COP), votaciones y compromisos...');
-      onShowToast?.('🎙️ Procesando audio y generando acta exhaustiva bajo Ley 675...');
+      setContenidoActa('⏳ Generando acta exhaustiva punto por punto con Gemini IA ($ COP, orden del día, deliberaciones, votaciones y compromisos)...');
+      onShowToast?.('🎙️ Generando acta exhaustiva con todos los puntos bajo Ley 675...');
 
-      const formData = new FormData();
-      if (typeof fuenteAudio === 'string' && fuenteAudio) {
-        formData.append('audioUrl', fuenteAudio);
-      }
+      const tenantNombre =
+        copropiedadInfo.name && copropiedadInfo.name !== 'Cargando...'
+          ? copropiedadInfo.name
+          : 'Copropiedad PH';
 
-      const effectiveTenantId =
-        tenantId && tenantId !== 't1' ? tenantId : DEFAULT_TRICENTENARIO_TENANT_ID;
-      formData.append('tenantId', effectiveTenantId);
-      formData.append('copropiedadNombre', copropiedadInfo.name);
-      if (contextNotes) {
-        formData.append('contextNotes', contextNotes);
-      }
-
-      const respuesta = await fetch('/api/transcribir-acta', {
+      const respuesta = await fetch('/api/process-meeting', {
         method: 'POST',
-        body: formData
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantName: tenantNombre,
+          meetingType: 'Asamblea / Consejo de Administración',
+          meetingDate: new Date().toISOString().split('T')[0],
+          contextNotes: contextNotes || `Sesión oficial de ${tenantNombre}. Comisión verificadora: ${comision1}, ${comision2}.`
+        })
       });
 
-      if (!respuesta.ok) throw new Error('Error al procesar el audio con IA');
+      const resData = await respuesta.json();
+      if (!respuesta.ok || !resData?.acta) {
+        throw new Error(resData?.error || 'Error al procesar el acta con IA');
+      }
 
-      const data = await respuesta.json();
-      setUltimoResultadoIA(data);
+      const acta = resData.acta;
+      setUltimoResultadoIA({
+        ordenDelDia: acta.ordenDelDia || [],
+        desarrolloDetallado: acta.desarrolloDetallado || [],
+        balanceFinanciero: acta.balanceFinanciero || [],
+        decisionesYVotaciones: acta.decisionesYVotaciones || [],
+        compromisos: acta.compromisos || acta.commitments || [],
+        quorum: String(acta.quorum_percentage || '100'),
+        horaInicio: acta.start_time || '18:00',
+        tipoOrgano: acta.meeting_type || 'Asamblea / Consejo de Administración',
+        summary: acta.summary
+      });
 
-      const actaRedactada = `ACTA OFICIAL • ${data.tipoOrgano || 'CONSEJO DE ADMINISTRACIÓN / ASAMBLEA GENERAL'}
-${copropiedadInfo.name.toUpperCase()} • LEY 675 DE 2001
-
-I. VERIFICACIÓN DEL QUÓRUM Y ASISTENCIA:
-Siendo las ${data.horaInicio || new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })} del ${new Date().toLocaleDateString('es-CO')}, se reunieron los integrantes de ${copropiedadInfo.name}. Quórum verificado: ${data.quorum || '100% de asistentes en sala'}.
-
-II. DESARROLLO DEL ORDEN DEL DÍA Y DELIBERACIONES:
-${data.desarrolloDetallado}
-
-III. BALANCE ECONÓMICO Y CUADRO DE VALORES ($ COP):
-${data.tablaPresupuestoTexto}
-
-IV. DECISIONES Y VOTACIONES:
-${data.decisionesTexto}
-
-V. COMPROMISOS Y TAREAS ASIGNADAS:
-${data.compromisosTexto}
-
-VI. COMISIÓN VERIFICADORA DEL ACTA:
-En constancia firman los designados para la verificación de la presente acta:
-- ${comision1 || 'Pendiente de asignar'}
-- ${comision2 || 'Pendiente de asignar'}`;
-
-      setContenidoActa(actaRedactada);
-      onShowToast?.('✨ ¡Acta oficial redactada con IA exitosamente!');
+      setContenidoActa(formatearActaDetalladaTexto(acta, tenantNombre));
+      onShowToast?.('✨ ¡Acta oficial detallada redactada con IA exitosamente!');
     } catch (error: any) {
       console.error(error);
       setContenidoActa(`❌ Error al generar el acta: ${error.message}. Verifica la conexión con el servicio de IA.`);
@@ -383,7 +424,7 @@ En constancia firman los designados para la verificación de la presente acta:
           />
         </div>
 
-        {/* Lista desplegable autocompletable con los 100 propietarios de Tricentenario */}
+        {/* Lista desplegable autocompletable con los 100 propietarios de Copropiedad_PH */}
         <datalist id="lista-propietarios">
           {unidadesCenso.map((u, i) => (
             <option key={i} value={`${u.owner_name} (Torre ${u.tower} - ${u.apartment})`} />
@@ -391,7 +432,7 @@ En constancia firman los designados para la verificación de la presente acta:
         </datalist>
       </div>
 
-      {/* Cuerpo del Acta 100% Editable (Sin texto estático de Reserva del Tesoro) */}
+      {/* Cuerpo del Acta 100% Editable y Dinámico */}
       <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-5">
         <div className="text-center border-b border-slate-800 pb-4 mb-4">
           <h3 className="text-sm font-mono font-bold text-white uppercase tracking-wider">
@@ -435,10 +476,14 @@ En constancia firman los designados para la verificación de la presente acta:
                   president_name: comision1 || 'Comisión Verificadora 1',
                   secretary_name: comision2 || 'Comisión Verificadora 2',
                   summary:
+                    ultimoResultadoIA.summary ||
                     contenidoActa ||
                     `Acta oficial de ${copropiedadInfo.name} verificada por ${comision1} y ${comision2}.`,
+                  ordenDelDia: ultimoResultadoIA.ordenDelDia || [],
+                  desarrolloDetallado: ultimoResultadoIA.desarrolloDetallado || [],
                   balanceFinanciero: ultimoResultadoIA.balanceFinanciero || [],
                   decisionesYVotaciones: ultimoResultadoIA.decisionesYVotaciones || [],
+                  compromisos: ultimoResultadoIA.compromisos || [],
                   commitments: ultimoResultadoIA.compromisos || []
                 },
                 {

@@ -27,7 +27,7 @@ import SalaAsambleaVirtualReal from './SalaAsambleaVirtualReal';
 
 export default function AsambleasActasLegalesHub({
   onShowToast,
-  copropiedadNombre = 'Urb. Tricentenario'
+  copropiedadNombre = 'Copropiedad PH'
 }: {
   onShowToast?: (msg: string) => void;
   copropiedadNombre?: string;
@@ -780,7 +780,7 @@ export default function AsambleasActasLegalesHub({
       {tabActiva === 2 && (
         <div className="space-y-6">
           <EditorActaLegal
-            tenantId="22079bb5-6ac7-4a15-be89-c53d14e4221b"
+            tenantId=""
             onShowToast={onShowToast}
           />
         </div>
@@ -812,7 +812,7 @@ export default function AsambleasActasLegalesHub({
 
       <div className="mt-6">
         <ResilientMeetingRecorder
-          tenantId="22079bb5-6ac7-4a15-be89-c53d14e4221b"
+          tenantId=""
           tenantName={copropiedadNombre}
           onShowToast={onShowToast}
         />

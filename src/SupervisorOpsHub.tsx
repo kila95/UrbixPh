@@ -40,7 +40,7 @@ export interface SupervisorOpsHubProps {
 }
 
 export default function SupervisorOpsHub({
-  tenantName = 'Reserva del Tesoro',
+  tenantName = 'Copropiedad PH',
   onReconcilePayment,
   onNotify,
   user,

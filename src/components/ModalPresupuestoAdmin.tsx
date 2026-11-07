@@ -246,7 +246,7 @@ export const ModalPresupuestoAdmin: React.FC<Props> = ({
           {/* Tarjeta de simulación en vivo */}
           <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 mt-3">
             <span className="text-[10px] uppercase font-mono tracking-wider text-slate-400 block mb-1">
-              Simulación para apartamentos con Coeficiente 1.0000% (Tricentenario)
+              Simulación para apartamentos con Coeficiente 1.0000% 
             </span>
             <div className="flex justify-between items-center text-xs">
               <span className="text-slate-300">Cuota ordinaria (hasta el día {diaLimite}):</span>

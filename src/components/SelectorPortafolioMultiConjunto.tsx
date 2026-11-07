@@ -20,15 +20,37 @@ export default function SelectorPortafolioMultiConjunto({
   onSelectEdificioId,
   metricas: propMetricas
 }: SelectorPortafolioMultiConjuntoProps) {
-  // Estado para la copropiedad seleccionada en el portafolio (Tricentenario activa)
+  const [tenantsReales, setTenantsReales] = useState<any[]>([]);
+
+  useEffect(() => {
+    const cargarConjuntosReales = async () => {
+      const { data } = await supabase
+        .from('tenants')
+        .select('*')
+        .order('created_at', { ascending: false });
+      setTenantsReales(data || []);
+    };
+    cargarConjuntosReales();
+  }, []);
+
+  const baseEdificios = edificiosAsignados.length > 0 ? edificiosAsignados : tenantsReales;
+
+  // Estado para la copropiedad seleccionada en el portafolio
   const [copropiedadSeleccionada, setCopropiedadSeleccionada] = useState(
-    edificiosAsignados[0]?.name || 'urb Tricentenario'
+    edificiosAsignados[0]?.name || ''
   );
+
+  useEffect(() => {
+    if (!copropiedadSeleccionada && baseEdificios.length > 0) {
+      setCopropiedadSeleccionada(baseEdificios[0].name);
+    }
+  }, [baseEdificios, copropiedadSeleccionada]);
+
   const [supervisorFiltro, setSupervisorFiltro] = useState('Todos');
   const [metricasLocal, setMetricasLocal] = useState<MetricasTenant>({
     recaudo: '0.0%',
     unidadesMora: '0 Aptos',
-    totalUnidades: 100,
+    totalUnidades: 0,
     alDia: 0,
     enMora: 0,
     unidadesPagadas: 0,
@@ -38,17 +60,17 @@ export default function SelectorPortafolioMultiConjunto({
 
   // Listado de copropiedades del empresario (incorporando las asignadas desde Supabase)
   const misCopropiedades = [
-    ...edificiosAsignados.map(e => ({
+    ...baseEdificios.map(e => ({
       id: e.id,
       nombre: e.name,
-      nit: '900.781.234-5',
-      supervisor: 'Eloina / Administración Directa',
+      nit: e.nit || '900.781.234-5',
+      supervisor: 'Administración Directa',
       recaudo: propMetricas?.recaudo || '0.0%',
       morosos: propMetricas?.enMora ?? 0,
-      pqrs: 1
+      pqrs: 0
     })),
-    ...(edificiosAsignados.length === 0 ? [
-      { id: '22079bb5-6ac7-4a15-be89-c53d14e4221b', nombre: 'urb Tricentenario', nit: '900.781.234-5', supervisor: 'Eloina / Administración Directa', recaudo: '0.0%', morosos: 0, pqrs: 1 },
+    ...(baseEdificios.length === 0 ? [
+      { id: '', nombre: 'Sin Copropiedad Seleccionada', nit: '900.781.234-5', supervisor: 'Administración Directa', recaudo: '0.0%', morosos: 0, pqrs: 0 },
     ] : [])
   ];
 

@@ -68,7 +68,7 @@ const DEFAULT_RONDAS = [
 ];
 
 export default function ModuloRondasNFC({
-  tenantId = '22079bb5-6ac7-4a15-be89-c53d14e4221b',
+  tenantId = '',
   onShowToast,
   onDerivarMantenimientoTodero
 }: ModuloRondasNFCProps) {

@@ -80,7 +80,7 @@ export interface ImpersonationAuditLog {
 export const INITIAL_TENANTS: ClientTenantNode[] = [
   {
     id: 'ten_01',
-    name: 'P.H. Reserva del Tesoro',
+    name: 'Copropiedad PH',
     nit: '900.842.115-2',
     city: 'El Poblado, Medellín',
     adminName: 'Carlos Mario Pineda',
@@ -234,7 +234,7 @@ export default function SaaS_MasterOwnerConsole({
 
       if (errTenants) throw errTenants;
 
-      // 2. Consultar unidades reales de Tricentenario
+      // 2. Consultar unidades reales de Copropiedad_PH
       const { data: unitsData, error: errUnits } = await supabase
         .from('units')
         .select('debt_status, pending_balance');
@@ -404,7 +404,7 @@ export default function SaaS_MasterOwnerConsole({
 
   // Bitácora de Auditoría de Impersonación
   const [impersonationLogs, setImpersonationLogs] = useState<ImpersonationAuditLog[]>([
-    { id: 'imp_01', timestamp: '2026-10-29 08:14:22', tenantName: 'P.H. Reserva del Tesoro', nit: '900.842.115-2', masterUser: 'estebanochoamesa@gmail.com', action: 'IMPERSONATE_ADMIN_SESSION' },
+    { id: 'imp_01', timestamp: '2026-10-29 08:14:22', tenantName: 'Copropiedad PH', nit: '900.842.115-2', masterUser: 'estebanochoamesa@gmail.com', action: 'IMPERSONATE_ADMIN_SESSION' },
     { id: 'imp_02', timestamp: '2026-10-29 09:30:10', tenantName: 'Edificio Torre El Poblado', nit: '811.025.993-8', masterUser: 'estebanochoamesa@gmail.com', action: 'IMPERSONATE_ADMIN_SESSION' }
   ]);
 
@@ -1648,7 +1648,7 @@ export default function SaaS_MasterOwnerConsole({
             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
                <span className="text-[10px] text-slate-400">UNIDADES REGISTRADAS</span>
                <div className="text-xl font-black text-purple-400">{metricas.totalUnidades} Aptos</div>
-               <span className="text-[10px] text-slate-500 font-mono">Tricentenario &amp; Red PH</span>
+               <span className="text-[10px] text-slate-500 font-mono">Copropiedad_PH &amp; Red PH</span>
             </div>
             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
                <span className="text-[10px] text-slate-400">INSTANCIAS / TENANTS ACTIVOS</span>
@@ -1791,7 +1791,7 @@ export default function SaaS_MasterOwnerConsole({
                     <span className="text-[11px] text-emerald-400 font-bold block">🏢 DESGLOSE DE CANON MENSUAL POR COPROPIEDAD:</span>
                     <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex justify-between items-center">
                       <div>
-                        <div className="font-bold text-white">P.H. Reserva del Tesoro (Plan Enterprise)</div>
+                        <div className="font-bold text-white">Copropiedad Principal PH (Plan Enterprise)</div>
                         <div className="text-[10px] text-slate-400">120 Unidades • NIT: 900.842.115-2</div>
                       </div>
                       <span className="text-emerald-400 font-bold">$1.200.000 COP/mes</span>
@@ -1825,14 +1825,14 @@ export default function SaaS_MasterOwnerConsole({
                     <div className="p-4 bg-slate-950 border border-emerald-500/30 rounded-xl space-y-2">
                       <div className="flex justify-between items-start">
                         <div>
-                          <div className="font-bold text-white">1. P.H. Reserva del Tesoro</div>
+                          <div className="font-bold text-white">1. Copropiedad Registrada PH</div>
                           <div className="text-[11px] text-slate-400">NIT: 900.842.115-2 • 120 Unidades • Admin: Carlos Mario Pineda</div>
                         </div>
                         <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 rounded font-bold text-[10px]">Al Día 🟢</span>
                       </div>
                       <div className="flex justify-between items-center pt-2 border-t border-slate-800">
                         <span className="text-[10px] text-slate-400">Membresía SaaS Activa • Paz y Salvo Verificado</span>
-                        <button onClick={() => { setActiveModalCard(null); onImpersonateAdmin('P.H. Reserva del Tesoro'); }} className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded font-bold text-[10px] cursor-pointer">🛠️ Soporte</button>
+                        <button onClick={() => { setActiveModalCard(null); onImpersonateAdmin('Copropiedad PH'); }} className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded font-bold text-[10px] cursor-pointer">🛠️ Soporte</button>
                       </div>
                     </div>
                   </div>

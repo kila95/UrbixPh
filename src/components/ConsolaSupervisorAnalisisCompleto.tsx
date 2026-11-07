@@ -38,8 +38,8 @@ export default function ConsolaSupervisorAnalisisCompleto({
   onCerrarSesion,
   userProfile
 }: ConsolaSupervisorAnalisisCompletoProps) {
-  const activeTenantId = userProfile?.tenant_id || '22079bb5-6ac7-4a15-be89-c53d14e4221b';
-  const tenantName = userProfile?.building_name || 'Reserva del Tesoro';
+  const activeTenantId = userProfile?.tenant_id || '';
+  const tenantName = userProfile?.building_name || 'Copropiedad PH';
   const [tabSupervisor, setTabSupervisor] = useState<'general' | 'rondas' | 'frecuencias' | 'ordenes' | 'alertas'>('general');
   const subTab = tabSupervisor;
   const setSubTab = setTabSupervisor;

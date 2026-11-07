@@ -49,8 +49,8 @@ const STORAGE_KEY_RECAUDOS = 'urbix_recaudos_tricentenario_v1';
 export default function DetalleRecaudoModal({
   isOpen,
   onClose,
-  tenantId = '22079bb5-6ac7-4a15-be89-c53d14e4221b',
-  tenantName = 'urb Tricentenario',
+  tenantId = '',
+  tenantName = 'Copropiedad PH',
   onShowToast,
   onPagoRegistrado
 }: DetalleRecaudoModalProps) {

@@ -32,8 +32,8 @@ export interface CarteraYLiquidacionPHProps {
 }
 
 export default function CarteraYLiquidacionPH({
-  tenantId = 'dde881f7-cfe4-40b8-95bf-33d6e7a3ddfe',
-  nombreCopropiedad = 'P.H. Reserva del Tesoro',
+  tenantId = '',
+  nombreCopropiedad = 'Copropiedad PH',
   onShowToast
 }: CarteraYLiquidacionPHProps = {}) {
   const [modalConfigAbierto, setModalConfigAbierto] = useState(false);

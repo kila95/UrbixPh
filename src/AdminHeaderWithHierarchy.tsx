@@ -28,12 +28,8 @@ export interface AdminHeaderWithHierarchyProps {
 }
 
 export default function AdminHeaderWithHierarchy({
-  currentTenant = 'Edificio Reserva del Tesoro P.H.',
-  tenants = [
-    { id: 't1', name: 'Edificio Reserva del Tesoro P.H.', zone: 'El Poblado, Medellín' },
-    { id: 't2', name: 'Conjunto Residencial Bosques de San Lucas', zone: 'Envigado' },
-    { id: 't3', name: 'Torres de la Castellana P.H.', zone: 'Laureles, Medellín' }
-  ],
+  currentTenant = 'Sin Copropiedad Seleccionada',
+  tenants = [],
   onTenantChange,
   currentUserRole: controlledRole,
   onRoleChange,
@@ -99,12 +95,12 @@ export default function AdminHeaderWithHierarchy({
   const selectedTenantValue =
     typeof currentTenant === 'string'
       ? currentTenant
-      : currentTenant?.id || tenants[0]?.id || 't1';
+      : currentTenant?.id || tenants[0]?.id || '';
 
   const currentTenantName =
     typeof currentTenant === 'string'
       ? tenants.find((t) => t.id === currentTenant || t.name === currentTenant)?.name || currentTenant
-      : currentTenant?.name || tenants[0]?.name || 'Edificio Reserva del Tesoro P.H.';
+      : currentTenant?.name || tenants[0]?.name || 'Sin Copropiedad Seleccionada';
 
   return (
     <div className="bg-slate-900 border-b border-slate-800">

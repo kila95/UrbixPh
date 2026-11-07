@@ -10,7 +10,7 @@ import GeneradorExogenaDIAN_NIIF from './GeneradorExogenaDIAN_NIIF';
 export default function SeccionTesoreriaConDIAN({
   onShowToast,
   nitCopropiedad = '900.842.115-2',
-  nombreCopropiedad = 'P.H. Reserva del Tesoro',
+  nombreCopropiedad = 'Copropiedad PH',
   adminRepresentante = 'Carlos Mario Pineda',
   children
 }: {

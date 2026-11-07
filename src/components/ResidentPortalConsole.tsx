@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../supabaseClient';
+import { supabase, DEFAULT_TENANT_UUID } from '../supabaseClient';
 import { 
   Building2, Home, QrCode, Package, Send, Sparkles, Camera, Bot, User, Calendar, MessageSquare, Download, Store, Globe, Tag, Clock, Flame, MapPin, CheckCircle2, Share2, Copy, Car, Shield, AlertCircle, PhoneCall, LogOut
 } from 'lucide-react';
@@ -632,7 +632,7 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
 
     try {
       await supabase.from('visitor_passes').insert({
-        tenant_id: userProfile?.tenant_id || '22079bb5-6ac7-4a15-be89-c53d14e4221b',
+        tenant_id: userProfile?.tenant_id || '',
         code: codigoQr,
         pin: rawPin,
         visitor_name: visitante,
@@ -689,7 +689,7 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
   };
 
   // Función para registrar reserva
-  const registrarReserva = (e: any) => {
+  const registrarReserva = async (e: any) => {
     e.preventDefault();
     const zona = e.target.zonaComun.value;
     const fecha = e.target.fechaReserva.value;
@@ -702,8 +702,25 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
       fecha,
       hora,
       costo,
-      estado: 'Pendiente Aprobación'
+      estado: 'Pendiente aprobación'
     };
+
+    try {
+      await supabase.from('common_area_reservations').insert([
+        {
+          tenant_id: DEFAULT_TENANT_UUID,
+          amenity_name: zona,
+          unit_label: miEstadoCuenta.unidad,
+          resident_name: miEstadoCuenta.propietario,
+          reservation_date: `${fecha} - ${hora}`,
+          deposit_amount: 100000,
+          is_paz_y_salvo: miEstadoCuenta.saldoActual === 0,
+          status: miEstadoCuenta.saldoActual === 0 ? 'Pendiente aprobación' : 'Bloqueado por mora'
+        }
+      ]);
+    } catch (err) {
+      console.warn('Aviso insertando reserva en Supabase:', err);
+    }
 
     setMisReservas([nuevaReserva, ...misReservas]);
     e.target.reset();
@@ -712,18 +729,34 @@ En Colombia, la Administración o el Consejo de Propiedad Horizontal **JAMÁS pu
   };
 
   // Función para enviar PQRSD
-  const enviarPqrsd = (e: any) => {
+  const enviarPqrsd = async (e: any) => {
     e.preventDefault();
     const tipo = e.target.tipoPqrsd.value;
     const asunto = e.target.asuntoPqrsd.value;
+    const radicado = `RAD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const nuevaPqrsd = {
       id: Date.now().toString(),
       tipo,
       asunto,
       fecha: new Date().toLocaleDateString(),
-      estado: 'Radicado'
+      estado: 'En término legal'
     };
+
+    try {
+      await supabase.from('pqrsd_requests').insert([
+        {
+          tenant_id: DEFAULT_TENANT_UUID,
+          radicado,
+          unit_label: miEstadoCuenta.unidad,
+          request_type: tipo,
+          subject: asunto,
+          status: 'En término legal'
+        }
+      ]);
+    } catch (err) {
+      console.warn('Aviso insertando PQRSD en Supabase:', err);
+    }
 
     setMisPqrsd([nuevaPqrsd, ...misPqrsd]);
     e.target.reset();

@@ -51,7 +51,7 @@ function blobToBase64(blob: Blob): Promise<string> {
 
 export default function MultiDayMeetingRecorder({
   tenantId,
-  tenantName = 'Reserva del Tesoro',
+  tenantName = 'Copropiedad PH',
   initialSuspendedMeetings = [],
   onActaCompleted,
   onMeetingSuspended,

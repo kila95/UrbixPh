@@ -8,8 +8,8 @@ import TarjetonVotacionReal from './TarjetonVotacionReal';
 import CobranzaPrejuridicaYPazYSalvos from './CobranzaPrejuridicaYPazYSalvos';
 
 export default function ModulosAdministracionUrbix({
-  tenantId = '22079bb5-6ac7-4a15-be89-c53d14e4221b',
-  tenantName = 'Reserva del Tesoro',
+  tenantId = '',
+  tenantName = 'Copropiedad PH',
   onShowToast
 }: {
   tenantId?: string;

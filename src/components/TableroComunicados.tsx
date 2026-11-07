@@ -100,7 +100,7 @@ export const TableroComunicados: React.FC<Props> = ({ tenantId }) => {
             Circulares y Avisos a Copropietarios
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Publicaciones oficiales para residentes de Urb. Tricentenario y equipo de vigilancia.
+            Publicaciones oficiales para residentes de Urb. Copropiedad_PH y equipo de vigilancia.
           </p>
         </div>
 

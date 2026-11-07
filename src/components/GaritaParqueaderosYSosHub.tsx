@@ -40,7 +40,7 @@ export default function GaritaParqueaderosYSosHub({
   tenantId,
   tenantConfig,
   onShowToast,
-  nombreCopropiedad = 'P.H. Reserva del Tesoro',
+  nombreCopropiedad = 'Copropiedad PH',
   limiteHorasGratis,
   celdasExternal,
   onActualizarCeldasExternal

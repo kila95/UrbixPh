@@ -28,7 +28,12 @@ interface Props {
   setEdificioActivoId?: (id: string) => void;
 }
 
-export default function SeccionGestionPersonalAdmin({ onShowToast }: Props) {
+export default function SeccionGestionPersonalAdmin({
+  onShowToast,
+  edificiosAsignados = [],
+  edificioActivoId = '',
+  setEdificioActivoId
+}: Props) {
   const [personalStaff, setPersonalStaff] = useState<StaffAdminMember[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
   const [tenantReal, setTenantReal] = useState<{ id: string; name: string } | null>(null);
@@ -105,12 +110,24 @@ export default function SeccionGestionPersonalAdmin({ onShowToast }: Props) {
   const cargarPersonal = async () => {
     try {
       setCargando(true);
-      const { data: tenantData } = await supabase
-        .from('tenants')
-        .select('id, name')
-        .ilike('name', '%Tricentenario%')
-        .limit(1)
-        .single();
+      let tenantData: { id: string; name: string } | null = null;
+
+      if (edificioActivoId) {
+        const { data } = await supabase
+          .from('tenants')
+          .select('id, name')
+          .eq('id', edificioActivoId)
+          .maybeSingle();
+        tenantData = data;
+      } else {
+        const { data } = await supabase
+          .from('tenants')
+          .select('id, name')
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        tenantData = data;
+      }
 
       if (tenantData) {
         setTenantReal(tenantData);
@@ -171,7 +188,7 @@ export default function SeccionGestionPersonalAdmin({ onShowToast }: Props) {
 
   useEffect(() => {
     cargarPersonal();
-  }, []);
+  }, [edificioActivoId]);
 
   // Crear trabajador en Supabase
   const handleCrearEmpleado = async (e: React.FormEvent) => {
@@ -263,7 +280,7 @@ export default function SeccionGestionPersonalAdmin({ onShowToast }: Props) {
               Base de Datos Supabase Real
             </span>
             <span className="text-xs text-slate-400">
-              Copropiedad: <strong className="text-white">{tenantReal?.name || 'Urb. Tricentenario'}</strong>
+              Copropiedad: <strong className="text-white">{tenantReal?.name || 'Copropiedad PH'}</strong>
             </span>
           </div>
           <h2 className="text-xl font-black text-white mt-1 flex items-center gap-2 font-mono">
@@ -431,7 +448,7 @@ export default function SeccionGestionPersonalAdmin({ onShowToast }: Props) {
                   Registrar Colaborador y Parámetros Salariales
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Copropiedad: {tenantReal?.name || 'Urb. Tricentenario'}
+                  Copropiedad: {tenantReal?.name || 'Copropiedad PH'}
                 </p>
               </div>
               <button 

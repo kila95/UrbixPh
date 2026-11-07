@@ -86,9 +86,9 @@ export interface LegalTenantInfo {
 }
 
 export const DEFAULT_TENANT_INFO: LegalTenantInfo = {
-  name: 'Edificio Reserva del Tesoro P.H.',
-  nit: '900.456.789-1',
-  zone: 'El Poblado, Medellín'
+  name: 'Copropiedad Registrada',
+  nit: 'Pendiente de registro',
+  zone: 'Colombia'
 };
 
 // Constructor de definición pdfmake para la Sección III y documento completo
@@ -134,6 +134,8 @@ export function buildActaLegalHTML(
   const commitmentsList = Array.isArray(acta.compromisos) && acta.compromisos.length > 0
     ? acta.compromisos
     : (Array.isArray(acta.commitments) ? acta.commitments : []);
+  const ordenDelDiaList = Array.isArray(acta.ordenDelDia) ? acta.ordenDelDia : [];
+  const desarrolloList = Array.isArray(acta.desarrolloDetallado) ? acta.desarrolloDetallado : [];
   const balanceList = Array.isArray(acta.balanceFinanciero) ? acta.balanceFinanciero : [];
   const votacionesList = Array.isArray(acta.decisionesYVotaciones) ? acta.decisionesYVotaciones : [];
   const segmentsList = Array.isArray(acta.audio_segments) ? acta.audio_segments : [];
@@ -148,8 +150,8 @@ export function buildActaLegalHTML(
   <title>${acta.minute_number} - ${tenantInfo.name}</title>
   <style>
     @page { size: letter; margin: 2cm 2cm 2cm 2cm; }
-    body { font-family: 'Georgia', 'Times New Roman', serif; color: #0f172a; background: #ffffff; line-height: 1.6; font-size: 11pt; margin: 0; padding: 24px; }
-    .no-print-bar { background: #0f172a; color: #f8fafc; padding: 12px 24px; font-family: system-ui, sans-serif; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; margin: -24px -24px 24px -24px; border-bottom: 2px solid #10b981; }
+    body { font-family: 'Georgia', 'Times New Roman', serif; color: #0f172a; background: #ffffff; line-height: 1.65; font-size: 11pt; margin: 0; padding: 24px; }
+    .no-print-bar { background: #0f172a; color: #f8fafc; padding: 12px 24px; font-family: system-ui, sans-serif; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; margin: -24px -24px 24px -24px; border-bottom: 2px solid #10b981; z-index: 20; }
     .btn-download { background: #10b981; color: #022c22; border: none; padding: 8px 18px; border-radius: 8px; font-weight: 800; font-size: 13px; cursor: pointer; }
     @media print { body { padding: 0; } .no-print-bar { display: none !important; } }
     .header-box { border: 2px solid #0f172a; padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; gap: 16px; }
@@ -164,9 +166,15 @@ export function buildActaLegalHTML(
     .legal-grid .label { background-color: #f1f5f9; font-weight: bold; width: 22%; text-transform: uppercase; font-size: 8.5pt; }
     h2.section-title { font-size: 11pt; text-transform: uppercase; border-bottom: 1.5px solid #0f172a; padding-bottom: 4px; margin-top: 22px; margin-bottom: 10px; letter-spacing: 0.5px; }
     .content-block { text-align: justify; white-space: pre-line; margin-bottom: 16px; }
+    .agenda-list { margin: 8px 0 18px 0; padding-left: 22px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding-top: 10px; padding-bottom: 10px; }
+    .agenda-list li { margin-bottom: 5px; font-weight: 600; color: #0f172a; }
+    .point-card { border-left: 3.5px solid #0f172a; background: #f8fafc; padding: 12px 16px; margin-bottom: 14px; border-radius: 0 6px 6px 0; page-break-inside: avoid; }
+    .point-card h3 { margin: 0 0 6px 0; font-size: 10.5pt; text-transform: uppercase; color: #0f172a; }
+    .point-card p { margin: 0; text-align: justify; white-space: pre-line; color: #1e293b; }
+    .point-speakers { margin-top: 8px; font-size: 8.5pt; color: #475569; font-style: italic; }
     .commitments-table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; font-size: 9.5pt; }
     .commitments-table th { background-color: #0f172a; color: #ffffff; text-align: left; padding: 7px 9px; font-size: 8.5pt; text-transform: uppercase; }
-    .commitments-table td { border: 1px solid #cbd5e1; padding: 7px 9px; }
+    .commitments-table td { border: 1px solid #cbd5e1; padding: 7px 9px; vertical-align: top; }
     .signatures-wrapper { margin-top: 45px; page-break-inside: avoid; }
     .signatures-grid { display: flex; justify-content: space-between; gap: 40px; margin-top: 45px; }
     .signature-box { flex: 1; border-top: 1.5px solid #0f172a; padding-top: 8px; text-align: center; }
@@ -239,8 +247,37 @@ export function buildActaLegalHTML(
     </p>
   ` : ''}
 
-  <h2 class="section-title">II. Orden del Día y Desarrollo Detallado de Intervenciones</h2>
-  <div class="content-block">${acta.summary || 'Sin resumen registrado.'}</div>
+  <h2 class="section-title">II. Orden del Día y Desarrollo Detallado Punto por Punto</h2>
+  ${ordenDelDiaList.length > 0 ? `
+    <div style="margin-bottom: 14px;">
+      <strong style="font-size: 10pt; text-transform: uppercase; color: #0f172a;">Orden del Día Aprobado:</strong>
+      <ol class="agenda-list">
+        ${ordenDelDiaList.map(item => `<li>${String(item).replace(/^\d+[\.\)]\s*/, '')}</li>`).join('')}
+      </ol>
+    </div>
+  ` : ''}
+
+  ${acta.summary ? `
+    <div style="margin-bottom: 16px;">
+      <strong style="font-size: 10pt; text-transform: uppercase; color: #0f172a;">Síntesis Ejecutiva y Constancia de Instalación:</strong>
+      <div class="content-block" style="margin-top: 6px;">${acta.summary}</div>
+    </div>
+  ` : ''}
+
+  ${desarrolloList.length > 0 ? `
+    <div style="margin-top: 12px;">
+      <strong style="font-size: 10pt; text-transform: uppercase; color: #0f172a; display: block; margin-bottom: 10px;">Desarrollo Exhaustivo de los Puntos del Orden del Día:</strong>
+      ${desarrolloList.map((puntoItem, idx) => `
+        <div class="point-card">
+          <h3>${puntoItem.punto || `Punto ${idx + 1}`}</h3>
+          <p>${puntoItem.intervencionesClave || ''}</p>
+          ${Array.isArray(puntoItem.nombresMencionados) && puntoItem.nombresMencionados.length > 0 ? `
+            <div class="point-speakers">Intervinientes / Referencias registradas: ${puntoItem.nombresMencionados.join(', ')}</div>
+          ` : ''}
+        </div>
+      `).join('')}
+    </div>
+  ` : !acta.summary ? `<div class="content-block">Sin resumen registrado.</div>` : ''}
 
   <h2 class="section-title">III. BALANCE ECONÓMICO Y DETERMINACIONES FINANCIERAS</h2>
   ${balanceList.length > 0 ? `

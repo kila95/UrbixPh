@@ -60,7 +60,7 @@ export const exportarLibroAuxiliarExcel = async (
 
     // 4. Preparar Hoja 1: Resumen General y Estado de Cartera
     const resumenData = [
-      ["COPROPIEDAD", tenant?.name || "Urb. Tricentenario"],
+      ["COPROPIEDAD", tenant?.name || "Copropiedad PH"],
       ["NIT", tenant?.nit || "NIT en trámite"],
       ["FECHA REPORTE", new Date().toLocaleString('es-CO')],
       ["MARCO LEGAL", "Ley 675 de 2001 - Régimen de Propiedad Horizontal"],
@@ -140,7 +140,7 @@ export const exportarLibroAuxiliarExcel = async (
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     });
 
-    const nombreArchivo = `Libro_Auxiliar_Recaudo_Tricentenario_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const nombreArchivo = `Libro_Auxiliar_Recaudo_Copropiedad_PH_${new Date().toISOString().slice(0, 10)}.xlsx`;
     saveAs(blob, nombreArchivo);
     onNotify?.(`📊 Libro auxiliar descargado: ${nombreArchivo}`);
   } catch (error: any) {

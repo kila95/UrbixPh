@@ -26,7 +26,7 @@ export interface FormatoDianItem {
 export default function GeneradorExogenaDIAN_NIIF({
   onShowToast,
   nitCopropiedad = '900.842.115-2',
-  nombreCopropiedad = 'Urb. Tricentenario'
+  nombreCopropiedad = 'Copropiedad PH'
 }: {
   onShowToast?: (msg: string) => void;
   nitCopropiedad?: string;

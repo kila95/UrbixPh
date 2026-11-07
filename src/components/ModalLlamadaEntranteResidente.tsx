@@ -105,7 +105,7 @@ export const ModalLlamadaEntranteResidente: React.FC<Props> = ({
             {convocatoria.tipo || 'Asamblea General'}
           </h3>
           <p className="text-xs text-slate-300">
-            {convocatoria.copropiedadNombre || 'Urb. Tricentenario'}
+            {convocatoria.copropiedadNombre || 'Copropiedad PH'}
           </p>
           <p className="text-[11px] font-mono text-cyan-400">
             Convoca: {convocatoria.organizador || 'Administración Central'}

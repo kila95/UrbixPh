@@ -4,7 +4,7 @@ import { ModalLlamadaEntranteResidente } from './ModalLlamadaEntranteResidente';
 
 export default function ModuloVideollamadaResidente({
   userProfile,
-  copropiedadNombre = 'Urb. Tricentenario'
+  copropiedadNombre = 'Copropiedad PH'
 }: {
   userProfile?: any;
   copropiedadNombre?: string;

@@ -47,8 +47,8 @@ const STORAGE_KEY_CAJA = 'urbix_caja_menor_tricentenario_v1';
 export default function DetalleCajaMenorModal({
   isOpen,
   onClose,
-  tenantId = '22079bb5-6ac7-4a15-be89-c53d14e4221b',
-  tenantName = 'urb Tricentenario',
+  tenantId = '',
+  tenantName = 'Copropiedad PH',
   onShowToast,
   onMovimientoRegistrado
 }: DetalleCajaMenorModalProps) {
@@ -76,7 +76,7 @@ export default function DetalleCajaMenorModal({
   const [proveedor, setProveedor] = useState('');
   const [nitProveedor, setNitProveedor] = useState('');
   const [categoria, setCategoria] = useState<MovimientoCajaMenor['categoria']>('Ferretería / Locativo');
-  const [responsable, setResponsable] = useState('Administración / Supervisor Tricentenario');
+  const [responsable, setResponsable] = useState('Administración / Supervisor Copropiedad_PH');
   const [numRecibo, setNumRecibo] = useState('');
 
   // Cargar movimientos desde Supabase petty_cash_movements al abrir
@@ -108,7 +108,7 @@ export default function DetalleCajaMenorModal({
               categoria: m.category || (esIngreso ? 'Apertura / Reintegro Fondo' : 'Ferretería / Locativo'),
               proveedor: m.provider || (esIngreso ? 'Reembolso Bancario / Administración' : 'Proveedor Local'),
               nit_proveedor: m.provider_nit || 'N/A',
-              responsable: m.responsible || 'Administración Tricentenario'
+              responsable: m.responsible || 'Administración Copropiedad_PH'
             };
           });
           setMovimientos(mappedAsc.reverse());
@@ -179,7 +179,7 @@ export default function DetalleCajaMenorModal({
       categoria: tipo === 'ingreso' ? 'Apertura / Reintegro Fondo' : categoria,
       proveedor: proveedor.trim() || (tipo === 'ingreso' ? 'Reembolso Bancario / Administración' : 'Proveedor Local'),
       nit_proveedor: nitProveedor.trim() || 'N/A',
-      responsable: responsable.trim() || 'Administración Tricentenario'
+      responsable: responsable.trim() || 'Administración Copropiedad_PH'
     };
 
     setMovimientos(prev => [nuevoMovimiento, ...prev]);
@@ -436,7 +436,7 @@ export default function DetalleCajaMenorModal({
         <div className="p-4 bg-[#07090e] border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0 text-xs font-mono">
           <div className="flex items-center gap-2 text-slate-400">
             <CheckCircle2 className="w-4 h-4 text-cyan-400" />
-            <span>Auditoría en tiempo real para Tricentenario</span>
+            <span>Auditoría en tiempo real para Copropiedad_PH</span>
           </div>
 
           <div className="flex items-center gap-3">
@@ -540,7 +540,7 @@ export default function DetalleCajaMenorModal({
                       </label>
                       <input
                         type="text"
-                        placeholder="Ej: Ferretería Tricentenario"
+                        placeholder="Ej: Ferretería Copropiedad_PH"
                         value={proveedor}
                         onChange={(e) => setProveedor(e.target.value)}
                         className="w-full bg-[#07090e] border border-slate-800 rounded-xl px-3 py-2 text-white outline-none focus:border-cyan-400"

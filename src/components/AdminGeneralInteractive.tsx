@@ -32,9 +32,9 @@ export default function AdminGeneralInteractive({
 
   const morosos = propMorosos && propMorosos.length > 0 ? propMorosos : morososLocales;
 
-  // Datos para el desglose SaaS (Reflejar solo Tricentenario que es la única copropiedad viva)
+  // Datos para el desglose SaaS (Reflejar solo Copropiedad_PH que es la única copropiedad viva)
   const saasTenants = [
-    { name: 'urb Tricentenario', plan: 'Plan Pro', mrr: 0, estado: 'Al día', cufe: 'CUFE: dde881f7-cfe4...' }
+    { name: 'Copropiedad PH', plan: 'Plan Pro', mrr: 0, estado: 'Al día', cufe: 'CUFE: dde881f7-cfe4...' }
   ];
 
   const handleEnviarWhatsApp = (propietario: string, apto: string, saldo: number) => {
@@ -164,12 +164,12 @@ export default function AdminGeneralInteractive({
             <ChevronRight className={`w-4 h-4 text-cyan-400 transition-transform ${expandedCard === 'saas' ? 'rotate-90' : ''}`} />
           </div>
           <div className="mt-2">
-            {/* Reflejar solo Tricentenario que es la única copropiedad viva */}
+            {/* Reflejar solo Copropiedad_PH que es la única copropiedad viva */}
             <div className="text-3xl font-extrabold text-cyan-400">
               $0
             </div>
             <p className="text-xs text-slate-400 mt-2">
-              1 Copropiedad conectada (urb Tricentenario)
+              1 Copropiedad conectada (urb Copropiedad_PH)
             </p>
           </div>
         </div>
@@ -283,7 +283,7 @@ export default function AdminGeneralInteractive({
               <h4 className="text-base font-black text-white mt-1">Copropiedades Conectadas & Facturación DIAN</h4>
             </div>
             <span className="text-xs font-mono text-cyan-400 bg-cyan-500/10 px-3 py-1 rounded-xl border border-cyan-500/30">
-              1 Instancia Activa (urb Tricentenario)
+              1 Instancia Activa (urb Copropiedad_PH)
             </span>
           </div>
 

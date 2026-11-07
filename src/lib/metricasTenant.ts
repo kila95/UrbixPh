@@ -18,7 +18,7 @@ export const cargarMetricasTenant = async (rawTenantId: string): Promise<Metrica
   const tenantId = normalizeTenantUuid(rawTenantId);
 
   try {
-    // Consultar unidades reales de Tricentenario
+    // Consultar unidades reales de Copropiedad_PH
     const { data: units, error } = await supabase
       .from('units')
       .select('id, debt_status, pending_balance, coefficient, unit_code, apartment, tower, owner_name, monthly_fee')

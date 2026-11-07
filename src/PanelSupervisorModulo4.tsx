@@ -413,7 +413,7 @@ const EXTRA_PERSONAL_CAMPO_INICIAL: PersonalOperativoPH = {
   estado_arl: 'Vigente ✅',
   entidad_arl: 'ARL SURA Riesgo IV · PILA #901884',
   estado_puerta: 'En Turno / Adentro',
-  coproperty_assigned: 'P.H. Reserva del Tesoro'
+  coproperty_assigned: 'Copropiedad PH'
 };
 
 const EXTRA_META_208: MetaCampoTrabajador = {
@@ -2462,7 +2462,7 @@ export default function PanelSupervisorModulo4({
       estado_arl: arlBloqueada ? 'Pendiente Verificación ⚠️' : 'Vigente ✅',
       entidad_arl: `${cuadEmpresa.trim()} · PILA ${arlBloqueada ? 'VENCIDA' : 'VIGENTE'}`,
       estado_puerta: arlBloqueada ? 'Fuera de Turno' : 'En Turno / Adentro',
-      coproperty_assigned: 'P.H. Reserva del Tesoro'
+      coproperty_assigned: 'Copropiedad PH'
     };
 
     const nuevaMeta: MetaCampoTrabajador = {
@@ -2492,7 +2492,7 @@ export default function PanelSupervisorModulo4({
         full_name: nuevoTrabajador.full_name,
         user_email: emailGenerado,
         role: cuadRol,
-        coproperty_assigned: 'P.H. Reserva del Tesoro'
+        coproperty_assigned: 'Copropiedad PH'
       });
     }
 
@@ -2503,7 +2503,7 @@ export default function PanelSupervisorModulo4({
             full_name: nuevoTrabajador.full_name,
             user_email: emailGenerado,
             role: cuadRol,
-            coproperty_assigned: 'P.H. Reserva del Tesoro'
+            coproperty_assigned: 'Copropiedad PH'
           }
         ]);
       } catch {
@@ -3873,8 +3873,8 @@ export default function PanelSupervisorModulo4({
                 <option value="Conjunto Residencial Bosques del Poblado - NIT 900.412.889-1">
                   Conjunto Residencial Bosques del Poblado - NIT 900.412.889-1
                 </option>
-                <option value="P.H. Reserva del Tesoro - NIT 901.204.511-6">
-                  P.H. Reserva del Tesoro - NIT 901.204.511-6
+                <option value="Copropiedad Registrada PH - NIT 901.204.511-6">
+                  Copropiedad Registrada PH - NIT 901.204.511-6
                 </option>
                 <option value="Edificio Mirador de Las Palmas - NIT 890.915.302-4">
                   Edificio Mirador de Las Palmas - NIT 890.915.302-4
